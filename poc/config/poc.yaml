@@ -20,17 +20,38 @@ ingest:
   default_region: "unknown"
 
 search:
+  # 模型选择：clip 或 qwen
+  embedding_model: "qwen"  # "clip" 或 "qwen"
+
+  # CLIP 模型配置（当 embedding_model = "clip" 时使用）
   clip_model: "clip-ViT-L-14"  # 大型模型，提升相似度准确性
   # 可选模型：
   # - "clip-ViT-B-32" (快速，512维)
   # - "clip-ViT-B-16" (中等，512维)
   # - "clip-ViT-L-14" (最佳效果，768维)
-  top_k: 10
   model_cache_dir: "models"  # 模型缓存目录
   # 模型源设置（国内用户推荐使用镜像源）
   model_source: "huggingface"  # 可选: "huggingface", "modelscope"
   # HuggingFace镜像源（国内加速）
   hf_mirror: "https://hf-mirror.com"  # 或 "https://huggingface.co"（国外）
+
+  # Qwen3-VL 模型配置（当 embedding_model = "qwen" 时使用）
+  qwen_api_url: "http://10.132.19.82:8010"  # Qwen3-VL Embedding 服务地址
+  qwen_timeout: 30  # API 请求超时时间（秒）
+
+  # Reranker 配置
+  reranker_enabled: true  # 是否启用 Reranker（提升准确率，但会增加检索时间）
+  reranker_api_url: "http://10.132.19.82:8011"  # Qwen3-VL Reranker 服务地址
+  reranker_timeout: 60  # Reranker 请求超时时间（秒）
+  reranker_top_k: 20  # Reranker 处理的候选结果数量
+
+  # 混合检索权重配置
+  vector_weight: 0.7  # 向量相似度权重（0-1）
+  keyword_weight: 0.3  # 关键词匹配权重（0-1）
+
+  # 通用配置
+  top_k: 10
+  device: "cuda"  # cuda 或 cpu
   # 向量化批处理大小（GPU加速）
   batch_size: 32  # 默认32，根据GPU显存调整：8GB=16, 12GB=32, 16GB=48, 24GB=64-128
   auto_batch_size: true  # 自动调整批处理大小（根据GPU显存）

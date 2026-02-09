@@ -218,8 +218,9 @@ def main() -> None:
     parser.add_argument("--lon", type=float)
     parser.add_argument("--radius-km", type=float, default=5.0)
     parser.add_argument("--hybrid", action="store_true", help="启用混合检索（向量+关键词）")
-    parser.add_argument("--vector-weight", type=float, default=0.7, help="向量相似度权重")
-    parser.add_argument("--keyword-weight", type=float, default=0.3, help="关键词匹配权重")
+    parser.add_argument("--vector-weight", type=float, help="向量相似度权重（覆盖配置文件）")
+    parser.add_argument("--keyword-weight", type=float, help="关键词匹配权重（覆盖配置文件）")
+    parser.add_argument("--rerank", action="store_true", help="启用 Reranker（覆盖配置文件）")
     args = parser.parse_args()
 
     if np is None:
@@ -231,10 +232,11 @@ def main() -> None:
     config = load_yaml(args.config)
     paths_cfg = config.get("paths", {})
     search_cfg = config.get("search", {})
-    model_name = search_cfg.get("clip_model", "clip-ViT-B-32")
-    cache_dir = search_cfg.get("model_cache_dir")
-    hf_mirror = search_cfg.get("hf_mirror")
     lancedb_dir = resolve_path(paths_cfg.get("lancedb_dir", "poc/data/lancedb"))
+
+    # 获取混合检索权重（命令行参数优先）
+    vector_weight = args.vector_weight if args.vector_weight is not None else search_cfg.get("vector_weight", 0.7)
+    keyword_weight = args.keyword_weight if args.keyword_weight is not None else search_cfg.get("keyword_weight", 0.3)
 
     # 连接 LanceDB
     db = lancedb.connect(str(lancedb_dir))
@@ -248,10 +250,16 @@ def main() -> None:
         query_vec = np.random.rand(dims).astype("float32")
         query_vec /= max(1e-12, float(np.linalg.norm(query_vec)))
     else:
-        model = load_model(model_name, cache_dir=cache_dir, hf_mirror=hf_mirror)
-        query_vec = encode_query(
-            model, args.text, resolve_path(args.image) if args.image else None
-        ).astype("float32")
+        # 使用 ModelManager
+        from poc.search.model_manager import ModelManager
+        manager = ModelManager(config)
+
+        if args.text:
+            query_vec = manager.encode_text(args.text).astype("float32")
+        elif args.image:
+            query_vec = manager.encode_image(resolve_path(args.image)).astype("float32")
+        else:
+            raise RuntimeError("Specify --text or --image for query.")
 
     # 构建过滤条件
     filter_str = build_lance_filter(
@@ -269,23 +277,24 @@ def main() -> None:
             table,
             query_vec,
             query_text=args.text,
-            top_k=args.top_k,
+            top_k=args.top_k * 2,  # 获取更多候选结果用于 rerank
             filter_str=filter_str,
-            vector_weight=args.vector_weight,
-            keyword_weight=args.keyword_weight,
+            vector_weight=vector_weight,
+            keyword_weight=keyword_weight,
         )
     else:
-        query = table.search(query_vec.tolist()).limit(args.top_k)
+        query = table.search(query_vec.tolist()).limit(args.top_k * 2)
         if filter_str:
             query = query.where(filter_str)
         results_df = query.to_pandas()
 
-    # 转换为 JSON 格式
+    # 转换为列表格式
     results = []
     for _, row in results_df.iterrows():
         result_item = {
             "asset_id": row["asset_id"],
-            "score": float(row.get("hybrid_score", row["_distance"])),
+            "distance": float(row.get("_distance", 0)),
+            "score": float(row.get("hybrid_score", row.get("_distance", 0))),
             "file_path": row["file_path"],
             "file_name": row["file_name"],
             "captured_at": row["captured_at"],
@@ -310,6 +319,18 @@ def main() -> None:
 
         results.append(result_item)
 
+    # Reranker（如果启用）
+    reranker_enabled = args.rerank or search_cfg.get("reranker_enabled", False)
+    if reranker_enabled and args.text and not args.mock:
+        print(f"🔄 启用 Reranker，处理 {len(results)} 条候选结果...", file=__import__('sys').stderr)
+        from poc.search.model_manager import ModelManager
+        manager = ModelManager(config)
+        results = manager.rerank(args.text, results, top_k=args.top_k)
+        print(f"✓ Reranker 完成，返回 {len(results)} 条结果", file=__import__('sys').stderr)
+    else:
+        results = results[:args.top_k]
+
+    # 输出结果
     print(json.dumps(results, ensure_ascii=False, indent=2))
 
 

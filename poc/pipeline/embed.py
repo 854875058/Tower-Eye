@@ -200,9 +200,9 @@ def main() -> None:
     config = load_yaml(args.config)
     paths_cfg = config.get("paths", {})
     search_cfg = config.get("search", {})
-    model_name = search_cfg.get("clip_model", "clip-ViT-B-32")
-    cache_dir = search_cfg.get("model_cache_dir")
-    hf_mirror = search_cfg.get("hf_mirror")
+
+    # 获取模型类型
+    model_type = search_cfg.get("embedding_model", "clip")
 
     # 确定批处理大小
     if args.batch_size:
@@ -230,12 +230,35 @@ def main() -> None:
         model_name = "mock"
         dims = 512
     else:
-        model = load_model(model_name, cache_dir=cache_dir, hf_mirror=hf_mirror)
-        dims = model.get_sentence_embedding_dimension()
+        # 使用 ModelManager 加载模型
+        from poc.search.model_manager import ModelManager
+
+        print(f"使用模型类型: {model_type}")
+        manager = ModelManager(config)
+        dims = manager.get_embedding_dimension()
+        model_name = model_type
+
         print(f"开始生成向量嵌入...")
         import time
         start_time = time.time()
-        embeddings = embed_images(model, images, batch_size=batch_size)
+
+        # 批量处理图像
+        embeddings = []
+        for i in range(0, len(images), batch_size):
+            batch_paths = images[i:i + batch_size]
+
+            for path in batch_paths:
+                try:
+                    vec = manager.encode_image(path)
+                    embeddings.append((path, vec))
+                except Exception as e:
+                    print(f"  警告: 无法处理图片 {path}: {e}")
+                    continue
+
+            # 显示进度
+            if (i + batch_size) % 100 == 0 or (i + batch_size) >= len(images):
+                print(f"  处理进度: {min(i + batch_size, len(images))}/{len(images)}")
+
         elapsed_time = time.time() - start_time
         print(f"向量生成完成，耗时: {elapsed_time:.2f} 秒")
         print(f"平均速度: {len(images) / elapsed_time:.2f} 张/秒")
