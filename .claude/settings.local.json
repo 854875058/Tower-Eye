@@ -16,7 +16,8 @@
       "Bash(iconv:*)",
       "Bash(git branch:*)",
       "Bash(git init:*)",
-      "Bash(git fetch:*)"
+      "Bash(git fetch:*)",
+      "Bash(git push:*)"
     ]
   },
   "hooks": {
