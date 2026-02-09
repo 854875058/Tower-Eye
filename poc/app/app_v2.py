@@ -38,6 +38,116 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+
+def apply_ant_design_pro_theme():
+    """应用 Ant Design Pro 风格主题"""
+    st.markdown(
+        """
+        <style>
+        :root {
+          --bg-layout: #f0f2f5;
+          --bg-container: #ffffff;
+          --text-primary: #1f1f1f;
+          --text-secondary: #595959;
+          --primary: #1677ff;
+          --primary-hover: #4096ff;
+          --border: #f0f0f0;
+          --shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+          --radius: 6px;
+        }
+
+        .stApp {
+          color: var(--text-primary);
+          background: var(--bg-layout);
+          font-family: "Inter", "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+        }
+
+        section[data-testid="stSidebar"] {
+          background: var(--bg-container);
+          border-right: 1px solid var(--border);
+        }
+
+        h1, h2, h3, h4, h5 {
+          color: var(--text-primary);
+          letter-spacing: 0.1px;
+        }
+
+        .stMarkdown, .stCaption, .stText, .stAlert {
+          color: var(--text-primary);
+        }
+
+        .stCaption, small {
+          color: var(--text-secondary);
+        }
+
+        [data-testid="stMetric"] {
+          background: var(--bg-container);
+          border: 1px solid var(--border);
+          border-radius: var(--radius);
+          padding: 12px 14px;
+          box-shadow: var(--shadow);
+        }
+
+        [data-testid="stMetricLabel"] {
+          color: var(--text-secondary);
+        }
+
+        [data-testid="stMetricValue"] {
+          color: var(--text-primary);
+        }
+
+        .stButton > button {
+          background: var(--primary);
+          color: #ffffff;
+          border: 1px solid var(--primary);
+          border-radius: var(--radius);
+          box-shadow: none;
+          font-weight: 600;
+        }
+
+        .stButton > button:hover {
+          background: var(--primary-hover);
+          border-color: var(--primary-hover);
+        }
+
+        .stTextInput input, .stSelectbox select, .stTextArea textarea {
+          background-color: var(--bg-container);
+          color: var(--text-primary);
+          border: 1px solid var(--border);
+          border-radius: var(--radius);
+        }
+
+        .stDataFrame, [data-testid="stDataFrame"] {
+          border-radius: var(--radius);
+          border: 1px solid var(--border);
+          box-shadow: var(--shadow);
+          background: var(--bg-container);
+        }
+
+        .stExpander {
+          border: 1px solid var(--border);
+          border-radius: var(--radius);
+          background: var(--bg-container);
+        }
+
+        code, pre {
+          background: #fafafa;
+          color: var(--text-primary);
+          border: 1px solid var(--border);
+          border-radius: var(--radius);
+        }
+
+        hr {
+          border-color: var(--border);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+apply_ant_design_pro_theme()
+
 # ============================================================================
 # 缓存函数
 # ============================================================================
