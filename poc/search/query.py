@@ -172,18 +172,23 @@ def build_lance_filter(
 ) -> Optional[str]:
     """
     构建 LanceDB 过滤条件（SQL WHERE 语法）
+    优化版：修复多条件联合查询问题
     """
     conditions = []
 
     if event_type:
         conditions.append(f"event_type = '{event_type}'")
 
-    if start_time:
-        # 使用 alarm_time 或 captured_at
-        conditions.append(f"(alarm_time >= '{start_time}' OR (alarm_time = '' AND captured_at >= '{start_time}'))")
-
-    if end_time:
-        conditions.append(f"(alarm_time <= '{end_time}' OR (alarm_time = '' AND captured_at <= '{end_time}'))")
+    # 优化时间过滤逻辑
+    if start_time and end_time:
+        # 同时有开始和结束时间，使用 BETWEEN
+        conditions.append(f"(alarm_time BETWEEN '{start_time}' AND '{end_time}')")
+    elif start_time:
+        # 只有开始时间
+        conditions.append(f"alarm_time >= '{start_time}'")
+    elif end_time:
+        # 只有结束时间
+        conditions.append(f"alarm_time <= '{end_time}'")
 
     if lat is not None and lon is not None:
         # 计算边界框
@@ -193,7 +198,8 @@ def build_lance_filter(
         max_lat = lat + lat_delta
         min_lon = lon - lon_delta
         max_lon = lon + lon_delta
-        conditions.append(f"lat >= {min_lat} AND lat <= {max_lat} AND lon >= {min_lon} AND lon <= {max_lon}")
+        # 使用括号确保逻辑正确
+        conditions.append(f"(lat >= {min_lat} AND lat <= {max_lat} AND lon >= {min_lon} AND lon <= {max_lon})")
 
     return " AND ".join(conditions) if conditions else None
 
