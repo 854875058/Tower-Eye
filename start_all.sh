@@ -10,7 +10,7 @@ BACKEND_PORT=${BACKEND_PORT:-8001}
 FRONTEND_PORT=${FRONTEND_PORT:-3000}
 
 # 配置 conda 环境
-CONDA_ENV=${CONDA_ENV:-base}
+CONDA_ENV=${CONDA_ENV:-multimodal}
 
 # 创建日志目录
 mkdir -p logs
