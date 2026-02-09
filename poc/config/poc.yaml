@@ -38,6 +38,7 @@ search:
   # Qwen3-VL 模型配置（当 embedding_model = "qwen" 时使用）
   qwen_api_url: "http://10.132.19.82:8010"  # Qwen3-VL Embedding 服务地址
   qwen_timeout: 30  # API 请求超时时间（秒）
+  qwen_dummy_image: "warning_img"  # 占位图像目录（用于纯文本编码，API 会自动选择第一张图片）
 
   # Reranker 配置
   reranker_enabled: true  # 是否启用 Reranker（提升准确率，但会增加检索时间）

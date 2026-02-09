@@ -13,17 +13,19 @@ import os
 class Qwen3VLEmbedding:
     """Qwen3-VL Embedding HTTP 客户端"""
 
-    def __init__(self, api_url: str = "http://10.132.19.82:8010", timeout: int = 30):
+    def __init__(self, api_url: str = "http://10.132.19.82:8010", timeout: int = 30, dummy_image: str = None):
         """
         初始化 Qwen3-VL Embedding 客户端
 
         Args:
             api_url: API 服务地址
             timeout: 请求超时时间（秒）
+            dummy_image: 占位图像路径（用于纯文本编码）
         """
         self.api_url = api_url.rstrip('/')
         self.timeout = timeout
         self._embedding_dim = None
+        self.dummy_image = dummy_image  # 占位图像路径
 
         print(f"✓ Qwen3-VL Embedding 客户端初始化: {self.api_url}")
 
@@ -34,16 +36,22 @@ class Qwen3VLEmbedding:
 
         Args:
             text: 输入文本
-            dummy_image_path: 占位图像路径（API 要求，可以为空字符串）
+            dummy_image_path: 占位图像路径（如果不提供，使用实例的 dummy_image）
 
         Returns:
             向量 (numpy array)
         """
         try:
-            # API 要求必须提供 image_path，即使只编码文本
+            # 确定使用哪个占位图像
+            image_path = dummy_image_path or self.dummy_image
+
+            if not image_path:
+                raise ValueError("纯文本编码需要提供 dummy_image_path 或在初始化时设置 dummy_image")
+
+            # API 要求必须提供 image_path
             payload = {
                 "text": text,
-                "image_path": dummy_image_path or ""
+                "image_path": os.path.abspath(image_path) if os.path.exists(image_path) else image_path
             }
 
             response = requests.post(
@@ -150,8 +158,23 @@ class Qwen3VLEmbedding:
     def get_embedding_dimension(self) -> int:
         """获取向量维度"""
         if self._embedding_dim is None:
-            # 使用测试文本获取维度
-            test_emb = self.encode_text("test")
+            # 使用第一张可用图片获取维度（避免纯文本编码的 API 限制）
+            if self.dummy_image and os.path.exists(self.dummy_image):
+                # 如果 dummy_image 是目录，找第一张图片
+                if os.path.isdir(self.dummy_image):
+                    import glob
+                    images = glob.glob(os.path.join(self.dummy_image, "*.jpg")) + \
+                             glob.glob(os.path.join(self.dummy_image, "*.png"))
+                    if images:
+                        test_emb = self.encode_image(images[0])
+                    else:
+                        raise ValueError(f"占位图像目录为空: {self.dummy_image}")
+                else:
+                    test_emb = self.encode_image(self.dummy_image)
+            else:
+                # 降级：尝试纯文本编码（可能失败）
+                test_emb = self.encode_text("test", dummy_image_path=self.dummy_image)
+
             self._embedding_dim = len(test_emb)
         return self._embedding_dim
 
