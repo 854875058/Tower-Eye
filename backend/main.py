@@ -429,4 +429,6 @@ async def get_config():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)
+    import os
+    port = int(os.getenv("PORT", "8001"))  # 默认使用 8001 端口
+    uvicorn.run(app, host="0.0.0.0", port=port, reload=False)
