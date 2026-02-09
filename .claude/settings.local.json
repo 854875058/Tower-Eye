@@ -21,7 +21,8 @@
       "Bash(chmod:*)",
       "Bash(check_services.sh << 'EOF'\n#!/bin/bash\n\necho \"========================================\"\necho \"检查服务状态\"\necho \"========================================\"\necho \"\"\n\necho \"[1] 检查后端日志...\"\nif [ -f logs/backend.log ]; then\n    echo \"后端日志内容：\"\n    tail -50 logs/backend.log\nelse\n    echo \"后端日志文件不存在\"\nfi\n\necho \"\"\necho \"[2] 检查前端日志...\"\nif [ -f logs/frontend.log ]; then\n    echo \"前端日志内容：\"\n    tail -50 logs/frontend.log\nelse\n    echo \"前端日志文件不存在\"\nfi\n\necho \"\"\necho \"[3] 检查端口占用...\"\necho \"8000 端口：\"\nlsof -i :8000 2>/dev/null || echo \"端口 8000 未被占用\"\necho \"\"\necho \"3000 端口：\"\nlsof -i :3000 2>/dev/null || echo \"端口 3000 未被占用\"\n\necho \"\"\necho \"[4] 检查 Python 和 Node.js...\"\npython3 --version\nnode --version\nnpm --version\n\necho \"\"\necho \"[5] 检查数据库文件...\"\nls -lh poc/data/metadata.db 2>/dev/null || echo \"metadata.db 不存在\"\nls -lh poc/data/lancedb/ 2>/dev/null || echo \"lancedb 目录不存在\"\n\nEOF)",
       "Bash(__NEW_LINE_47ae8d1c51898e97__ chmod +x check_services.sh)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(git config core.autocrlf)"
     ]
   },
   "hooks": {

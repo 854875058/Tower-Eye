@@ -1,10 +1,8 @@
-# 设置所有 .sh 文件使用 LF 换行符
-*.sh text eol=lf
-
-# 设置所有文本文件的默认行为
+# 设置所有文本文件的默认行为（通用规则放在最前面）
 * text=auto
 
-# 明确指定某些文件类型
+# 明确指定脚本和代码文件使用 LF 换行符（Linux 兼容）
+*.sh text eol=lf
 *.js text eol=lf
 *.jsx text eol=lf
 *.json text eol=lf
