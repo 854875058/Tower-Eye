@@ -67,32 +67,49 @@
 
 ## 🚀 快速开始
 
-### 1. 后端启动
+### 方式一：一键启动（推荐）
 
 ```bash
-# 进入后端目录
+# 给脚本添加执行权限（首次运行）
+chmod +x start_all.sh
+
+# 一键启动前后端服务
+./start_all.sh
+
+# 停止所有服务
+./stop_all.sh
+```
+
+### 方式二：分别启动
+
+**启动后端：**
+```bash
+# 给脚本添加执行权限（首次运行）
+chmod +x start_backend.sh
+
+# 启动后端服务
+./start_backend.sh
+
+# 或者手动启动
 cd backend
-
-# 安装依赖（如果还没安装）
-pip install -r requirements.txt
-
-# 启动 FastAPI 服务
-python main.py
+pip3 install -r requirements.txt
+python3 main.py
 
 # 服务将运行在 http://localhost:8000
 # API 文档: http://localhost:8000/docs
 ```
 
-### 2. 前端启动
-
+**启动前端：**
 ```bash
-# 进入前端目录
+# 给脚本添加执行权限（首次运行）
+chmod +x start_frontend.sh
+
+# 启动前端应用
+./start_frontend.sh
+
+# 或者手动启动
 cd frontend
-
-# 安装依赖
 npm install
-
-# 启动开发服务器
 npm start
 
 # 应用将运行在 http://localhost:3000
@@ -101,6 +118,42 @@ npm start
 ### 3. 访问应用
 
 打开浏览器访问: http://localhost:3000
+
+### 4. 服务管理
+
+**使用 tmux（推荐）：**
+```bash
+# 查看后端服务
+tmux attach -t multimodal-backend
+
+# 查看前端服务
+tmux attach -t multimodal-frontend
+
+# 停止服务
+./stop_all.sh
+```
+
+**使用 screen：**
+```bash
+# 查看后端服务
+screen -r multimodal-backend
+
+# 查看前端服务
+screen -r multimodal-frontend
+
+# 停止服务
+./stop_all.sh
+```
+
+**后台运行：**
+```bash
+# 查看日志
+tail -f logs/backend.log
+tail -f logs/frontend.log
+
+# 停止服务
+./stop_all.sh
+```
 
 ## 📝 API 接口文档
 
@@ -209,22 +262,225 @@ const api = axios.create({
 
 ## 🚢 生产部署
 
-### 前端部署
+### 方式一：自动化部署（推荐）
+
+```bash
+# 给部署脚本添加执行权限
+chmod +x deploy.sh
+
+# 运行部署脚本（会自动安装依赖、构建前端、配置服务）
+sudo ./deploy.sh
+
+# 按照脚本提示完成后续配置
+```
+
+### 方式二：手动部署
+
+#### 1. 安装系统依赖
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get update
+sudo apt-get install -y python3 python3-pip nodejs npm nginx
+```
+
+**CentOS/RHEL:**
+```bash
+sudo yum install -y python3 python3-pip nodejs npm nginx
+```
+
+#### 2. 安装项目依赖
+
+```bash
+# 后端依赖
+cd backend
+pip3 install -r requirements.txt
+cd ..
+
+# 前端依赖
+cd frontend
+npm install
+cd ..
+```
+
+#### 3. 构建前端
 
 ```bash
 cd frontend
 npm run build
-
-# 将 build/ 目录部署到 Nginx 或其他静态服务器
+cd ..
 ```
 
-### 后端部署
+#### 4. 配置 Nginx
+
+创建 Nginx 配置文件 `/etc/nginx/sites-available/multimodal`:
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;  # 修改为你的域名或 IP
+
+    # 前端静态文件
+    location / {
+        root /var/www/multimodal-search/frontend/build;
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "public, max-age=3600";
+    }
+
+    # 后端 API 代理
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+    }
+
+    # 媒体文件（如果需要）
+    location /media/ {
+        alias /path/to/your/media/files/;
+        add_header Cache-Control "public, max-age=86400";
+    }
+}
+```
+
+启用配置：
+```bash
+sudo ln -s /etc/nginx/sites-available/multimodal /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+#### 5. 部署前端文件
 
 ```bash
-cd backend
+sudo mkdir -p /var/www/multimodal-search/frontend
+sudo cp -r frontend/build /var/www/multimodal-search/frontend/
+sudo chown -R www-data:www-data /var/www/multimodal-search
+```
 
-# 使用 Gunicorn + Uvicorn
-gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000
+#### 6. 配置后端服务（systemd）
+
+创建服务文件 `/etc/systemd/system/multimodal-backend.service`:
+
+```ini
+[Unit]
+Description=Multimodal Search Backend API
+After=network.target
+
+[Service]
+Type=simple
+User=your-user
+WorkingDirectory=/path/to/your/project/backend
+Environment="PATH=/usr/bin:/usr/local/bin"
+ExecStart=/usr/bin/python3 main.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/multimodal-backend.log
+StandardError=append:/var/log/multimodal-backend-error.log
+
+[Install]
+WantedBy=multi-user.target
+```
+
+启用并启动服务：
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable multimodal-backend
+sudo systemctl start multimodal-backend
+sudo systemctl status multimodal-backend
+```
+
+#### 7. 使用 Gunicorn（生产环境推荐）
+
+安装 Gunicorn:
+```bash
+pip3 install gunicorn
+```
+
+修改 systemd 服务的 ExecStart:
+```ini
+ExecStart=/usr/local/bin/gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker -b 127.0.0.1:8000
+```
+
+#### 8. 配置防火墙
+
+```bash
+# 允许 HTTP 和 HTTPS
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw enable
+```
+
+#### 9. 配置 HTTPS（可选但推荐）
+
+使用 Let's Encrypt:
+```bash
+sudo apt-get install certbot python3-certbot-nginx
+sudo certbot --nginx -d your-domain.com
+```
+
+### 服务管理命令
+
+```bash
+# 查看后端服务状态
+sudo systemctl status multimodal-backend
+
+# 重启后端服务
+sudo systemctl restart multimodal-backend
+
+# 查看后端日志
+sudo journalctl -u multimodal-backend -f
+
+# 重启 Nginx
+sudo systemctl restart nginx
+
+# 查看 Nginx 日志
+sudo tail -f /var/log/nginx/access.log
+sudo tail -f /var/log/nginx/error.log
+```
+
+### 性能优化建议
+
+1. **启用 Gzip 压缩**（Nginx）:
+```nginx
+gzip on;
+gzip_vary on;
+gzip_min_length 1024;
+gzip_types text/plain text/css text/xml text/javascript application/javascript application/json;
+```
+
+2. **配置缓存**:
+```nginx
+location ~* \.(jpg|jpeg|png|gif|ico|css|js)$ {
+    expires 1y;
+    add_header Cache-Control "public, immutable";
+}
+```
+
+3. **增加 Worker 进程**:
+```bash
+# 根据 CPU 核心数调整 Gunicorn workers
+gunicorn main:app -w $(nproc) -k uvicorn.workers.UvicornWorker -b 127.0.0.1:8000
+```
+
+4. **配置日志轮转**:
+```bash
+sudo nano /etc/logrotate.d/multimodal
+```
+
+内容：
+```
+/var/log/multimodal-*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    notifempty
+    create 0640 your-user your-user
+}
 ```
 
 ## 🎯 下一步计划

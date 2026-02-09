@@ -17,7 +17,8 @@
       "Bash(git branch:*)",
       "Bash(git init:*)",
       "Bash(git fetch:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(chmod:*)"
     ]
   },
   "hooks": {
