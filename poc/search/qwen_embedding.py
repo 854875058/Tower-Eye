@@ -27,20 +27,28 @@ class Qwen3VLEmbedding:
 
         print(f"✓ Qwen3-VL Embedding 客户端初始化: {self.api_url}")
 
-    def encode_text(self, text: str) -> np.ndarray:
+    def encode_text(self, text: str, dummy_image_path: str = None) -> np.ndarray:
         """
         文本向量化
+        注意：Qwen3-VL API 要求同时提供 text 和 image_path
 
         Args:
             text: 输入文本
+            dummy_image_path: 占位图像路径（API 要求，可以为空字符串）
 
         Returns:
             向量 (numpy array)
         """
         try:
+            # API 要求必须提供 image_path，即使只编码文本
+            payload = {
+                "text": text,
+                "image_path": dummy_image_path or ""
+            }
+
             response = requests.post(
                 f"{self.api_url}/v1/tower/embed",
-                json={"text": text},
+                json=payload,
                 timeout=self.timeout
             )
             response.raise_for_status()
@@ -70,7 +78,7 @@ class Qwen3VLEmbedding:
         图像向量化
 
         Args:
-            image_path: 图像路径
+            image_path: 图像路径（必须是服务器可访问的绝对路径）
 
         Returns:
             向量 (numpy array)
@@ -81,15 +89,14 @@ class Qwen3VLEmbedding:
             if not os.path.exists(image_path):
                 raise FileNotFoundError(f"图像文件不存在: {image_path}")
 
-            # 读取图像并转为 base64
-            with open(image_path, 'rb') as f:
-                image_data = base64.b64encode(f.read()).decode('utf-8')
+            # 使用绝对路径
+            abs_image_path = os.path.abspath(image_path)
 
             response = requests.post(
                 f"{self.api_url}/v1/tower/embed",
                 json={
-                    "image_base64": image_data,
-                    "text": ""  # 可选的文本描述
+                    "text": "",  # 空文本
+                    "image_path": abs_image_path
                 },
                 timeout=self.timeout
             )

@@ -35,7 +35,7 @@ class Qwen3VLReranker:
 
         Args:
             query_text: 查询文本
-            image_path: 图像路径
+            image_path: 图像路径（必须是服务器可访问的绝对路径）
             summary: 图像摘要（可选）
 
         Returns:
@@ -46,17 +46,13 @@ class Qwen3VLReranker:
                 print(f"⚠ 图像文件不存在: {image_path}")
                 return 0.5
 
-            # 读取图像并转为 base64
-            with open(image_path, 'rb') as f:
-                image_data = base64.b64encode(f.read()).decode('utf-8')
+            # 使用绝对路径
+            abs_image_path = os.path.abspath(image_path)
 
             payload = {
                 "text": query_text,
-                "image_base64": image_data
+                "image_path": abs_image_path
             }
-
-            if summary:
-                payload["summary"] = summary
 
             response = requests.post(
                 f"{self.api_url}/v1/tower/rerank",
