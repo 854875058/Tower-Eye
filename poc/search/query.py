@@ -169,6 +169,15 @@ def build_lance_filter(
     lat: Optional[float] = None,
     lon: Optional[float] = None,
     radius_km: float = 5.0,
+    town_name: Optional[str] = None,
+    county_name: Optional[str] = None,
+    city_name: Optional[str] = None,
+    device_name: Optional[str] = None,
+    alarm_level: Optional[str] = None,
+    confidence_min: Optional[float] = None,
+    confidence_max: Optional[float] = None,
+    order_status: Optional[str] = None,
+    algorithm_name: Optional[str] = None,
 ) -> Optional[str]:
     """
     构建 LanceDB 过滤条件（SQL WHERE 语法）
@@ -200,6 +209,33 @@ def build_lance_filter(
         max_lon = lon + lon_delta
         # 使用括号确保逻辑正确
         conditions.append(f"(lat >= {min_lat} AND lat <= {max_lat} AND lon >= {min_lon} AND lon <= {max_lon})")
+
+    if town_name:
+        conditions.append(f"town_name = '{town_name}'")
+
+    if county_name:
+        conditions.append(f"county_name = '{county_name}'")
+
+    if city_name:
+        conditions.append(f"city_name = '{city_name}'")
+
+    if device_name:
+        conditions.append(f"device_name LIKE '%{device_name}%'")
+
+    if alarm_level:
+        conditions.append(f"alarm_level = '{alarm_level}'")
+
+    if confidence_min is not None:
+        conditions.append(f"confidence_level >= {confidence_min}")
+
+    if confidence_max is not None:
+        conditions.append(f"confidence_level <= {confidence_max}")
+
+    if order_status:
+        conditions.append(f"order_status = '{order_status}'")
+
+    if algorithm_name:
+        conditions.append(f"algorithm_name LIKE '%{algorithm_name}%'")
 
     return " AND ".join(conditions) if conditions else None
 

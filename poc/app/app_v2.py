@@ -534,8 +534,11 @@ def render_intelligent_qa():
     # 初始化 session_state
     if 'auto_execute' not in st.session_state:
         st.session_state.auto_execute = False
-    if 'question_input' not in st.session_state:
-        st.session_state.question_input = ""
+    if 'pending_question' not in st.session_state:
+        st.session_state.pending_question = ""
+
+    # 如果有待执行的问题，同步到输入框默认值
+    default_question = st.session_state.pending_question or ""
 
     # 预设问题（放在输入框前面）
     st.markdown("**快速选择：**")
@@ -549,7 +552,7 @@ def render_intelligent_qa():
     cols = st.columns(len(preset_questions))
     for i, q in enumerate(preset_questions):
         if cols[i].button(f"📝 {q[:12]}...", key=f"preset_{i}"):
-            st.session_state.question_input = q
+            st.session_state.pending_question = q
             st.session_state.auto_execute = True
             st.rerun()
 
@@ -558,6 +561,7 @@ def render_intelligent_qa():
     with col1:
         question = st.text_input(
             "请输入您的问题",
+            value=default_question,
             placeholder="例如：按街道统计最近30天各类告警数量",
             key="question_input"
         )
@@ -569,6 +573,7 @@ def render_intelligent_qa():
     if st.session_state.auto_execute and question:
         should_execute = True
         st.session_state.auto_execute = False
+        st.session_state.pending_question = ""  # 清除待执行问题
 
     if should_execute and question:
         config = load_config()
@@ -697,6 +702,33 @@ def render_intelligent_qa():
 
                 st.dataframe(df, use_container_width=True)
 
+                # ---- count 类型分组统计：查看明细按钮 ----
+                if result.get("intent") == "count" and isinstance(answer_data, list) and len(answer_data) > 0:
+                    first_row = answer_data[0]
+                    # 找到分组键（非数字列）
+                    group_key = None
+                    for k, v in first_row.items():
+                        if not isinstance(v, (int, float)):
+                            group_key = k
+                            break
+                    if group_key:
+                        st.markdown("#### 🔎 查看明细")
+                        # 每行4个按钮
+                        items = [(row.get(group_key, ""), row) for row in answer_data if row.get(group_key)]
+                        for row_start in range(0, len(items), 4):
+                            row_items = items[row_start:row_start + 4]
+                            detail_cols = st.columns(len(row_items))
+                            for j, (group_val, row_data) in enumerate(row_items):
+                                count_val = [v for v in row_data.values() if isinstance(v, (int, float))]
+                                count_str = f"({int(count_val[0])}条)" if count_val else ""
+                                if detail_cols[j].button(
+                                    f"📋 {group_val} {count_str}",
+                                    key=f"detail_{row_start + j}"
+                                ):
+                                    st.session_state.pending_question = f"查询最近20条{group_val}的详细信息"
+                                    st.session_state.auto_execute = True
+                                    st.rerun()
+
                 # ---- 自动展示图片和视频 ----
                 img_col = None
                 video_col = None
@@ -796,7 +828,7 @@ def _render_followup_suggestions(result, answer_data, raw_columns):
     btn_cols = st.columns(min(len(suggestions), 4))
     for i, s in enumerate(suggestions[:4]):
         if btn_cols[i].button(f"👉 {s[:18]}{'...' if len(s) > 18 else ''}", key=f"followup_{i}"):
-            st.session_state.question_input = s
+            st.session_state.pending_question = s
             st.session_state.auto_execute = True
             st.rerun()
 
@@ -886,25 +918,62 @@ def render_multimodal_search():
 
     # 过滤条件
     with st.expander("🎛️ 高级过滤", expanded=False):
-        filter_event = st.text_input("事件类型过滤", value="")
+        # 第一行：事件类型 + 告警等级 + 工单状态
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            filter_event = st.text_input("事件类型", value="", placeholder="如：车辆闯入监控告警")
+        with fc2:
+            filter_alarm_level = st.selectbox("告警等级", ["", "01"], format_func=lambda x: "全部" if x == "" else f"等级 {x}")
+        with fc3:
+            filter_order_status = st.selectbox(
+                "工单状态", ["", "1", "2", "4", "6"],
+                format_func=lambda x: {"": "全部", "1": "待处理", "2": "处理中", "4": "已完成", "6": "已关闭"}.get(x, x)
+            )
 
-        col3, col4, col5 = st.columns(3)
-        with col3:
-            enable_time_filter = st.checkbox("启用时间过滤", value=False)
-            # 修复：使用 Streamlit 支持的日期格式
-            start_date = st.date_input("开始日期", format="YYYY/MM/DD")
-            start_time_t = st.time_input("开始时间", value=time(0, 0))
-        with col4:
-            end_date = st.date_input("结束日期", format="YYYY/MM/DD")
-            end_time_t = st.time_input("结束时间", value=time(23, 59))
-        with col5:
-            radius_km = st.number_input("半径(公里)", min_value=1.0, max_value=50.0, value=5.0)
+        # 第二行：城市 + 区县 + 街道
+        fc4, fc5, fc6 = st.columns(3)
+        with fc4:
+            filter_city = st.text_input("城市", value="", placeholder="如：厦门市")
+        with fc5:
+            filter_county = st.text_input("区/县", value="", placeholder="如：集美区")
+        with fc6:
+            filter_town = st.text_input("街道/乡镇", value="", placeholder="如：东孚街道")
 
-        col6, col7 = st.columns(2)
-        with col6:
+        # 第三行：设备名称 + 算法名称 + 置信度
+        fc7, fc8, fc9 = st.columns(3)
+        with fc7:
+            filter_device = st.text_input("设备名称", value="", placeholder="模糊匹配")
+        with fc8:
+            filter_algorithm = st.text_input("算法名称", value="", placeholder="模糊匹配")
+        with fc9:
+            filter_confidence = st.slider("置信度范围", 0.0, 1.0, (0.0, 1.0), 0.05, key="confidence_slider")
+
+        # 第四行：时间过滤
+        st.markdown("**时间过滤**")
+        enable_time_filter = st.checkbox("启用时间过滤", value=False)
+        if enable_time_filter:
+            tc1, tc2 = st.columns(2)
+            with tc1:
+                start_date = st.date_input("开始日期", format="YYYY/MM/DD")
+                start_time_t = st.time_input("开始时间", value=time(0, 0))
+            with tc2:
+                end_date = st.date_input("结束日期", format="YYYY/MM/DD")
+                end_time_t = st.time_input("结束时间", value=time(23, 59))
+        else:
+            start_date = None
+            end_date = None
+            start_time_t = time(0, 0)
+            end_time_t = time(23, 59)
+
+        # 第五行：地理位置
+        st.markdown("**地理位置过滤**")
+        gc1, gc2, gc3 = st.columns(3)
+        with gc1:
             lat = st.text_input("纬度(lat)", value="")
-        with col7:
+        with gc2:
             lon = st.text_input("经度(lon)", value="")
+        with gc3:
+            radius_km = st.number_input("半径(公里)", min_value=1.0, max_value=50.0, value=5.0)
 
     # 检查是否可以执行检索
     can_search = False
@@ -937,6 +1006,15 @@ def render_multimodal_search():
             "lat": float(lat) if lat else None,
             "lon": float(lon) if lon else None,
             "radius_km": radius_km,
+            "town_name": filter_town or None,
+            "county_name": filter_county or None,
+            "city_name": filter_city or None,
+            "device_name": filter_device or None,
+            "alarm_level": filter_alarm_level or None,
+            "confidence_min": filter_confidence[0] if filter_confidence[0] > 0.0 else None,
+            "confidence_max": filter_confidence[1] if filter_confidence[1] < 1.0 else None,
+            "order_status": filter_order_status or None,
+            "algorithm_name": filter_algorithm or None,
         }
 
         with st.spinner("🔍 检索中..."):
@@ -954,6 +1032,43 @@ def render_multimodal_search():
 
                 # 根据检索模式编码查询
                 if search_mode == "📝 文本检索":
+                    # 自动从查询文本提取结构化实体，合并到过滤条件
+                    from poc.qa.nl2sql import (
+                        _parse_time_range, _parse_area_name, SCENE_KEYWORDS,
+                    )
+                    auto_start, auto_end = _parse_time_range(query_text)
+                    auto_town, auto_county = _parse_area_name(query_text)
+                    auto_event = None
+                    for key, value in SCENE_KEYWORDS.items():
+                        if key in query_text:
+                            auto_event = value
+                            break
+
+                    # 只在用户未手动设置时自动填充
+                    if auto_start and not filters.get("start_time"):
+                        filters["start_time"] = auto_start
+                    if auto_end and not filters.get("end_time"):
+                        filters["end_time"] = auto_end
+                    if auto_town and not filters.get("town_name"):
+                        filters["town_name"] = auto_town
+                    if auto_county and not filters.get("county_name"):
+                        filters["county_name"] = auto_county
+                    if auto_event and not filters.get("event_type"):
+                        filters["event_type"] = auto_event
+
+                    # 显示自动识别的实体
+                    auto_parts = []
+                    if auto_event:
+                        auto_parts.append(f"事件类型: {auto_event}")
+                    if auto_town:
+                        auto_parts.append(f"街道: {auto_town}")
+                    if auto_county:
+                        auto_parts.append(f"区县: {auto_county}")
+                    if auto_start:
+                        auto_parts.append(f"时间: {auto_start} ~ {auto_end}")
+                    if auto_parts:
+                        st.info(f"🧠 智能识别实体: {' | '.join(auto_parts)}")
+
                     query_vec = manager.encode_text(query_text).astype("float32")
                 else:
                     # 以图搜图或图搜文：保存上传的图片到临时文件
@@ -976,6 +1091,15 @@ def render_multimodal_search():
                     lat=filters.get("lat"),
                     lon=filters.get("lon"),
                     radius_km=filters.get("radius_km", 5.0),
+                    town_name=filters.get("town_name"),
+                    county_name=filters.get("county_name"),
+                    city_name=filters.get("city_name"),
+                    device_name=filters.get("device_name"),
+                    alarm_level=filters.get("alarm_level"),
+                    confidence_min=filters.get("confidence_min"),
+                    confidence_max=filters.get("confidence_max"),
+                    order_status=filters.get("order_status"),
+                    algorithm_name=filters.get("algorithm_name"),
                 )
 
                 # 执行检索（混合或纯向量）
