@@ -1,5 +1,5 @@
 """
-导入告警明细表数据到数据库
+导入告警明细表数据到数据库（全量字段入库版）
 
 用法：
     python import_warning_data.py
@@ -13,20 +13,92 @@ from pathlib import Path
 from datetime import datetime
 
 
+# events 表需要的新增列（用于 ALTER TABLE 兼容旧数据库）
+NEW_COLUMNS = [
+    ("province_name", "TEXT"),
+    ("city_name", "TEXT"),
+    ("county_name", "TEXT"),
+    ("town_code", "TEXT"),
+    ("town_name", "TEXT"),
+    ("device_code", "TEXT"),
+    ("channel_code", "TEXT"),
+    ("channel_name", "TEXT"),
+    ("warning_order_id", "TEXT"),
+    ("warning_type_id", "TEXT"),
+    ("alarm_body", "TEXT"),
+    ("algorithm_code", "TEXT"),
+    ("algorithm_name", "TEXT"),
+    ("emergency_level", "TEXT"),
+    ("importance_level", "TEXT"),
+    ("order_status", "TEXT"),
+    ("confidence_level_max", "REAL"),
+    ("tenant_name", "TEXT"),
+    ("video_path", "TEXT"),
+    ("img_src_path", "TEXT"),
+    ("img_icon_path", "TEXT"),
+]
+
+
 def create_asset_id(warning_order_id: str, file_name: str) -> str:
     """根据工单ID和文件名生成唯一的 asset_id"""
     unique_key = f"{warning_order_id}_{file_name}"
     return hashlib.sha256(unique_key.encode()).hexdigest()
 
 
-def import_warning_csv(csv_path: str, db_path: str):
-    """导入告警明细表CSV到数据库"""
+def ensure_columns(cursor):
+    """用 ALTER TABLE 补齐 events 表缺失的列（兼容旧数据库）"""
+    existing = {
+        row[1] for row in cursor.execute("PRAGMA table_info(events)").fetchall()
+    }
+    for col_name, col_type in NEW_COLUMNS:
+        if col_name not in existing:
+            cursor.execute(f"ALTER TABLE events ADD COLUMN {col_name} {col_type}")
+            print(f"  ALTER TABLE events ADD COLUMN {col_name} {col_type}")
 
-    # 连接数据库
+    # 补建索引
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_town ON events(town_name)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_device ON events(device_code)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_address ON events(address)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_county ON events(county_name)")
+
+
+def url_to_local_path(url: str, media_type: str = "image") -> str:
+    """将 URL 路径转换为本地路径
+
+    图片: /12000000034/ThirdAlarm/pic/xxx.jpg -> warning_img/xxx.jpg
+          https://slw-base-video.obs...xxx.jpg -> warning_img/xxx.jpg
+    视频: /12000000034/ThirdAlarm/video/xxx.mp4 -> warning_file/xxx.mp4
+    """
+    if not url or not url.strip():
+        return ""
+    filename = Path(url.strip()).name
+    if not filename:
+        return ""
+    if media_type == "video":
+        return f"warning_file/{filename}"
+    return f"warning_img/{filename}"
+
+
+def urls_to_local_paths(url_string: str, media_type: str = "image") -> str:
+    """将逗号分隔的多个 URL 转换为逗号分隔的本地路径"""
+    if not url_string or not url_string.strip():
+        return ""
+    parts = [url_to_local_path(u, media_type) for u in url_string.split(",")]
+    return ",".join(p for p in parts if p)
+
+
+def import_warning_csv(csv_path: str, db_path: str):
+    """导入告警明细表CSV到数据库（全量字段入库）"""
+
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # 清空现有数据（可选）
+    # 兼容旧数据库：补齐缺失列
+    print("检查并补齐 events 表字段...")
+    ensure_columns(cursor)
+    conn.commit()
+
+    # 清空现有数据
     print("清空现有数据...")
     cursor.execute("DELETE FROM events")
     cursor.execute("DELETE FROM assets")
@@ -42,119 +114,124 @@ def import_warning_csv(csv_path: str, db_path: str):
 
         for row in reader:
             try:
-                # 提取关键字段
+                # ---- 基础字段 ----
                 warning_order_id = row.get('warning_order_id', '')
                 alarm_time = row.get('alarm_time', '')
                 warning_type_name = row.get('warning_type_name', '')
                 latitude = row.get('latitude', '')
                 longitude = row.get('longitude', '')
                 address = row.get('address', '')
-                channel_name = row.get('channel_name', '')
+                summary = row.get('summary', '')
+                description = row.get('description', '')
+
+                # ---- 地理信息 ----
+                province_name = row.get('province_name', '')
+                city_name = row.get('city_name', '')
+                county_name = row.get('county_name', '')
+                town_code = row.get('town_code', '')
+                town_name = row.get('town_name', '')
+
+                # ---- 设备信息 ----
+                device_code = row.get('device_code', '')
                 device_name = row.get('device_name', '')
+                channel_code = row.get('channel_code', '')
+                channel_name = row.get('channel_name', '')
+
+                # ---- 告警详情 ----
+                warning_type_id = row.get('warning_type_id', '')
+                alarm_body = row.get('alarm_body', '')
+                algorithm_code = row.get('algorithm_code', '')
+                algorithm_name = row.get('algorithm_name', '')
+                emergency_level = row.get('emergency_level', '')
+                importance_level = row.get('importance_level', '')
+                order_status = row.get('order_status', '')
+                tenant_name = row.get('tenant_name', '')
+                confidence_level = row.get('confidence_level_max',
+                                           row.get('confidence_level', ''))
+
+                # ---- 媒体 URL → 本地路径 ----
                 video_url = row.get('video_url', '')
                 file_img_url_src = row.get('file_img_url_src', '')
                 file_img_url_icon = row.get('file_img_url_icon', '')
-                summary = row.get('summary', '')  # 新增：图像理解字段
-                description = row.get('description', '')
-                confidence_level = row.get('confidence_level_max', row.get('confidence_level', ''))
 
-                # 优先使用原图，如果没有则使用框图
-                img_urls = file_img_url_src.split(',') if file_img_url_src else file_img_url_icon.split(',')
+                video_path = url_to_local_path(video_url, "video")
+                img_src_path = urls_to_local_paths(file_img_url_src, "image")
+                img_icon_path = urls_to_local_paths(file_img_url_icon, "image")
+
+                # ---- 确定主图文件 ----
+                img_urls = (file_img_url_src.split(',') if file_img_url_src
+                            else file_img_url_icon.split(','))
                 url_path = img_urls[0].strip() if img_urls else ''
                 file_name = Path(url_path).name if url_path else ''
 
-                # 如果没有文件名，跳过这条记录
                 if not file_name:
                     continue
 
-                # 生成唯一的 asset_id（使用工单ID+文件名）
                 asset_id = create_asset_id(warning_order_id, file_name)
+                file_path = f"warning_img/{file_name}"
 
-                # 将 URL 路径转换为本地路径
-                # 图片 URL: /12000000034/ThirdAlarm/pic/xxx.jpg -> warning_img/xxx.jpg
-                # 视频 URL: /12000000034/ThirdAlarm/video/xxx.mp4 -> warning_file/xxx.mp4
-                if file_name:
-                    file_path = f"warning_img/{file_name}"
-                else:
-                    file_path = ''
+                # ---- extra_json 保留完整原始数据 ----
+                extra_json = json.dumps(
+                    {k: v for k, v in row.items() if v},
+                    ensure_ascii=False,
+                )
 
-                # 转换视频URL为本地路径
-                local_video_url = ''
-                if video_url:
-                    video_filename = Path(video_url).name
-                    if video_filename:
-                        local_video_url = f"warning_file/{video_filename}"
-
-                # 转换图片URL为本地路径（多个图片用逗号分隔）
-                local_img_url_src = ''
-                if file_img_url_src:
-                    img_filenames = [Path(url.strip()).name for url in file_img_url_src.split(',') if url.strip()]
-                    local_img_url_src = ','.join([f"warning_img/{name}" for name in img_filenames if name])
-
-                local_img_url_icon = ''
-                if file_img_url_icon:
-                    img_filenames = [Path(url.strip()).name for url in file_img_url_icon.split(',') if url.strip()]
-                    local_img_url_icon = ','.join([f"warning_img/{name}" for name in img_filenames if name])
-
-                # 构建 extra_json（使用本地路径）
-                extra_json = {
-                    'warning_order_id': warning_order_id,
-                    'warning_type_name': warning_type_name,
-                    'address': address,
-                    'channel_name': channel_name,
-                    'device_name': device_name,
-                    'video_url': local_video_url,  # 本地路径
-                    'file_img_url_src': local_img_url_src,  # 本地路径
-                    'file_img_url_icon': local_img_url_icon,  # 本地路径
-                    'tenant_name': row.get('tenant_name', ''),
-                    'province_name': row.get('province_name', ''),
-                    'city_name': row.get('city_name', ''),
-                    'county_name': row.get('county_name', ''),
-                }
-
-                # 插入 assets 表
+                # ---- 插入 assets 表 ----
                 cursor.execute("""
                     INSERT OR REPLACE INTO assets
-                    (asset_id, media_type, file_path, file_name, captured_at, lat, lon, source)
+                    (asset_id, media_type, file_path, file_name,
+                     captured_at, lat, lon, source)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    asset_id,
-                    'image',
-                    file_path,
-                    file_name,
+                    asset_id, 'image', file_path, file_name,
                     alarm_time,
                     float(latitude) if latitude else None,
                     float(longitude) if longitude else None,
-                    'warning_csv'
+                    'warning_csv',
                 ))
                 assets_inserted += 1
 
-                # 插入 events 表（使用 asset_id 作为 event_id，确保一对一关系）
+                # ---- 插入 events 表（全量字段） ----
                 cursor.execute("""
                     INSERT OR REPLACE INTO events
-                    (event_id, asset_id, event_type, alarm_level, alarm_source, alarm_time,
-                     lat, lon, region, extra_json, summary, description, address, device_name, confidence_level)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (event_id, asset_id, event_type, alarm_level,
+                     alarm_source, alarm_time, lat, lon, region,
+                     extra_json, summary, description, address,
+                     device_name, confidence_level,
+                     province_name, city_name, county_name,
+                     town_code, town_name,
+                     device_code, channel_code, channel_name,
+                     warning_order_id, warning_type_id, alarm_body,
+                     algorithm_code, algorithm_name,
+                     emergency_level, importance_level, order_status,
+                     confidence_level_max, tenant_name,
+                     video_path, img_src_path, img_icon_path)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+                            ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, (
-                    asset_id,  # 使用 asset_id 作为 event_id，确保唯一性
-                    asset_id,
+                    asset_id, asset_id,
                     warning_type_name,
-                    row.get('emergency_level', 'medium'),
+                    emergency_level or 'medium',
                     row.get('warning_source_name', 'AI告警'),
                     alarm_time,
                     float(latitude) if latitude else None,
                     float(longitude) if longitude else None,
-                    row.get('province_name', ''),
-                    json.dumps(extra_json, ensure_ascii=False),
-                    summary,  # 新增
-                    description,  # 新增
-                    address,  # 新增
-                    device_name,  # 新增
-                    float(confidence_level) if confidence_level else None  # 新增
+                    province_name,
+                    extra_json,
+                    summary, description, address, device_name,
+                    float(confidence_level) if confidence_level else None,
+                    province_name, city_name, county_name,
+                    town_code, town_name,
+                    device_code, channel_code, channel_name,
+                    warning_order_id, warning_type_id, alarm_body,
+                    algorithm_code, algorithm_name,
+                    emergency_level, importance_level, order_status,
+                    float(confidence_level) if confidence_level else None,
+                    tenant_name,
+                    video_path, img_src_path, img_icon_path,
                 ))
                 events_inserted += 1
 
-                # 每100条提交一次
                 if events_inserted % 100 == 0:
                     conn.commit()
                     print(f"已处理 {events_inserted} 条记录...")
@@ -164,41 +241,60 @@ def import_warning_csv(csv_path: str, db_path: str):
                 print(f"问题行: {row.get('warning_order_id', 'unknown')}")
                 continue
 
-        # 最终提交
         conn.commit()
 
+        # ---- 统计输出 ----
         print(f"\n导入完成！")
         print(f"- Assets 插入: {assets_inserted} 条")
         print(f"- Events 插入: {events_inserted} 条")
 
-        # 验证数据
         print("\n数据验证:")
         cursor.execute("SELECT COUNT(*) FROM assets")
         print(f"- Assets 总数: {cursor.fetchone()[0]}")
-
         cursor.execute("SELECT COUNT(*) FROM events")
         print(f"- Events 总数: {cursor.fetchone()[0]}")
 
-        cursor.execute("SELECT event_type, COUNT(*) FROM events GROUP BY event_type")
+        cursor.execute(
+            "SELECT event_type, COUNT(*) FROM events GROUP BY event_type"
+        )
         print("\n事件类型分布:")
-        for row in cursor.fetchall():
-            print(f"  - {row[0]}: {row[1]} 条")
+        for r in cursor.fetchall():
+            print(f"  - {r[0]}: {r[1]} 条")
 
-        # 验证 summary 字段
-        cursor.execute("SELECT COUNT(*) FROM events WHERE summary IS NOT NULL AND summary != ''")
-        summary_count = cursor.fetchone()[0]
-        print(f"\n包含图像理解的记录: {summary_count} 条")
+        cursor.execute(
+            "SELECT COUNT(*) FROM events "
+            "WHERE summary IS NOT NULL AND summary != ''"
+        )
+        print(f"\n包含图像理解的记录: {cursor.fetchone()[0]} 条")
+
+        cursor.execute(
+            "SELECT town_name, COUNT(*) FROM events "
+            "WHERE town_name IS NOT NULL AND town_name != '' "
+            "GROUP BY town_name ORDER BY COUNT(*) DESC LIMIT 10"
+        )
+        print("\n乡镇/街道分布 (TOP 10):")
+        for r in cursor.fetchall():
+            print(f"  - {r[0]}: {r[1]} 条")
+
+        cursor.execute(
+            "SELECT device_code, device_name, COUNT(*) FROM events "
+            "WHERE device_code IS NOT NULL AND device_code != '' "
+            "GROUP BY device_code ORDER BY COUNT(*) DESC LIMIT 10"
+        )
+        print("\n设备分布 (TOP 10):")
+        for r in cursor.fetchall():
+            print(f"  - {r[0]} ({r[1]}): {r[2]} 条")
 
     conn.close()
 
 
 if __name__ == "__main__":
-    csv_path = "最终标注入库数据.csv"  # 使用新的CSV文件
+    csv_path = "最终标注入库数据.csv"
     db_path = "poc/data/metadata.db"
 
-    print("="*60)
-    print("告警明细表数据导入工具")
-    print("="*60)
+    print("=" * 60)
+    print("告警明细表数据导入工具（全量字段入库版）")
+    print("=" * 60)
     print()
 
     if not Path(csv_path).exists():
@@ -213,9 +309,6 @@ if __name__ == "__main__":
     import_warning_csv(csv_path, db_path)
 
     print()
-    print("="*60)
+    print("=" * 60)
     print("导入完成！现在可以在 Streamlit 中查询了")
-    print("="*60)
-    print()
-    print("测试查询:")
-    print('  python -c "import sqlite3; conn=sqlite3.connect(\'poc/data/metadata.db\'); print(conn.execute(\'SELECT COUNT(*) FROM events WHERE event_type LIKE \\\"%车辆%\\\"\').fetchone())"')
+    print("=" * 60)

@@ -270,7 +270,10 @@ def main() -> None:
     for row in conn.execute("""
         SELECT a.asset_id, a.file_path, a.file_name, a.captured_at, a.lat, a.lon,
                e.event_type, e.alarm_time, e.alarm_level, e.summary, e.description,
-               e.address, e.device_name, e.confidence_level
+               e.address, e.device_name, e.confidence_level,
+               e.province_name, e.city_name, e.county_name,
+               e.town_name, e.device_code, e.algorithm_name,
+               e.order_status, e.video_path, e.img_src_path, e.img_icon_path
         FROM assets a
         LEFT JOIN events e ON a.asset_id = e.asset_id
     """).fetchall():
@@ -321,6 +324,16 @@ def main() -> None:
             "address": asset_info.get("address") or "",
             "device_name": asset_info.get("device_name") or "",
             "confidence_level": float(asset_info["confidence_level"]) if asset_info.get("confidence_level") else 0.0,
+            "province_name": asset_info.get("province_name") or "",
+            "city_name": asset_info.get("city_name") or "",
+            "county_name": asset_info.get("county_name") or "",
+            "town_name": asset_info.get("town_name") or "",
+            "device_code": asset_info.get("device_code") or "",
+            "algorithm_name": asset_info.get("algorithm_name") or "",
+            "order_status": asset_info.get("order_status") or "",
+            "video_path": asset_info.get("video_path") or "",
+            "img_src_path": asset_info.get("img_src_path") or "",
+            "img_icon_path": asset_info.get("img_icon_path") or "",
             "model_name": model_name,
             "vector": vec.tolist(),  # LanceDB 需要 list 格式
         })

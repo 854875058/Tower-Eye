@@ -957,14 +957,6 @@ def render_multimodal_search():
                 # 转换为结果列表
                 results = []
                 for _, row in results_df.iterrows():
-                    # 从 SQLite 获取 extra_json（媒体URL等）
-                    conn = connect_db(db_path)
-                    event_row = conn.execute(
-                        "SELECT extra_json FROM events WHERE asset_id = ? LIMIT 1",
-                        (row["asset_id"],)
-                    ).fetchone()
-                    conn.close()
-
                     result_item = {
                         "asset_id": row["asset_id"],
                         "score": float(row.get("hybrid_score", row["_distance"])),
@@ -981,17 +973,18 @@ def render_multimodal_search():
                         "address": row.get("address", ""),
                         "device_name": row.get("device_name", ""),
                         "confidence_level": float(row["confidence_level"]) if row.get("confidence_level") else None,
+                        # 新增字段（直接从 LanceDB 获取）
+                        "province_name": row.get("province_name", ""),
+                        "city_name": row.get("city_name", ""),
+                        "county_name": row.get("county_name", ""),
+                        "town_name": row.get("town_name", ""),
+                        "device_code": row.get("device_code", ""),
+                        "algorithm_name": row.get("algorithm_name", ""),
+                        "order_status": row.get("order_status", ""),
+                        "video_url": row.get("video_path", ""),
+                        "file_img_url_src": row.get("img_src_path", ""),
+                        "file_img_url_icon": row.get("img_icon_path", ""),
                     }
-
-                    # 解析 extra_json 获取媒体URL
-                    if event_row and event_row["extra_json"]:
-                        try:
-                            extra = json.loads(event_row["extra_json"])
-                            result_item["video_url"] = extra.get("video_url", "")
-                            result_item["file_img_url_src"] = extra.get("file_img_url_src", "")
-                            result_item["file_img_url_icon"] = extra.get("file_img_url_icon", "")
-                        except:
-                            pass
 
                     results.append(result_item)
 
@@ -1144,8 +1137,33 @@ def render_multimodal_search():
                                 st.markdown(f"**相似度**: {item['score']:.4f}")
                                 st.write(f"**事件类型**: {item.get('event_type', 'N/A')}")
                                 st.write(f"**时间**: {item.get('alarm_time', 'N/A')}")
-                                st.write(f"**位置**: {item.get('address', 'N/A')}")
-                                st.write(f"**设备**: {item.get('device_name', 'N/A')}")
+
+                                # 完整地理信息
+                                geo_parts = [
+                                    item.get('province_name', ''),
+                                    item.get('city_name', ''),
+                                    item.get('county_name', ''),
+                                    item.get('town_name', ''),
+                                ]
+                                geo_str = ' / '.join(p for p in geo_parts if p)
+                                if geo_str:
+                                    st.write(f"**地区**: {geo_str}")
+                                st.write(f"**地址**: {item.get('address', 'N/A')}")
+
+                                # 设备信息
+                                device_name = item.get('device_name', '')
+                                device_code = item.get('device_code', '')
+                                if device_name or device_code:
+                                    device_str = device_name or ''
+                                    if device_code:
+                                        device_str += f" ({device_code})"
+                                    st.write(f"**设备**: {device_str.strip()}")
+
+                                # 算法 & 工单状态
+                                if item.get('algorithm_name'):
+                                    st.write(f"**算法**: {item['algorithm_name']}")
+                                if item.get('order_status'):
+                                    st.write(f"**工单状态**: {item['order_status']}")
                                 if item.get('confidence_level'):
                                     st.write(f"**置信度**: {item['confidence_level']:.2f}")
 

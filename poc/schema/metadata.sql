@@ -35,6 +35,31 @@ CREATE TABLE IF NOT EXISTS events (
   address TEXT,
   device_name TEXT,
   confidence_level REAL,
+  -- 地理信息
+  province_name TEXT,
+  city_name TEXT,
+  county_name TEXT,
+  town_code TEXT,
+  town_name TEXT,
+  -- 设备信息
+  device_code TEXT,
+  channel_code TEXT,
+  channel_name TEXT,
+  -- 告警详情
+  warning_order_id TEXT,
+  warning_type_id TEXT,
+  alarm_body TEXT,
+  algorithm_code TEXT,
+  algorithm_name TEXT,
+  emergency_level TEXT,
+  importance_level TEXT,
+  order_status TEXT,
+  confidence_level_max REAL,
+  tenant_name TEXT,
+  -- 媒体本地路径
+  video_path TEXT,
+  img_src_path TEXT,
+  img_icon_path TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY(asset_id) REFERENCES assets(asset_id)
 );
@@ -42,6 +67,10 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_alarm_time ON events(alarm_time);
 CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
 CREATE INDEX IF NOT EXISTS idx_events_summary ON events(summary);
+CREATE INDEX IF NOT EXISTS idx_events_town ON events(town_name);
+CREATE INDEX IF NOT EXISTS idx_events_device ON events(device_code);
+CREATE INDEX IF NOT EXISTS idx_events_address ON events(address);
+CREATE INDEX IF NOT EXISTS idx_events_county ON events(county_name);
 
 CREATE TABLE IF NOT EXISTS detections (
   detection_id TEXT PRIMARY KEY,
