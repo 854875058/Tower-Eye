@@ -178,64 +178,110 @@ def build_lance_filter(
     confidence_max: Optional[float] = None,
     order_status: Optional[str] = None,
     algorithm_name: Optional[str] = None,
+    table_columns: Optional[set] = None,
 ) -> Optional[str]:
     """
     构建 LanceDB 过滤条件（SQL WHERE 语法）
     优化版：修复多条件联合查询问题
+
+    Args:
+        table_columns: LanceDB 表的列名集合，传入后会跳过表中不存在的字段，
+                       避免旧版向量库缺少 city_name 等列时崩溃。
     """
     conditions = []
+    skipped = []
 
-    if event_type:
+    def _has_col(col_name: str) -> bool:
+        """检查字段是否存在于表 schema 中"""
+        if table_columns is None:
+            return True  # 未传入时不做限制，保持向后兼容
+        return col_name in table_columns
+
+    if event_type and _has_col("event_type"):
         conditions.append(f"event_type = '{event_type}'")
+    elif event_type:
+        skipped.append("event_type")
 
     # 优化时间过滤逻辑
-    if start_time and end_time:
-        # 同时有开始和结束时间，使用 BETWEEN
-        conditions.append(f"(alarm_time BETWEEN '{start_time}' AND '{end_time}')")
-    elif start_time:
-        # 只有开始时间
-        conditions.append(f"alarm_time >= '{start_time}'")
-    elif end_time:
-        # 只有结束时间
-        conditions.append(f"alarm_time <= '{end_time}'")
+    if (start_time or end_time) and _has_col("alarm_time"):
+        if start_time and end_time:
+            conditions.append(f"(alarm_time BETWEEN '{start_time}' AND '{end_time}')")
+        elif start_time:
+            conditions.append(f"alarm_time >= '{start_time}'")
+        elif end_time:
+            conditions.append(f"alarm_time <= '{end_time}'")
+    elif start_time or end_time:
+        skipped.append("alarm_time")
 
     if lat is not None and lon is not None:
-        # 计算边界框
-        lat_delta = radius_km / 111.0
-        lon_delta = radius_km / (111.0 * max(0.1, math.cos(math.radians(lat))))
-        min_lat = lat - lat_delta
-        max_lat = lat + lat_delta
-        min_lon = lon - lon_delta
-        max_lon = lon + lon_delta
-        # 使用括号确保逻辑正确
-        conditions.append(f"(lat >= {min_lat} AND lat <= {max_lat} AND lon >= {min_lon} AND lon <= {max_lon})")
+        if _has_col("lat") and _has_col("lon"):
+            lat_delta = radius_km / 111.0
+            lon_delta = radius_km / (111.0 * max(0.1, math.cos(math.radians(lat))))
+            min_lat = lat - lat_delta
+            max_lat = lat + lat_delta
+            min_lon = lon - lon_delta
+            max_lon = lon + lon_delta
+            conditions.append(f"(lat >= {min_lat} AND lat <= {max_lat} AND lon >= {min_lon} AND lon <= {max_lon})")
+        else:
+            skipped.append("lat/lon")
 
     if town_name:
-        conditions.append(f"town_name = '{town_name}'")
+        if _has_col("town_name"):
+            conditions.append(f"town_name = '{town_name}'")
+        else:
+            skipped.append("town_name")
 
     if county_name:
-        conditions.append(f"county_name = '{county_name}'")
+        if _has_col("county_name"):
+            conditions.append(f"county_name = '{county_name}'")
+        else:
+            skipped.append("county_name")
 
     if city_name:
-        conditions.append(f"city_name = '{city_name}'")
+        if _has_col("city_name"):
+            conditions.append(f"city_name = '{city_name}'")
+        else:
+            skipped.append("city_name")
 
     if device_name:
-        conditions.append(f"device_name LIKE '%{device_name}%'")
+        if _has_col("device_name"):
+            conditions.append(f"device_name LIKE '%{device_name}%'")
+        else:
+            skipped.append("device_name")
 
     if alarm_level:
-        conditions.append(f"alarm_level = '{alarm_level}'")
+        if _has_col("alarm_level"):
+            conditions.append(f"alarm_level = '{alarm_level}'")
+        else:
+            skipped.append("alarm_level")
 
     if confidence_min is not None:
-        conditions.append(f"confidence_level >= {confidence_min}")
+        if _has_col("confidence_level"):
+            conditions.append(f"confidence_level >= {confidence_min}")
+        else:
+            skipped.append("confidence_level")
 
     if confidence_max is not None:
-        conditions.append(f"confidence_level <= {confidence_max}")
+        if _has_col("confidence_level"):
+            conditions.append(f"confidence_level <= {confidence_max}")
+        else:
+            if "confidence_level" not in skipped:
+                skipped.append("confidence_level")
 
     if order_status:
-        conditions.append(f"order_status = '{order_status}'")
+        if _has_col("order_status"):
+            conditions.append(f"order_status = '{order_status}'")
+        else:
+            skipped.append("order_status")
 
     if algorithm_name:
-        conditions.append(f"algorithm_name LIKE '%{algorithm_name}%'")
+        if _has_col("algorithm_name"):
+            conditions.append(f"algorithm_name LIKE '%{algorithm_name}%'")
+        else:
+            skipped.append("algorithm_name")
+
+    if skipped:
+        print(f"[build_lance_filter] 跳过向量库中不存在的字段: {skipped}，请重新运行 embed 更新向量库")
 
     return " AND ".join(conditions) if conditions else None
 

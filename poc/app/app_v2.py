@@ -254,6 +254,71 @@ def parse_media_urls(url_string: str) -> List[str]:
     return [url.strip() for url in str(url_string).split(',') if url.strip()]
 
 
+def _inject_sql_filters(sql: str, filters: Dict) -> str:
+    """
+    将 UI 高级筛选条件注入到已有的 SQL 中。
+
+    策略：
+    - 找到 WHERE / GROUP BY / ORDER BY / LIMIT 的位置
+    - 在合适位置插入 AND 条件（已有 WHERE）或 WHERE 条件（无 WHERE）
+    - 条件使用 e. 表别名前缀（匹配 Agent 生成的 SQL 风格）
+    """
+    import re
+
+    conditions = []
+
+    if filters.get("event_type"):
+        conditions.append(f"e.event_type = '{filters['event_type']}'")
+    if filters.get("alarm_level"):
+        conditions.append(f"e.alarm_level = '{filters['alarm_level']}'")
+    if filters.get("order_status"):
+        conditions.append(f"e.order_status = '{filters['order_status']}'")
+    if filters.get("city_name"):
+        conditions.append(f"e.city_name = '{filters['city_name']}'")
+    if filters.get("county_name"):
+        conditions.append(f"e.county_name = '{filters['county_name']}'")
+    if filters.get("town_name"):
+        conditions.append(f"e.town_name = '{filters['town_name']}'")
+    if filters.get("device_name"):
+        conditions.append(f"e.device_name LIKE '%{filters['device_name']}%'")
+    if filters.get("algorithm_name"):
+        conditions.append(f"e.algorithm_name LIKE '%{filters['algorithm_name']}%'")
+    if filters.get("confidence_min") is not None:
+        conditions.append(f"e.confidence_level >= {filters['confidence_min']}")
+    if filters.get("confidence_max") is not None:
+        conditions.append(f"e.confidence_level <= {filters['confidence_max']}")
+    if filters.get("start_time"):
+        conditions.append(f"e.alarm_time >= '{filters['start_time']}'")
+    if filters.get("end_time"):
+        conditions.append(f"e.alarm_time <= '{filters['end_time']}'")
+
+    if not conditions:
+        return sql
+
+    extra = " AND ".join(conditions)
+
+    # 尝试匹配 GROUP BY / ORDER BY / LIMIT（第一个出现的位置）
+    tail_match = re.search(r'\b(GROUP\s+BY|ORDER\s+BY|LIMIT)\b', sql, re.IGNORECASE)
+    where_match = re.search(r'\bWHERE\b', sql, re.IGNORECASE)
+
+    if where_match:
+        # 已有 WHERE → 在尾部关键词前或末尾插入 AND
+        if tail_match and tail_match.start() > where_match.end():
+            insert_pos = tail_match.start()
+            sql = sql[:insert_pos] + f"AND {extra} " + sql[insert_pos:]
+        else:
+            sql = sql + f" AND {extra}"
+    else:
+        # 无 WHERE → 在尾部关键词前或末尾插入 WHERE
+        if tail_match:
+            insert_pos = tail_match.start()
+            sql = sql[:insert_pos] + f"WHERE {extra} " + sql[insert_pos:]
+        else:
+            sql = sql + f" WHERE {extra}"
+
+    return sql
+
+
 def display_media(video_url: str, img_urls: List[str]):
     """显示视频和图片（修复问题2）"""
     # 显示视频
@@ -338,7 +403,7 @@ def render_architecture_overview():
     with col3:
         st.metric("🧠 多模态模型", "Qwen3-VL", help="Embedding + Reranker 二阶段检索")
     with col4:
-        st.metric("🏷️ 目标检测", "YOLOv8-World", help="开放词汇检测")
+        st.metric("🏷️ 目标检测", "YOLOv26x + VL", help="YOLO检测 + VL语义双引擎")
 
     st.markdown("---")
 
@@ -357,10 +422,13 @@ def render_architecture_overview():
         - **Qwen3-VL Reranker**
           - 二阶段精排
           - 图文相关性重排序
-        - **YOLOv8-World v2**
-          - 开放词汇目标检测
+        - **YOLOv26x + VLLM API**
+          - YOLO 检测 + VL 语义双引擎
           - 18类工程车辆识别
-          - 自动+手动标注
+          - VLLM API 远程推理
+        - **卡尔曼跟踪 (Kalman Tracker)**
+          - 视频多目标跟踪
+          - 轨迹关联 & ID 分配
         - **DeepSeek Chat**
           - NL2SQL 生成
           - 智能问答引擎
@@ -414,8 +482,14 @@ def render_architecture_overview():
                          │
 ┌────────────────────────▼────────────────────────────────────────┐
 │                  AI 模型层 (Model Inference)                     │
-│  Qwen3-VL Embedding + Reranker | YOLOv8-World v2 | DeepSeek     │
-│  ✓ 二阶段检索  ✓ 批量处理  ✓ 混合检索  ✓ 自动标注               │
+│  Qwen3-VL Embedding + Reranker | YOLOv26x + VLLM | DeepSeek    │
+│  ✓ 二阶段检索  ✓ 批量处理  ✓ 混合检索  ✓ 双引擎标注             │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────────────┐
+│                  跟踪分析层 (Tracking & Analysis)                │
+│  卡尔曼跟踪 (Kalman Tracker) | 视频标注 | 轨迹分析              │
+│  ✓ 多目标跟踪  ✓ ID 分配  ✓ 帧间关联  ✓ 视频切片               │
 └────────────────────────┬────────────────────────────────────────┘
                          │
 ┌────────────────────────▼────────────────────────────────────────┐
@@ -452,10 +526,13 @@ def render_architecture_overview():
     with col2:
         st.markdown("""
         **🏷️ 自动标注**
-        - ✅ YOLOv8-World 批量检测
+        - ✅ YOLOv26x 批量检测
+        - ✅ VLLM API 语义分析
+        - ✅ 卡尔曼多目标跟踪
+        - ✅ 视频逐帧标注 & 切片
         - ✅ 手动画框标注
         - ✅ 标注结果编辑
-        - ✅ YOLO格式导出
+        - ✅ YOLO 格式导出
         - ✅ 18类车辆识别
 
         **📊 系统监控**
@@ -503,12 +580,17 @@ def render_architecture_overview():
        - 智能修正并重试（最多3次）
        - 完整链路追踪和日志记录
 
-    4. **一键入库脚本**
+    4. **双引擎自动标注架构**
+       - YOLOv26x 快速检测 + VLLM API 语义验证
+       - 卡尔曼跟踪实现视频多目标轨迹关联
+       - 支持图片批量标注 & 视频逐帧标注
+
+    5. **一键入库脚本**
        - 自动清理、入库、向量化
        - 路径统一转换（URL→本地）
        - 数据完整性校验
 
-    5. **生产级安全防护**
+    6. **生产级安全防护**
        - SQL注入防护
        - 表访问白名单
        - 参数自动清理
@@ -588,6 +670,99 @@ def render_intelligent_qa():
     with col2:
         enable_trace = st.checkbox("启用追踪", value=True, help="记录完整执行过程")
 
+    # ---- 高级筛选 ----
+    config = load_config()
+    db_path = resolve_path(config.get("paths", {}).get("db_path", "poc/data/metadata.db"))
+
+    with st.expander("🎛️ 高级筛选", expanded=False):
+        qa_fc1, qa_fc2, qa_fc3 = st.columns(3)
+        with qa_fc1:
+            qa_filter_event = st.text_input("事件类型", value="", placeholder="如：车辆闯入监控告警", key="qa_event_type")
+        with qa_fc2:
+            qa_filter_alarm_level = st.selectbox(
+                "告警等级", ["", "01"],
+                format_func=lambda x: "全部" if x == "" else f"等级 {x}",
+                key="qa_alarm_level"
+            )
+        with qa_fc3:
+            qa_filter_order_status = st.selectbox(
+                "工单状态", ["", "1", "2", "4", "6"],
+                format_func=lambda x: {"": "全部", "1": "待处理", "2": "处理中", "4": "已完成", "6": "已关闭"}.get(x, x),
+                key="qa_order_status"
+            )
+
+        qa_area_opts = get_area_options(str(db_path))
+        qa_fc4, qa_fc5, qa_fc6 = st.columns(3)
+        with qa_fc4:
+            qa_city_options = [""] + qa_area_opts.get("city", [])
+            qa_filter_city = st.selectbox(
+                "城市", qa_city_options,
+                format_func=lambda x: "全部" if x == "" else x,
+                key="qa_city_select"
+            )
+        with qa_fc5:
+            qa_county_options = [""] + qa_area_opts.get("county", [])
+            qa_filter_county = st.selectbox(
+                "区/县", qa_county_options,
+                format_func=lambda x: "全部" if x == "" else x,
+                key="qa_county_select"
+            )
+        with qa_fc6:
+            qa_town_options = [""] + qa_area_opts.get("town", [])
+            qa_filter_town = st.selectbox(
+                "街道/乡镇", qa_town_options,
+                format_func=lambda x: "全部" if x == "" else x,
+                key="qa_town_select"
+            )
+
+        qa_fc7, qa_fc8, qa_fc9 = st.columns(3)
+        with qa_fc7:
+            qa_filter_device = st.text_input("设备名称", value="", placeholder="模糊匹配", key="qa_device_name")
+        with qa_fc8:
+            qa_filter_algorithm = st.text_input("算法名称", value="", placeholder="模糊匹配", key="qa_algorithm_name")
+        with qa_fc9:
+            qa_filter_confidence = st.slider("置信度范围", 0.0, 1.0, (0.0, 1.0), 0.05, key="qa_confidence_slider")
+
+        st.markdown("**时间过滤**")
+        qa_enable_time = st.checkbox("启用时间过滤", value=False, key="qa_enable_time")
+        if qa_enable_time:
+            qa_tc1, qa_tc2 = st.columns(2)
+            with qa_tc1:
+                qa_start_date = st.date_input("开始日期", format="YYYY/MM/DD", key="qa_start_date")
+                qa_start_time_t = st.time_input("开始时间", value=time(0, 0), key="qa_start_time")
+            with qa_tc2:
+                qa_end_date = st.date_input("结束日期", format="YYYY/MM/DD", key="qa_end_date")
+                qa_end_time_t = st.time_input("结束时间", value=time(23, 59), key="qa_end_time")
+
+    # 收集 UI 筛选条件
+    def _collect_qa_filters() -> Dict:
+        f = {}
+        if qa_filter_event:
+            f["event_type"] = qa_filter_event
+        if qa_filter_alarm_level:
+            f["alarm_level"] = qa_filter_alarm_level
+        if qa_filter_order_status:
+            f["order_status"] = qa_filter_order_status
+        if qa_filter_city:
+            f["city_name"] = qa_filter_city
+        if qa_filter_county:
+            f["county_name"] = qa_filter_county
+        if qa_filter_town:
+            f["town_name"] = qa_filter_town
+        if qa_filter_device:
+            f["device_name"] = qa_filter_device
+        if qa_filter_algorithm:
+            f["algorithm_name"] = qa_filter_algorithm
+        if qa_filter_confidence[0] > 0.0:
+            f["confidence_min"] = qa_filter_confidence[0]
+        if qa_filter_confidence[1] < 1.0:
+            f["confidence_max"] = qa_filter_confidence[1]
+        if qa_enable_time:
+            from datetime import datetime as _dt
+            f["start_time"] = _dt.combine(qa_start_date, qa_start_time_t).strftime("%Y-%m-%d %H:%M:%S")
+            f["end_time"] = _dt.combine(qa_end_date, qa_end_time_t).strftime("%Y-%m-%d %H:%M:%S")
+        return f
+
     # 点击按钮或快速选择自动执行
     should_execute = st.button("🚀 执行查询", type="primary", use_container_width=True)
     if st.session_state.auto_execute and question:
@@ -611,6 +786,50 @@ def render_intelligent_qa():
         # 执行查询
         with st.spinner("🤖 Agent 正在思考..."):
             result = agent.query(question, user_id="streamlit_user")
+
+        # ---- 高级筛选注入：将 UI 筛选条件追加到 Agent 生成的 SQL ----
+        qa_filters = _collect_qa_filters()
+        if qa_filters and result.get("status") == "success" and result.get("sql"):
+            try:
+                # 将参数化 SQL 的 ? 替换为实际值
+                injected_sql = result["sql"]
+                for _p in (result.get("sql_params") or []):
+                    if isinstance(_p, str):
+                        injected_sql = injected_sql.replace("?", f"'{_p}'", 1)
+                    else:
+                        injected_sql = injected_sql.replace("?", str(_p), 1)
+
+                injected_sql = _inject_sql_filters(injected_sql, qa_filters)
+
+                # 重新执行 SQL
+                _cfg = load_config()
+                _db_p = resolve_path(_cfg.get("paths", {}).get("db_path", "poc/data/metadata.db"))
+                _conn = connect_db(_db_p)
+                rows = _conn.execute(injected_sql).fetchall()
+                _conn.close()
+                new_data = [dict(r) for r in rows]
+
+                # 更新 result
+                sql_upper = injected_sql.upper()
+                has_agg = any(fn in sql_upper for fn in ("COUNT(", "SUM(", "AVG("))
+                has_group = "GROUP BY" in sql_upper
+                new_intent = "count" if has_agg and has_group else result.get("intent", "list")
+
+                if new_intent == "count" and len(new_data) == 1 and len(new_data[0]) == 1:
+                    result["answer"] = {"type": "count", "value": list(new_data[0].values())[0],
+                                        "message": f"查询结果：共 {list(new_data[0].values())[0]} 条记录"}
+                else:
+                    result["answer"] = {"type": "list", "value": new_data,
+                                        "message": f"查询结果：返回 {len(new_data)} 条记录"}
+                result["sql"] = injected_sql
+                result["sql_params"] = []
+                result["intent"] = new_intent
+                result["execution_history"] = result.get("execution_history", []) + [{
+                    "sql": injected_sql, "params": [], "result_count": len(new_data), "status": "success"
+                }]
+                st.info(f"🎛️ 已应用高级筛选条件")
+            except Exception as _filter_err:
+                st.warning(f"高级筛选注入失败，使用原始结果: {_filter_err}")
 
         # 将结果存入 session_state，使其在 rerun 后仍可访问
         st.session_state.last_qa_result = result
@@ -1153,6 +1372,7 @@ def render_multimodal_search():
                 manager = get_cached_model_manager(config_hash, config)
                 db = get_cached_lancedb(lancedb_dir)
                 table = db.open_table("embeddings")
+                table_columns = set(table.schema.names)
 
                 # 根据检索模式编码查询
                 if search_mode == "📝 文本检索":
@@ -1224,7 +1444,15 @@ def render_multimodal_search():
                     confidence_max=filters.get("confidence_max"),
                     order_status=filters.get("order_status"),
                     algorithm_name=filters.get("algorithm_name"),
+                    table_columns=table_columns,
                 )
+
+                # 提示用户缺失字段
+                _expected_filter_cols = {"city_name", "county_name", "town_name", "device_name",
+                                         "alarm_level", "confidence_level", "order_status", "algorithm_name"}
+                _missing = _expected_filter_cols - table_columns
+                if _missing:
+                    st.warning(f"向量库缺少字段 {_missing}，相关过滤条件已自动跳过。请重新运行 embed 脚本更新向量库。")
 
                 # 执行检索（混合或纯向量）
                 # Reranker 需要更多候选，先多取一些
@@ -1629,7 +1857,9 @@ def main():
         - 🧠 **DeepSeek** 智能问答
         - 🔍 **LanceDB** 向量数据库
         - 🖼️ **Qwen3-VL** 多模态
-        - 🏷️ **YOLOv8-World** 目标检测
+        - 🏷️ **YOLOv26x** 目标检测
+        - 🎯 **VLLM API** 语义分析
+        - 📹 **Kalman Tracker** 多目标跟踪
         - 🗄️ **SQLite** 结构化存储
         - 🎨 **Streamlit** 交互界面
         - ⚡ **CUDA** GPU加速
