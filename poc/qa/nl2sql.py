@@ -1,3 +1,4 @@
+import calendar
 import json
 import os
 import re
@@ -40,18 +41,36 @@ def _parse_top_k(text: str, default: int = 20) -> int:
 
 
 def _parse_time_range(text: str) -> Tuple[Optional[str], Optional[str]]:
+    # 1) 精确日期范围: 2025-01-01 ~ 2025-01-31
     date_matches = re.findall(r"\d{4}-\d{2}-\d{2}", text)
     if len(date_matches) >= 2:
-        return date_matches[0], date_matches[1]
+        return date_matches[0] + " 00:00:00", date_matches[1] + " 23:59:59"
 
+    # 2) "近N天/小时"
     match = re.search(r"近(\d+)(天|小时)", text)
     if match:
         value = int(match.group(1))
         unit = match.group(2)
-        end = datetime.now()  # 使用本地时间，而不是UTC时间
+        end = datetime.now()
         start = end - (timedelta(days=value) if unit == "天" else timedelta(hours=value))
-        # 使用空格格式而不是ISO格式的T，以匹配数据库中的时间格式
         return start.strftime("%Y-%m-%d %H:%M:%S"), end.strftime("%Y-%m-%d %H:%M:%S")
+
+    # 3) "YYYY年M月" — 整月范围
+    match = re.search(r"(\d{4})\s*年\s*(\d{1,2})\s*月", text)
+    if match:
+        year, month = int(match.group(1)), int(match.group(2))
+        _, last_day = calendar.monthrange(year, month)
+        return f"{year}-{month:02d}-01 00:00:00", f"{year}-{month:02d}-{last_day} 23:59:59"
+
+    # 4) "最近N天"
+    match = re.search(r"最近(\d+)(天|小时)", text)
+    if match:
+        value = int(match.group(1))
+        unit = match.group(2)
+        end = datetime.now()
+        start = end - (timedelta(days=value) if unit == "天" else timedelta(hours=value))
+        return start.strftime("%Y-%m-%d %H:%M:%S"), end.strftime("%Y-%m-%d %H:%M:%S")
+
     return None, None
 
 
@@ -77,27 +96,54 @@ def _parse_intent(text: str) -> str:
     return "list"
 
 
+def _parse_group_by(text: str) -> Optional[str]:
+    """解析 GROUP BY 维度"""
+    group_map = {
+        "街道": ("e.town_name", "街道"),
+        "乡镇": ("e.town_name", "街道"),
+        "区": ("e.county_name", "区县"),
+        "县": ("e.county_name", "区县"),
+        "设备": ("e.device_name", "设备"),
+        "算法": ("e.algorithm_name", "算法"),
+        "类型": ("e.event_type", "告警类型"),
+        "告警类型": ("e.event_type", "告警类型"),
+    }
+    for keyword, (col, alias) in group_map.items():
+        if f"按{keyword}" in text or f"各{keyword}" in text:
+            return col, alias
+    return None
+
+
 def _parse_area_name(text: str) -> Tuple[Optional[str], Optional[str]]:
     """从问题中提取地区名称（街道/乡镇、区/县）
 
-    Returns:
-        (town_name, county_name)
+    排除动词前缀（查询、统计、查看等），只提取地名本身。
     """
-    import re
     town_name = None
     county_name = None
 
-    # 匹配 "XX街道" / "XX镇" / "XX乡"
-    m = re.search(r"([\u4e00-\u9fa5]{2,6}(?:街道|镇|乡))", text)
+    # 匹配 "XX街道" / "XX镇" / "XX乡"，排除前面的动词
+    m = re.search(r"(?:查询|查看|统计|搜索|查|找)?([\u4e00-\u9fa5]{2,4}(?:街道|镇|乡))", text)
     if m:
         town_name = m.group(1)
 
     # 匹配 "XX区" / "XX县"
-    m = re.search(r"([\u4e00-\u9fa5]{2,6}(?:区|县))", text)
+    m = re.search(r"(?:查询|查看|统计|搜索|查|找)?([\u4e00-\u9fa5]{2,4}(?:区|县))", text)
     if m:
         county_name = m.group(1)
 
     return town_name, county_name
+
+
+def _parse_confidence(text: str) -> Optional[float]:
+    """解析置信度条件，如 '置信度大于0.9' '置信度>0.8'"""
+    m = re.search(r"置信度\s*(?:大于|>|>=|高于)\s*([0-9.]+)", text)
+    if m:
+        return float(m.group(1))
+    m = re.search(r"高置信", text)
+    if m:
+        return 0.9  # 默认阈值
+    return None
 
 
 def parse_question(text: str) -> QueryPlan:
@@ -112,6 +158,8 @@ def parse_question(text: str) -> QueryPlan:
     top_k = _parse_top_k(text)
     lat, lon, radius_km = _parse_location(text)
     town_name, county_name = _parse_area_name(text)
+    confidence_min = _parse_confidence(text)
+    group_by_result = _parse_group_by(text)
 
     where = []
     params: List = []
@@ -130,15 +178,23 @@ def parse_question(text: str) -> QueryPlan:
     if county_name:
         where.append("e.county_name LIKE ?")
         params.append(f"%{county_name}%")
+    if confidence_min is not None:
+        where.append("e.confidence_level >= ?")
+        params.append(confidence_min)
 
     where_sql = " WHERE " + " AND ".join(where) if where else ""
 
     if intent == "count":
+        # 动态 GROUP BY
+        if group_by_result:
+            group_col, group_alias = group_by_result
+        else:
+            group_col, group_alias = "e.event_type", "告警类型"
         sql = (
-            "SELECT e.event_type AS 告警类型, COUNT(*) AS 数量 FROM events e "
+            f"SELECT {group_col} AS {group_alias}, COUNT(*) AS 数量 FROM events e "
             "LEFT JOIN assets a ON e.asset_id = a.asset_id"
             + where_sql
-            + " GROUP BY e.event_type ORDER BY 数量 DESC"
+            + f" GROUP BY {group_col} ORDER BY 数量 DESC"
         )
     else:
         sql = (
@@ -163,6 +219,7 @@ def parse_question(text: str) -> QueryPlan:
         "top_k": top_k,
         "town_name": town_name,
         "county_name": county_name,
+        "confidence_min": confidence_min,
     }
 
     return QueryPlan(intent=intent, sql=sql, params=params, filters=filters)
