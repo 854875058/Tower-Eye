@@ -298,6 +298,10 @@ def _build_nl2sql_system_prompt(schema_prompt: str) -> str:
         "3. **地名后缀识别**：街道、镇、乡、区、县、市、省 — 这些是地名标志。\n"
         "4. **时间表达式**：'最近N天'、'本月'、'今天' 等需要转换为具体日期范围。\n"
         "5. **事件类型**：从用户描述中匹配 event_type 字段的枚举值。\n\n"
+        "# intent 分类规则（必须遵守）\n"
+        "- **count**：用户问'统计'、'数量'、'多少'、'分布'、'TOP'、'排名'，或 SQL 包含 COUNT/SUM/AVG + GROUP BY\n"
+        "- **list**：用户问'查询'、'查看'、'详细信息'、'明细'，需要返回逐行记录\n"
+        "- 例如：'按街道统计告警数量' → intent=count；'查询最近20条告警' → intent=list\n\n"
         "# SQL 生成规则\n"
         "1. 两个表通过 `events.asset_id = assets.asset_id` 关联（LEFT JOIN）。\n"
         "2. 时间字段 `alarm_time` 格式为 `YYYY-MM-DD HH:MM:SS`，时间过滤用字符串比较即可。\n"
@@ -341,34 +345,44 @@ def _call_deepseek_nl2sql(question: str, config: Dict, fallback: QueryPlan) -> Q
     return QueryPlan(intent=intent, sql=sql, params=params, filters=merged_filters)
 
 
+def _auto_correct_intent(plan: QueryPlan) -> QueryPlan:
+    """根据 SQL 内容自动纠正 intent。
+    如果 SQL 包含聚合函数 + GROUP BY，intent 应该是 count 而非 list。
+    """
+    sql_upper = (plan.sql or "").upper()
+    has_aggregate = any(fn in sql_upper for fn in ("COUNT(", "SUM(", "AVG("))
+    has_group_by = "GROUP BY" in sql_upper
+    if has_aggregate and has_group_by and plan.intent != "count":
+        print(f"[auto_correct_intent] SQL 包含聚合+GROUP BY，intent 从 '{plan.intent}' 纠正为 'count'")
+        plan.intent = "count"
+    return plan
+
+
 def build_query_plan(text: str, config: Dict) -> QueryPlan:
     """构建查询计划: 根据配置选择规则引擎或 DeepSeek LLM。"""
 
     llm_cfg = config.get("llm", {})
     if not llm_cfg.get("enabled", False):
         print("[build_query_plan] LLM 未启用，使用规则引擎")
-        return parse_question(text)
+        return _auto_correct_intent(parse_question(text))
 
     mode = llm_cfg.get("mode", "rule")
     rule_plan = parse_question(text)
 
     if mode == "rule":
-        return rule_plan
+        return _auto_correct_intent(rule_plan)
 
     if mode in {"llm", "hybrid"}:
         try:
             print(f"[build_query_plan] 调用 LLM ({mode} 模式)...")
             llm_plan = _call_deepseek_nl2sql(text, config, rule_plan)
             print(f"[build_query_plan] LLM 调用成功, intent={llm_plan.intent}")
-            if mode == "llm":
-                return llm_plan
-            # hybrid: 默认优先采用 LLM 结果, 如需更保守可以在此加入简单校验
-            return llm_plan
+            return _auto_correct_intent(llm_plan)
         except Exception as e:
             print(f"[build_query_plan] ⚠️ LLM 调用失败，降级为规则引擎: {e}")
-            return rule_plan
+            return _auto_correct_intent(rule_plan)
 
-    return rule_plan
+    return _auto_correct_intent(rule_plan)
 
 
 def call_llm_fix_sql(question: str, failed_sql: str, error_msg: str,
@@ -421,4 +435,4 @@ def call_llm_fix_sql(question: str, failed_sql: str, error_msg: str,
     params = obj.get("params", [])
     filters = obj.get("filters", {})
 
-    return QueryPlan(intent=intent, sql=sql, params=params, filters=filters)
+    return _auto_correct_intent(QueryPlan(intent=intent, sql=sql, params=params, filters=filters))
