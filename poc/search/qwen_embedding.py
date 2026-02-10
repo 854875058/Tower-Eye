@@ -48,6 +48,15 @@ class Qwen3VLEmbedding:
             if not image_path:
                 raise ValueError("纯文本编码需要提供 dummy_image_path 或在初始化时设置 dummy_image")
 
+            # 如果是目录，自动选取第一张图片作为占位图
+            if os.path.isdir(image_path):
+                import glob
+                images = glob.glob(os.path.join(image_path, "*.jpg")) + \
+                         glob.glob(os.path.join(image_path, "*.png"))
+                if not images:
+                    raise ValueError(f"占位图像目录为空: {image_path}")
+                image_path = images[0]
+
             # API 要求必须提供 image_path
             payload = {
                 "text": text,
