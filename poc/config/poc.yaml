@@ -64,7 +64,7 @@ llm:
   model: "deepseek-chat"
   api_key_env: "DEEPSEEK_API_KEY"
   mode: "hybrid"  # options: "rule", "llm", "hybrid"
-  api_key: "sk-db6292d5ea9d470889b63392c4a4abde"   # 可选: 测试环境可直接在此填写 DeepSeek 密钥
+  api_key: "sk-e52ae18d0c0b47b0a6b1a9f242a3b6ea"   # 可选: 测试环境可直接在此填写 DeepSeek 密钥
 
 # Agent 配置
 agent:

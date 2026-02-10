@@ -289,7 +289,16 @@ def _build_nl2sql_system_prompt(schema_prompt: str) -> str:
         "你是一个专业的 NL2SQL 助手，负责将中文自然语言问题转换为 SQLite SQL 查询。\n\n"
         "# 数据库 Schema\n"
         f"{schema_prompt}\n\n"
-        "# 关键规则\n"
+        "# 实体提取规则（非常重要）\n"
+        "在生成 SQL 前，你必须先从用户问题中正确提取实体：\n"
+        "1. **区分量词和地名**：'20条'中的'条'是量词，不是地名的一部分。\n"
+        "   - 正确：'查询最近20条新开口镇的告警' → town_name='新开口镇', LIMIT 20\n"
+        "   - 错误：town_name='条新开口镇'\n"
+        "2. **常见量词**：条、个、件、次、项、篇、张 — 这些紧跟数字时是数量单位，不是地名前缀。\n"
+        "3. **地名后缀识别**：街道、镇、乡、区、县、市、省 — 这些是地名标志。\n"
+        "4. **时间表达式**：'最近N天'、'本月'、'今天' 等需要转换为具体日期范围。\n"
+        "5. **事件类型**：从用户描述中匹配 event_type 字段的枚举值。\n\n"
+        "# SQL 生成规则\n"
         "1. 两个表通过 `events.asset_id = assets.asset_id` 关联（LEFT JOIN）。\n"
         "2. 时间字段 `alarm_time` 格式为 `YYYY-MM-DD HH:MM:SS`，时间过滤用字符串比较即可。\n"
         "3. SQL 中的值必须用 `?` 占位符（参数化查询），对应的值放在 params 数组中。\n"
@@ -297,7 +306,7 @@ def _build_nl2sql_system_prompt(schema_prompt: str) -> str:
         "5. 如果是统计查询（intent=count），建议带 GROUP BY 分组维度和 ORDER BY 数量 DESC。\n"
         "6. 只允许 SELECT 查询，禁止 INSERT/UPDATE/DELETE/DROP 等写操作。\n"
         "7. 列表查询默认 LIMIT 20，除非用户指定了数量。\n"
-        "8. town_name 匹配用 LIKE '%关键词%' 模糊匹配。\n\n"
+        "8. town_name 匹配用 LIKE '%关键词%' 模糊匹配，关键词只包含纯地名。\n\n"
         "# 输出格式\n"
         "严格输出一个 JSON 对象，不要包含任何多余文字、注释或 markdown 代码块：\n"
         '{"intent": "count|list", "sql": "...", "params": [...], "filters": {...}}\n'
@@ -337,6 +346,7 @@ def build_query_plan(text: str, config: Dict) -> QueryPlan:
 
     llm_cfg = config.get("llm", {})
     if not llm_cfg.get("enabled", False):
+        print("[build_query_plan] LLM 未启用，使用规则引擎")
         return parse_question(text)
 
     mode = llm_cfg.get("mode", "rule")
@@ -347,12 +357,15 @@ def build_query_plan(text: str, config: Dict) -> QueryPlan:
 
     if mode in {"llm", "hybrid"}:
         try:
+            print(f"[build_query_plan] 调用 LLM ({mode} 模式)...")
             llm_plan = _call_deepseek_nl2sql(text, config, rule_plan)
+            print(f"[build_query_plan] LLM 调用成功, intent={llm_plan.intent}")
             if mode == "llm":
                 return llm_plan
             # hybrid: 默认优先采用 LLM 结果, 如需更保守可以在此加入简单校验
             return llm_plan
-        except Exception:
+        except Exception as e:
+            print(f"[build_query_plan] ⚠️ LLM 调用失败，降级为规则引擎: {e}")
             return rule_plan
 
     return rule_plan
