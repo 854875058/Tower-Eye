@@ -71,17 +71,20 @@
 
 **Bug 现象**：智能问答页面的"查看明细"和"您可能还想了解"追问按钮点击后闪退，不会自动执行查询。
 
-**根因**：这些按钮渲染在 `if should_execute and question:` 条件块内部。Streamlit 中任何按钮点击都会触发整个脚本从头 rerun，而 rerun 时 `should_execute=False`（执行查询按钮未被点击），导致条件块被跳过 → 按钮不渲染 → 点击事件丢失 → 页面闪退。
+**根因（两层）**：
+1. **按钮在条件块内部**：按钮渲染在 `if should_execute:` 块内，点击触发 rerun 时条件不成立 → 按钮不渲染 → 点击事件丢失 → 闪退
+2. **widget key 修改时机错误**：`st.session_state.question_input` 不能在 `st.text_input(key="question_input")` 渲染**之后**修改，否则抛出 `StreamlitAPIException`
 
 **修复方案**：
-1. 查询执行后将结果存入 `st.session_state.last_qa_result`
-2. 结果渲染代码移到 `if should_execute:` 块**外部**，从 `session_state` 读取
-3. 按钮点击时设置 `st.session_state.question_input = 新问题` + `auto_execute = True`，再 `st.rerun()`
+1. 查询结果存入 `st.session_state.last_qa_result`，结果渲染移到条件块**外部**
+2. 按钮处理器只设 `pending_question` + `auto_execute = True`，**不直接设** `question_input`
+3. 在函数顶部（text_input 渲染**之前**）统一将 `pending_question` 同步到 `question_input`
 
 **规则总结**：
-- Streamlit 中需要交互的按钮（会触发后续操作的），**禁止**放在一次性条件块内部
+- Streamlit 中需要交互的按钮，**禁止**放在一次性条件块内部
 - 需要跨 rerun 保留的数据必须存入 `st.session_state`
-- 动态更新 `st.text_input` 的值时，用 `st.session_state[widget_key]` 而非 `value=` 参数
+- **严禁在 widget 渲染后修改其 `st.session_state[widget_key]`**，只能在渲染前设置
+- 动态更新 widget 值的正确模式：用中间变量（如 `pending_question`）传递，在 widget 渲染前同步
 
 ---
 
