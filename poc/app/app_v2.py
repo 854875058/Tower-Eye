@@ -833,9 +833,8 @@ def render_intelligent_qa():
 
         # 将结果存入 session_state，使其在 rerun 后仍可访问
         st.session_state.last_qa_result = result
-        # 清除旧的 SQL 编辑器内容，让新查询的 SQL 能正确显示
-        if 'sql_editor' in st.session_state:
-            del st.session_state['sql_editor']
+        # 递增 SQL 编辑器版本号，强制 Streamlit 创建全新 widget（避免旧值缓存）
+        st.session_state.sql_editor_version = st.session_state.get("sql_editor_version", 0) + 1
 
     # ---- 结果渲染：从 session_state 读取，独立于 should_execute ----
     # 这样查看明细/追问按钮点击触发 rerun 时，结果仍然可见，按钮事件不会丢失
@@ -883,7 +882,7 @@ def render_intelligent_qa():
                     "可直接编辑 SQL 后重新执行",
                     value=display_sql,
                     height=120,
-                    key="sql_editor"
+                    key=f"sql_editor_v{st.session_state.get('sql_editor_version', 0)}"
                 )
                 if sql_params:
                     st.caption(f"原始参数: {sql_params}")
