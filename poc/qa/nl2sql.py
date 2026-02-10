@@ -72,9 +72,32 @@ def _parse_location(text: str) -> Tuple[Optional[float], Optional[float], Option
 
 
 def _parse_intent(text: str) -> str:
-    if any(k in text for k in ["多少", "统计", "数量", "总数"]):
+    if any(k in text for k in ["多少", "统计", "数量", "总数", "分布", "TOP", "top", "排名"]):
         return "count"
     return "list"
+
+
+def _parse_area_name(text: str) -> Tuple[Optional[str], Optional[str]]:
+    """从问题中提取地区名称（街道/乡镇、区/县）
+
+    Returns:
+        (town_name, county_name)
+    """
+    import re
+    town_name = None
+    county_name = None
+
+    # 匹配 "XX街道" / "XX镇" / "XX乡"
+    m = re.search(r"([\u4e00-\u9fa5]{2,6}(?:街道|镇|乡))", text)
+    if m:
+        town_name = m.group(1)
+
+    # 匹配 "XX区" / "XX县"
+    m = re.search(r"([\u4e00-\u9fa5]{2,6}(?:区|县))", text)
+    if m:
+        county_name = m.group(1)
+
+    return town_name, county_name
 
 
 def parse_question(text: str) -> QueryPlan:
@@ -88,6 +111,7 @@ def parse_question(text: str) -> QueryPlan:
     start_time, end_time = _parse_time_range(text)
     top_k = _parse_top_k(text)
     lat, lon, radius_km = _parse_location(text)
+    town_name, county_name = _parse_area_name(text)
 
     where = []
     params: List = []
@@ -100,6 +124,12 @@ def parse_question(text: str) -> QueryPlan:
     if end_time:
         where.append("e.alarm_time <= ?")
         params.append(end_time)
+    if town_name:
+        where.append("e.town_name LIKE ?")
+        params.append(f"%{town_name}%")
+    if county_name:
+        where.append("e.county_name LIKE ?")
+        params.append(f"%{county_name}%")
 
     where_sql = " WHERE " + " AND ".join(where) if where else ""
 
@@ -131,6 +161,8 @@ def parse_question(text: str) -> QueryPlan:
         "lon": lon,
         "radius_km": radius_km,
         "top_k": top_k,
+        "town_name": town_name,
+        "county_name": county_name,
     }
 
     return QueryPlan(intent=intent, sql=sql, params=params, filters=filters)

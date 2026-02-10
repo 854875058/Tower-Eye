@@ -689,12 +689,15 @@ def render_intelligent_qa():
                 # 统计信息
                 st.info(f"共返回 **{len(df)}** 条记录")
 
+                # 保留原始列名用于后续逻辑
+                raw_columns = list(df.columns)
+
                 # 美化列名
                 df.columns = [col.replace('_', ' ').title() if isinstance(col, str) else col for col in df.columns]
 
                 st.dataframe(df, use_container_width=True)
 
-                # 自动展示图片（如果结果包含图片路径列）
+                # ---- 自动展示图片 ----
                 img_col = None
                 for col in df.columns:
                     col_lower = str(col).lower()
@@ -704,7 +707,6 @@ def render_intelligent_qa():
 
                 if img_col and len(df) > 0:
                     st.markdown("#### 🖼️ 图片预览")
-                    # 每行最多3张图
                     display_rows = min(len(df), 9)
                     for row_start in range(0, display_rows, 3):
                         row_end = min(row_start + 3, display_rows)
@@ -730,10 +732,68 @@ def render_intelligent_qa():
                                 if not img_found:
                                     st.caption(f"图片不存在: {Path(img_path_str).name}")
 
+                # ---- 智能追问：猜测下一步 ----
+                st.markdown("---")
+                st.markdown("#### 💡 您可能还想了解")
+                _render_followup_suggestions(result, answer_data, raw_columns)
+
             elif isinstance(answer_data, int):
                 st.metric("统计结果", f"{answer_data:,}")
+                # 追问
+                st.markdown("---")
+                st.markdown("#### 💡 您可能还想了解")
+                _render_followup_suggestions(result, answer_data, [])
             else:
                 st.json(result["answer"])
+
+
+def _render_followup_suggestions(result, answer_data, raw_columns):
+    """根据当前查询结果，智能推荐下一步追问按钮"""
+    intent = result.get("intent", "")
+    original_q = result.get("question", "")
+    filters = result.get("filters") or {}
+
+    suggestions = []
+
+    if intent == "count":
+        # 统计查询 → 推荐查看具体告警明细
+        if isinstance(answer_data, list) and len(answer_data) > 0:
+            # GROUP BY 结果 — 为每个分组提供"查看详情"
+            first_row = answer_data[0]
+            # 找到分组键（非数字列）
+            group_key = None
+            for k, v in first_row.items():
+                if not isinstance(v, (int, float)):
+                    group_key = k
+                    break
+            if group_key:
+                # 取前 4 个分组作为追问
+                for row in answer_data[:4]:
+                    group_val = row.get(group_key, "")
+                    if group_val:
+                        suggestions.append(
+                            f"查询最近20条{group_val}的详细信息"
+                        )
+        else:
+            # 单数字 count
+            suggestions.append(f"查询这些告警的详细信息（含图片）")
+
+        if not suggestions:
+            suggestions.append("查询最近20条告警的详细信息")
+
+    else:
+        # 列表查询 → 推荐统计维度
+        suggestions.append("按告警类型统计数量")
+        suggestions.append("按街道统计告警分布")
+        suggestions.append("按设备统计告警次数TOP10")
+
+    # 渲染按钮
+    btn_cols = st.columns(min(len(suggestions), 4))
+    for i, s in enumerate(suggestions[:4]):
+        if btn_cols[i].button(f"👉 {s[:18]}{'...' if len(s) > 18 else ''}", key=f"followup_{i}"):
+            st.session_state.question_input = s
+            st.session_state.auto_execute = True
+            st.rerun()
 
 
 def render_multimodal_search():
