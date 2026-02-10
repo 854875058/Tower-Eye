@@ -205,6 +205,25 @@ def load_config() -> Dict:
     return load_yaml("poc/config/poc.yaml")
 
 
+@st.cache_data(ttl=600)
+def get_area_options(db_path_str: str) -> Dict[str, List[str]]:
+    """从数据库查询省/市/区/街道的 DISTINCT 值，用于下拉选择框"""
+    from poc.pipeline.utils import connect_db
+    db_path = Path(db_path_str)
+    if not db_path.exists():
+        return {"city": [], "county": [], "town": []}
+    conn = connect_db(db_path)
+    result = {}
+    for col in ["city_name", "county_name", "town_name"]:
+        rows = conn.execute(
+            f"SELECT DISTINCT {col} FROM events WHERE {col} IS NOT NULL AND {col} != '' ORDER BY {col}"
+        ).fetchall()
+        key = col.replace("_name", "")
+        result[key] = [r[0] for r in rows]
+    conn.close()
+    return result
+
+
 def db_stats(db_path: Path) -> Dict[str, int]:
     if not Path(db_path).exists():
         return {"assets": 0, "events": 0, "detections": 0, "annotations": 0, "embeddings": 0}
@@ -946,14 +965,30 @@ def render_multimodal_search():
                 format_func=lambda x: {"": "全部", "1": "待处理", "2": "处理中", "4": "已完成", "6": "已关闭"}.get(x, x)
             )
 
-        # 第二行：城市 + 区县 + 街道
+        # 第二行：城市 + 区县 + 街道（下拉选择，可搜索）
+        area_opts = get_area_options(str(db_path))
         fc4, fc5, fc6 = st.columns(3)
         with fc4:
-            filter_city = st.text_input("城市", value="", placeholder="如：厦门市")
+            city_options = [""] + area_opts.get("city", [])
+            filter_city = st.selectbox(
+                "城市", city_options,
+                format_func=lambda x: "全部" if x == "" else x,
+                key="filter_city_select"
+            )
         with fc5:
-            filter_county = st.text_input("区/县", value="", placeholder="如：集美区")
+            county_options = [""] + area_opts.get("county", [])
+            filter_county = st.selectbox(
+                "区/县", county_options,
+                format_func=lambda x: "全部" if x == "" else x,
+                key="filter_county_select"
+            )
         with fc6:
-            filter_town = st.text_input("街道/乡镇", value="", placeholder="如：东孚街道")
+            town_options = [""] + area_opts.get("town", [])
+            filter_town = st.selectbox(
+                "街道/乡镇", town_options,
+                format_func=lambda x: "全部" if x == "" else x,
+                key="filter_town_select"
+            )
 
         # 第三行：设备名称 + 算法名称 + 置信度
         fc7, fc8, fc9 = st.columns(3)

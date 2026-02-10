@@ -118,17 +118,21 @@ def _parse_area_name(text: str) -> Tuple[Optional[str], Optional[str]]:
     """从问题中提取地区名称（街道/乡镇、区/县）
 
     排除动词前缀（查询、统计、查看等），只提取地名本身。
+    先移除数量词表达式（如"20条"、"10个"），防止量词被误识别为地名前缀。
     """
     town_name = None
     county_name = None
 
+    # 先移除数量词表达式，避免"20条"的"条"被错误地包含到地名中
+    cleaned = re.sub(r'\d+\s*[条个件次项篇张]', '', text)
+
     # 匹配 "XX街道" / "XX镇" / "XX乡"，排除前面的动词
-    m = re.search(r"(?:查询|查看|统计|搜索|查|找)?([\u4e00-\u9fa5]{2,4}(?:街道|镇|乡))", text)
+    m = re.search(r"(?:查询|查看|统计|搜索|查|找)?([\u4e00-\u9fa5]{2,4}(?:街道|镇|乡))", cleaned)
     if m:
         town_name = m.group(1)
 
     # 匹配 "XX区" / "XX县"
-    m = re.search(r"(?:查询|查看|统计|搜索|查|找)?([\u4e00-\u9fa5]{2,4}(?:区|县))", text)
+    m = re.search(r"(?:查询|查看|统计|搜索|查|找)?([\u4e00-\u9fa5]{2,4}(?:区|县))", cleaned)
     if m:
         county_name = m.group(1)
 
