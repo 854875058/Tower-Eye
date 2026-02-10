@@ -230,13 +230,30 @@ def format_answer_node(state: AgentState) -> AgentState:
     print(f"[format_answer_node] 格式化答案")
 
     if state["intent"] == "count":
-        # 统计类查询
-        count = state["sql_result"][0]["cnt"] if state["sql_result"] else 0
-        state["final_answer"] = {
-            "type": "count",
-            "value": count,
-            "message": f"查询结果：共 {count} 条记录"
-        }
+        # 统计类查询 — 兼容 cnt / 数量 / COUNT(*) 等各种别名
+        if state["sql_result"]:
+            first_row = state["sql_result"][0]
+            # 如果只有一行一列，直接取值
+            if len(state["sql_result"]) == 1 and len(first_row) == 1:
+                count = list(first_row.values())[0]
+                state["final_answer"] = {
+                    "type": "count",
+                    "value": count,
+                    "message": f"查询结果：共 {count} 条记录"
+                }
+            else:
+                # 分组统计，返回列表（如 GROUP BY 结果）
+                state["final_answer"] = {
+                    "type": "list",
+                    "value": state["sql_result"],
+                    "message": f"查询结果：返回 {len(state['sql_result'])} 条分组统计"
+                }
+        else:
+            state["final_answer"] = {
+                "type": "count",
+                "value": 0,
+                "message": "查询结果：共 0 条记录"
+            }
     else:
         # 列表类查询
         state["final_answer"] = {

@@ -532,10 +532,10 @@ def render_intelligent_qa():
     """)
 
     # 初始化 session_state
-    if 'selected_question' not in st.session_state:
-        st.session_state.selected_question = ""
     if 'auto_execute' not in st.session_state:
         st.session_state.auto_execute = False
+    if 'question_input' not in st.session_state:
+        st.session_state.question_input = ""
 
     # 预设问题（放在输入框前面）
     st.markdown("**快速选择：**")
@@ -549,7 +549,7 @@ def render_intelligent_qa():
     cols = st.columns(len(preset_questions))
     for i, q in enumerate(preset_questions):
         if cols[i].button(f"📝 {q[:12]}...", key=f"preset_{i}"):
-            st.session_state.selected_question = q
+            st.session_state.question_input = q
             st.session_state.auto_execute = True
             st.rerun()
 
@@ -558,12 +558,9 @@ def render_intelligent_qa():
     with col1:
         question = st.text_input(
             "请输入您的问题",
-            value=st.session_state.selected_question,
             placeholder="例如：按街道统计最近30天各类告警数量",
             key="question_input"
         )
-        if question != st.session_state.selected_question:
-            st.session_state.selected_question = question
     with col2:
         enable_trace = st.checkbox("启用追踪", value=True, help="记录完整执行过程")
 
