@@ -697,40 +697,45 @@ def render_intelligent_qa():
 
                 st.dataframe(df, use_container_width=True)
 
-                # ---- 自动展示图片 ----
+                # ---- 自动展示图片和视频 ----
                 img_col = None
+                video_col = None
                 for col in df.columns:
                     col_lower = str(col).lower()
-                    if 'img' in col_lower or ('path' in col_lower and 'video' not in col_lower) or 'file_path' in col_lower or '图片' in col_lower:
+                    if not img_col and ('img' in col_lower or ('图片' in col_lower) or (col_lower in ('file path', 'file_path') or ('path' in col_lower and 'video' not in col_lower))):
                         img_col = col
-                        break
+                    if not video_col and ('video' in col_lower or '视频' in col_lower):
+                        video_col = col
 
-                if img_col and len(df) > 0:
-                    st.markdown("#### 🖼️ 图片预览")
+                if (img_col or video_col) and len(df) > 0:
+                    st.markdown("#### 🖼️ 媒体预览")
                     display_rows = min(len(df), 9)
                     for row_start in range(0, display_rows, 3):
                         row_end = min(row_start + 3, display_rows)
-                        img_cols = st.columns(row_end - row_start)
+                        media_cols = st.columns(row_end - row_start)
                         for j, row_idx in enumerate(range(row_start, row_end)):
-                            img_val = df.iloc[row_idx][img_col]
-                            if not img_val or pd.isna(img_val):
-                                continue
-                            img_path_str = str(img_val)
-                            possible_paths = [
-                                Path(img_path_str),
-                                Path("warning_img") / Path(img_path_str).name,
-                                ROOT / "warning_img" / Path(img_path_str).name,
-                                ROOT / img_path_str,
-                            ]
-                            with img_cols[j]:
-                                img_found = False
-                                for p in possible_paths:
-                                    if p.exists():
-                                        st.image(str(p), caption=f"第{row_idx+1}条", use_container_width=True)
-                                        img_found = True
-                                        break
-                                if not img_found:
-                                    st.caption(f"图片不存在: {Path(img_path_str).name}")
+                            with media_cols[j]:
+                                # 视频
+                                if video_col:
+                                    vid_val = df.iloc[row_idx][video_col]
+                                    if vid_val and not pd.isna(vid_val):
+                                        vid_str = str(vid_val)
+                                        for vp in [Path(vid_str), Path("warning_file") / Path(vid_str).name, ROOT / "warning_file" / Path(vid_str).name, ROOT / vid_str]:
+                                            if vp.exists():
+                                                try:
+                                                    st.video(vp.read_bytes())
+                                                except Exception:
+                                                    pass
+                                                break
+                                # 图片
+                                if img_col:
+                                    img_val = df.iloc[row_idx][img_col]
+                                    if img_val and not pd.isna(img_val):
+                                        img_path_str = str(img_val)
+                                        for p in [Path(img_path_str), Path("warning_img") / Path(img_path_str).name, ROOT / "warning_img" / Path(img_path_str).name, ROOT / img_path_str]:
+                                            if p.exists():
+                                                st.image(str(p), caption=f"第{row_idx+1}条", use_container_width=True)
+                                                break
 
                 # ---- 智能追问：猜测下一步 ----
                 st.markdown("---")

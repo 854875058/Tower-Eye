@@ -146,7 +146,7 @@ def parse_question(text: str) -> QueryPlan:
             "e.address AS 地址, e.town_name AS 街道, "
             "e.device_name AS 设备名称, e.algorithm_name AS 算法, "
             "e.order_status AS 工单状态, e.confidence_level AS 置信度, "
-            "a.file_path AS 图片路径 "
+            "a.file_path AS 图片路径, e.video_path AS 视频路径 "
             "FROM events e LEFT JOIN assets a ON e.asset_id = a.asset_id"
             + where_sql
             + " ORDER BY e.alarm_time DESC LIMIT ?"
