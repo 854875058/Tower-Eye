@@ -555,7 +555,6 @@ def render_intelligent_qa():
     for i, q in enumerate(preset_questions):
         if cols[i].button(f"📝 {q[:12]}...", key=f"preset_{i}"):
             st.session_state.pending_question = q
-            st.session_state.question_input = q
             st.session_state.auto_execute = True
             st.rerun()
 
@@ -722,6 +721,13 @@ def render_intelligent_qa():
                             break
                     if group_key:
                         st.markdown("#### 🔎 查看明细")
+
+                        # 从原始问题提取时间/地点条件，传递给明细查询
+                        import re
+                        original_q = result.get("question", "")
+                        time_match = re.search(r'(最近\d+[天小时月年周]|本[月周年日]|今[天年月])', original_q)
+                        time_cond = time_match.group(1) + "内" if time_match else ""
+
                         # 每行4个按钮
                         items = [(row.get(group_key, ""), row) for row in answer_data if row.get(group_key)]
                         for row_start in range(0, len(items), 4):
@@ -734,9 +740,8 @@ def render_intelligent_qa():
                                     f"📋 {group_val} {count_str}",
                                     key=f"detail_{row_start + j}"
                                 ):
-                                    new_q = f"查询最近20条{group_val}的详细信息"
+                                    new_q = f"查询{time_cond}最近20条{group_val}的详细信息"
                                     st.session_state.pending_question = new_q
-                                    st.session_state.question_input = new_q
                                     st.session_state.auto_execute = True
                                     st.rerun()
 
@@ -840,7 +845,6 @@ def _render_followup_suggestions(result, answer_data, raw_columns):
     for i, s in enumerate(suggestions[:4]):
         if btn_cols[i].button(f"👉 {s[:18]}{'...' if len(s) > 18 else ''}", key=f"followup_{i}"):
             st.session_state.pending_question = s
-            st.session_state.question_input = s
             st.session_state.auto_execute = True
             st.rerun()
 
