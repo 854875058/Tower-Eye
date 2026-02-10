@@ -594,6 +594,13 @@ def render_intelligent_qa():
         with st.spinner("🤖 Agent 正在思考..."):
             result = agent.query(question, user_id="streamlit_user")
 
+        # 将结果存入 session_state，使其在 rerun 后仍可访问
+        st.session_state.last_qa_result = result
+
+    # ---- 结果渲染：从 session_state 读取，独立于 should_execute ----
+    # 这样查看明细/追问按钮点击触发 rerun 时，结果仍然可见，按钮事件不会丢失
+    result = st.session_state.get("last_qa_result")
+    if result:
         # 显示结果
         st.markdown("---")
 
