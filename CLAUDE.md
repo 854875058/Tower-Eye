@@ -67,6 +67,11 @@
   - `poc/.git`：推送到领导的仓库 `origin`（zhn_test 分支）
 - 只在明确得到用户指令时才推送到领导的仓库
 
+### Streamlit Widget 状态管理
+- **严禁同时使用 `value=` 参数和 `st.session_state[widget_key]`**：Streamlit 的 `value=` 参数只在 widget 首次创建时生效，后续 rerun 会被忽略
+- 需要动态更新 widget 值时，必须通过 `st.session_state[widget_key] = new_value` 在 widget 渲染前设置，且不能传 `value=` 参数
+- 追问按钮/查看明细按钮等需要触发自动查询的场景，必须同时设置 `st.session_state.question_input`（widget key）和 `st.session_state.auto_execute = True`，确保 rerun 后 text_input 能读取到正确的值
+
 ---
 
-*最后更新: 2026-02-07*
+*最后更新: 2026-02-10*

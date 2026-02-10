@@ -537,8 +537,10 @@ def render_intelligent_qa():
     if 'pending_question' not in st.session_state:
         st.session_state.pending_question = ""
 
-    # 如果有待执行的问题，同步到输入框默认值
-    default_question = st.session_state.pending_question or ""
+    # 如果有待执行的问题，直接同步到 widget 的 session_state key
+    # 注意：必须在 st.text_input 渲染前设置，且不能同时使用 value= 参数
+    if st.session_state.pending_question:
+        st.session_state.question_input = st.session_state.pending_question
 
     # 预设问题（放在输入框前面）
     st.markdown("**快速选择：**")
@@ -553,15 +555,15 @@ def render_intelligent_qa():
     for i, q in enumerate(preset_questions):
         if cols[i].button(f"📝 {q[:12]}...", key=f"preset_{i}"):
             st.session_state.pending_question = q
+            st.session_state.question_input = q
             st.session_state.auto_execute = True
             st.rerun()
 
-    # 问题输入
+    # 问题输入 —— 不使用 value= 参数，通过 session_state.question_input 同步值
     col1, col2 = st.columns([3, 1])
     with col1:
         question = st.text_input(
             "请输入您的问题",
-            value=default_question,
             placeholder="例如：按街道统计最近30天各类告警数量",
             key="question_input"
         )
@@ -725,7 +727,9 @@ def render_intelligent_qa():
                                     f"📋 {group_val} {count_str}",
                                     key=f"detail_{row_start + j}"
                                 ):
-                                    st.session_state.pending_question = f"查询最近20条{group_val}的详细信息"
+                                    new_q = f"查询最近20条{group_val}的详细信息"
+                                    st.session_state.pending_question = new_q
+                                    st.session_state.question_input = new_q
                                     st.session_state.auto_execute = True
                                     st.rerun()
 
@@ -829,6 +833,7 @@ def _render_followup_suggestions(result, answer_data, raw_columns):
     for i, s in enumerate(suggestions[:4]):
         if btn_cols[i].button(f"👉 {s[:18]}{'...' if len(s) > 18 else ''}", key=f"followup_{i}"):
             st.session_state.pending_question = s
+            st.session_state.question_input = s
             st.session_state.auto_execute = True
             st.rerun()
 
