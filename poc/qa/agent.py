@@ -22,7 +22,7 @@ from langgraph.graph.message import add_messages
 
 from poc.pipeline.utils import connect_db, resolve_path
 from poc.qa.guardrails import SQLGuardrail, SQLSecurityError
-from poc.qa.nl2sql import build_query_plan
+from poc.qa.nl2sql import build_query_plan, call_llm_fix_sql
 from poc.qa.tools import ToolRegistry, get_tool_registry
 
 
@@ -176,45 +176,58 @@ def fix_sql_node(state: AgentState) -> AgentState:
     节点4：修复 SQL（自我修正）
 
     功能：
-    - 根据错误信息重新生成 SQL
-    - 使用 LLM 进行自我修正
+    - 优先调用 LLM 根据错误信息重新生成 SQL
+    - LLM 不可用时 fallback 到规则引擎
     """
     print(f"[fix_sql_node] 尝试修复 SQL (重试 {state['retry_count'] + 1}/{state['max_retries']})")
 
     state["retry_count"] += 1
 
-    # 构建修正 Prompt
-    error_context = f"""
-    原始问题: {state['question']}
-    之前生成的 SQL: {state['sql']}
-    执行错误: {state['error_message']}
-
-    请根据错误信息重新生成正确的 SQL。
-    """
-
     try:
-        # 这里可以调用 LLM 进行修正
-        # 简化版：使用规则引擎重新解析
-        plan = build_query_plan(state["question"], state["config"])
+        # 优先尝试 LLM 修正（带错误上下文）
+        plan = call_llm_fix_sql(
+            question=state["question"],
+            failed_sql=state.get("sql", ""),
+            error_msg=state.get("error_message", ""),
+            config=state["config"],
+            db_path=state["db_path"],
+        )
 
         state["sql"] = plan.sql
         state["sql_params"] = plan.params
+        state["intent"] = plan.intent
         state["error_message"] = None  # 清除错误
 
         state["messages"].append({
             "role": "system",
-            "content": f"SQL 已修正: {plan.sql}"
+            "content": f"[LLM修正] SQL 已修正: {plan.sql}"
         })
 
-        print(f"[fix_sql_node] SQL 已修正")
+        print(f"[fix_sql_node] LLM 修正成功")
 
-    except Exception as e:
-        state["error_message"] = f"SQL 修正失败: {str(e)}"
-        state["messages"].append({
-            "role": "system",
-            "content": f"修正失败: {str(e)}"
-        })
-        print(f"[fix_sql_node] SQL 修正失败: {e}")
+    except Exception as llm_err:
+        print(f"[fix_sql_node] LLM 修正失败: {llm_err}，降级到规则引擎")
+
+        try:
+            plan = build_query_plan(state["question"], state["config"])
+            state["sql"] = plan.sql
+            state["sql_params"] = plan.params
+            state["error_message"] = None
+
+            state["messages"].append({
+                "role": "system",
+                "content": f"[规则引擎fallback] SQL 已修正: {plan.sql}"
+            })
+
+            print(f"[fix_sql_node] 规则引擎 fallback 成功")
+
+        except Exception as e:
+            state["error_message"] = f"SQL 修正失败: {str(e)}"
+            state["messages"].append({
+                "role": "system",
+                "content": f"修正失败: {str(e)}"
+            })
+            print(f"[fix_sql_node] SQL 修正失败: {e}")
 
     return state
 

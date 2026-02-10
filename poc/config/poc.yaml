@@ -58,12 +58,12 @@ search:
   auto_batch_size: true  # 自动调整批处理大小（根据GPU显存）
 
 llm:
-  enabled: false
+  enabled: true
   provider: "deepseek"
   base_url: "https://api.deepseek.com"
   model: "deepseek-chat"
   api_key_env: "DEEPSEEK_API_KEY"
-  mode: "rule"  # options: "rule", "llm", "hybrid"
+  mode: "hybrid"  # options: "rule", "llm", "hybrid"
   api_key: "sk-db6292d5ea9d470889b63392c4a4abde"   # 可选: 测试环境可直接在此填写 DeepSeek 密钥
 
 # Agent 配置

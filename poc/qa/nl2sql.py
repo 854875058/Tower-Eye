@@ -225,9 +225,9 @@ def parse_question(text: str) -> QueryPlan:
     return QueryPlan(intent=intent, sql=sql, params=params, filters=filters)
 
 
-def _call_deepseek_nl2sql(question: str, config: Dict, fallback: QueryPlan) -> QueryPlan:
+def _get_llm_config(config: Dict):
+    """提取 LLM 连接配置（api_key, url, model）"""
     llm_cfg = config.get("llm", {})
-    # 优先使用配置文件中的 api_key, 为空时再回退到环境变量
     api_key = llm_cfg.get("api_key") or None
     if not api_key:
         api_key_env = llm_cfg.get("api_key_env", "DEEPSEEK_API_KEY")
@@ -237,39 +237,15 @@ def _call_deepseek_nl2sql(question: str, config: Dict, fallback: QueryPlan) -> Q
 
     base_url = os.getenv("DEEPSEEK_BASE_URL", llm_cfg.get("base_url", "https://api.deepseek.com"))
     model = os.getenv("DEEPSEEK_MODEL", llm_cfg.get("model", "deepseek-chat"))
-
     url = base_url.rstrip("/") + "/v1/chat/completions"
+    timeout = llm_cfg.get("timeout", 30)
 
-    schema_description = (
-        "数据库中有两个主要表:\n"
-        "1) events(event_id, asset_id, event_type, alarm_level, alarm_source, alarm_time, "
-        "lat, lon, region, extra_json, summary, description, address, device_name, confidence_level, "
-        "province_name, city_name, county_name, town_code, town_name, "
-        "device_code, channel_code, channel_name, "
-        "warning_order_id, warning_type_id, alarm_body, algorithm_code, algorithm_name, "
-        "emergency_level, importance_level, order_status, confidence_level_max, tenant_name, "
-        "video_path, img_src_path, img_icon_path)\n"
-        "2) assets(asset_id, media_type, file_path, file_name, captured_at, lat, lon, source)\n"
-        "常用字段说明: event_type=告警类型, alarm_time=告警时间, town_name=乡镇/街道, "
-        "county_name=区/县, device_code=设备编码, device_name=设备名称, "
-        "algorithm_name=算法名称, order_status=工单状态, address=地址, "
-        "img_src_path=原图路径, video_path=视频路径, summary=图像理解描述。\n"
-        "请只查询这两个表, 避免任何DDL或写操作。"
-    )
+    return api_key, url, model, timeout
 
-    system_prompt = (
-        "你是一个 NL2SQL 助手, 负责将中文自然语言问题转换为 SQLite 的 SQL 查询。"
-        "你必须严格输出一个 JSON 对象, 不能包含多余文字。\n"
-        "JSON 结构为: {\"intent\": \"count|list\", \"sql\": string, \"params\": list, \"filters\": {}}。\n"
-        "filters 必须包含这些键: event_type, start_time, end_time, lat, lon, radius_km, top_k。\n"
-        "时间过滤使用 events.alarm_time 字段。\n" + schema_description
-    )
 
-    user_prompt = (
-        "问题: " + question + "\n"
-        "请直接输出 JSON, 不要添加注释或解释。"
-    )
-
+def _call_llm_chat(api_key: str, url: str, model: str, timeout: int,
+                   system_prompt: str, user_prompt: str) -> str:
+    """通用 LLM 调用，返回 content 文本"""
     payload = {
         "model": model,
         "messages": [
@@ -278,21 +254,66 @@ def _call_deepseek_nl2sql(question: str, config: Dict, fallback: QueryPlan) -> Q
         ],
         "temperature": 0.0,
     }
-
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-
-    response = requests.post(url, headers=headers, json=payload, timeout=llm_cfg.get("timeout", 30))
+    response = requests.post(url, headers=headers, json=payload, timeout=timeout)
     response.raise_for_status()
     data = response.json()
-    content = data["choices"][0]["message"]["content"].strip()
+    return data["choices"][0]["message"]["content"].strip()
 
+
+def _parse_llm_json(content: str) -> dict:
+    """从 LLM 输出中提取 JSON 对象（兼容 markdown 代码块）"""
+    # 去掉 markdown 代码块包裹
+    text = content.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        # 去掉首行 ```json 和末行 ```
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        text = "\n".join(lines)
     try:
-        obj = json.loads(content)
-    except Exception as exc:  # pragma: no cover - defensive fallback
+        return json.loads(text)
+    except Exception as exc:
         raise RuntimeError(f"LLM 输出不是有效 JSON: {content}") from exc
+
+
+def _build_nl2sql_system_prompt(schema_prompt: str) -> str:
+    """构建 NL2SQL 的 system prompt"""
+    return (
+        "你是一个专业的 NL2SQL 助手，负责将中文自然语言问题转换为 SQLite SQL 查询。\n\n"
+        "# 数据库 Schema\n"
+        f"{schema_prompt}\n\n"
+        "# 关键规则\n"
+        "1. 两个表通过 `events.asset_id = assets.asset_id` 关联（LEFT JOIN）。\n"
+        "2. 时间字段 `alarm_time` 格式为 `YYYY-MM-DD HH:MM:SS`，时间过滤用字符串比较即可。\n"
+        "3. SQL 中的值必须用 `?` 占位符（参数化查询），对应的值放在 params 数组中。\n"
+        "4. 如果是列表查询（intent=list），SELECT 中必须包含 `a.file_path` 和 `e.video_path`，方便展示图片和视频。\n"
+        "5. 如果是统计查询（intent=count），建议带 GROUP BY 分组维度和 ORDER BY 数量 DESC。\n"
+        "6. 只允许 SELECT 查询，禁止 INSERT/UPDATE/DELETE/DROP 等写操作。\n"
+        "7. 列表查询默认 LIMIT 20，除非用户指定了数量。\n"
+        "8. town_name 匹配用 LIKE '%关键词%' 模糊匹配。\n\n"
+        "# 输出格式\n"
+        "严格输出一个 JSON 对象，不要包含任何多余文字、注释或 markdown 代码块：\n"
+        '{"intent": "count|list", "sql": "...", "params": [...], "filters": {...}}\n'
+        "filters 包含: event_type, start_time, end_time, lat, lon, radius_km, top_k, "
+        "town_name, county_name, confidence_min（值为 null 表示未指定）。"
+    )
+
+
+def _call_deepseek_nl2sql(question: str, config: Dict, fallback: QueryPlan) -> QueryPlan:
+    from poc.qa.schema_meta import build_schema_prompt
+
+    api_key, url, model, timeout = _get_llm_config(config)
+    db_path = config.get("paths", {}).get("db_path", "poc/data/metadata.db")
+    schema_prompt = build_schema_prompt(db_path)
+
+    system_prompt = _build_nl2sql_system_prompt(schema_prompt)
+    user_prompt = f"问题: {question}\n请直接输出 JSON。"
+
+    content = _call_llm_chat(api_key, url, model, timeout, system_prompt, user_prompt)
+    obj = _parse_llm_json(content)
 
     intent = obj.get("intent") or fallback.intent
     sql = obj.get("sql") or fallback.sql
@@ -331,3 +352,56 @@ def build_query_plan(text: str, config: Dict) -> QueryPlan:
             return rule_plan
 
     return rule_plan
+
+
+def call_llm_fix_sql(question: str, failed_sql: str, error_msg: str,
+                     config: Dict, db_path: str) -> QueryPlan:
+    """
+    调用 LLM 修正失败的 SQL。
+
+    Args:
+        question: 原始用户问题
+        failed_sql: 执行失败的 SQL
+        error_msg: 错误信息
+        config: 全局配置
+        db_path: 数据库路径
+
+    Returns:
+        修正后的 QueryPlan
+    """
+    from poc.qa.schema_meta import build_schema_prompt
+
+    api_key, url, model, timeout = _get_llm_config(config)
+    schema_prompt = build_schema_prompt(db_path)
+
+    system_prompt = (
+        "你是一个 SQL 修正助手。用户之前生成的 SQL 执行失败了，请根据错误信息修正 SQL。\n\n"
+        "# 数据库 Schema\n"
+        f"{schema_prompt}\n\n"
+        "# 关键规则\n"
+        "1. 两个表通过 `events.asset_id = assets.asset_id` 关联（LEFT JOIN）。\n"
+        "2. 时间字段 `alarm_time` 格式为 `YYYY-MM-DD HH:MM:SS`。\n"
+        "3. SQL 中的值必须用 `?` 占位符（参数化查询），对应的值放在 params 数组中。\n"
+        "4. 如果是列表查询，SELECT 中必须包含 `a.file_path` 和 `e.video_path`。\n"
+        "5. 只允许 SELECT 查询。\n\n"
+        "# 输出格式\n"
+        "严格输出一个 JSON 对象：\n"
+        '{"intent": "count|list", "sql": "...", "params": [...], "filters": {...}}\n'
+    )
+
+    user_prompt = (
+        f"原始问题: {question}\n"
+        f"失败的 SQL: {failed_sql}\n"
+        f"错误信息: {error_msg}\n\n"
+        "请修正 SQL 并直接输出 JSON。"
+    )
+
+    content = _call_llm_chat(api_key, url, model, timeout, system_prompt, user_prompt)
+    obj = _parse_llm_json(content)
+
+    intent = obj.get("intent", "list")
+    sql = obj.get("sql", "")
+    params = obj.get("params", [])
+    filters = obj.get("filters", {})
+
+    return QueryPlan(intent=intent, sql=sql, params=params, filters=filters)
