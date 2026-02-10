@@ -267,9 +267,7 @@ def display_media(video_url: str, img_urls: List[str]):
                 try:
                     st.video(video_url)
                 except Exception as e:
-                    st.error(f"视频播放失败: {e}")
-            else:
-                st.info(f"视频文件不存在: {video_url}")
+                    st.caption(f"视频不可用")
 
     # 显示图片
     if img_urls:
