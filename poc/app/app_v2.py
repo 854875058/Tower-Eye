@@ -614,6 +614,9 @@ def render_intelligent_qa():
 
         # 将结果存入 session_state，使其在 rerun 后仍可访问
         st.session_state.last_qa_result = result
+        # 清除旧的 SQL 编辑器内容，让新查询的 SQL 能正确显示
+        if 'sql_editor' in st.session_state:
+            del st.session_state['sql_editor']
 
     # ---- 结果渲染：从 session_state 读取，独立于 should_execute ----
     # 这样查看明细/追问按钮点击触发 rerun 时，结果仍然可见，按钮事件不会丢失
@@ -647,9 +650,59 @@ def render_intelligent_qa():
             tab1, tab2, tab3 = st.tabs(["📝 生成的 SQL", "📊 执行历史", "💬 对话记录"])
 
             with tab1:
-                st.code(result.get("sql", ""), language="sql")
-                if result.get("sql_params"):
-                    st.write("**参数:**", result["sql_params"])
+                # 将参数化 SQL 的 ? 替换为实际值，方便用户阅读和编辑
+                original_sql = result.get("sql", "")
+                sql_params = result.get("sql_params") or []
+                display_sql = original_sql
+                for _p in sql_params:
+                    if isinstance(_p, str):
+                        display_sql = display_sql.replace("?", f"'{_p}'", 1)
+                    else:
+                        display_sql = display_sql.replace("?", str(_p), 1)
+
+                edited_sql = st.text_area(
+                    "可直接编辑 SQL 后重新执行",
+                    value=display_sql,
+                    height=120,
+                    key="sql_editor"
+                )
+                if sql_params:
+                    st.caption(f"原始参数: {sql_params}")
+
+                if st.button("🔄 重新执行 SQL", key="rerun_sql"):
+                    try:
+                        config = load_config()
+                        db_path = resolve_path(config.get("paths", {}).get("db_path", "poc/data/metadata.db"))
+                        conn = connect_db(db_path)
+                        rows = conn.execute(edited_sql).fetchall()
+                        conn.close()
+                        new_data = [dict(row) for row in rows]
+
+                        # 判断 intent
+                        sql_upper = edited_sql.upper()
+                        has_agg = any(fn in sql_upper for fn in ("COUNT(", "SUM(", "AVG("))
+                        has_group = "GROUP BY" in sql_upper
+                        new_intent = "count" if has_agg and has_group else result.get("intent", "list")
+
+                        # 更新 result
+                        if new_intent == "count" and len(new_data) == 1 and len(new_data[0]) == 1:
+                            result["answer"] = {"type": "count", "value": list(new_data[0].values())[0],
+                                                "message": f"查询结果：共 {list(new_data[0].values())[0]} 条记录"}
+                        else:
+                            result["answer"] = {"type": "list", "value": new_data,
+                                                "message": f"查询结果：返回 {len(new_data)} 条记录"}
+                        result["sql"] = edited_sql
+                        result["sql_params"] = []
+                        result["intent"] = new_intent
+                        result["status"] = "success"
+                        result["error"] = None
+                        result["execution_history"] = result.get("execution_history", []) + [{
+                            "sql": edited_sql, "params": [], "result_count": len(new_data), "status": "success"
+                        }]
+                        st.session_state.last_qa_result = result
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"SQL 执行失败: {e}")
 
             with tab2:
                 if result.get("execution_history"):
@@ -721,8 +774,24 @@ def render_intelligent_qa():
                 # 统计信息
                 st.info(f"共返回 **{len(df)}** 条记录")
 
-                # 保留原始列名用于后续逻辑
+                # 在美化列名前，先用原始列名检测图片/视频列的索引
                 raw_columns = list(df.columns)
+                _img_col_indices = []  # 可能的图片列索引（优先级排序）
+                _video_col_idx = None
+                for _idx, _cn in enumerate(raw_columns):
+                    _cnl = str(_cn).lower()
+                    # 图片列：收集所有可能的列，按优先级排序
+                    if _cnl in ('图片路径', 'file_path', '图片文件路径'):
+                        _img_col_indices.insert(0, _idx)  # 高优先级
+                    elif 'img_src' in _cnl or '原图' in _cnl:
+                        _img_col_indices.append(_idx)
+                    elif '图片' in _cnl and '缩略' not in _cnl and 'icon' not in _cnl:
+                        _img_col_indices.append(_idx)
+                    elif 'img' in _cnl and 'icon' not in _cnl:
+                        _img_col_indices.append(_idx)
+                    # 视频列
+                    if _video_col_idx is None and (_cnl in ('视频路径', 'video_path') or '视频' in _cnl or 'video' in _cnl):
+                        _video_col_idx = _idx
 
                 # 美化列名
                 df.columns = [col.replace('_', ' ').title() if isinstance(col, str) else col for col in df.columns]
@@ -765,32 +834,7 @@ def render_intelligent_qa():
                                     st.rerun()
 
                 # ---- 自动展示图片和视频 ----
-                # 优先用原始列名精确匹配，再 fallback 到模糊匹配
-                img_col = None
-                video_col = None
-
-                # 1. 精确匹配 raw_columns（未美化的原始列名）
-                raw_lower_map = {rc.lower(): rc for rc in raw_columns}
-                beautified_map = dict(zip(raw_columns, df.columns))
-
-                if 'file_path' in raw_lower_map:
-                    img_col = beautified_map.get(raw_lower_map['file_path'])
-                if 'video_path' in raw_lower_map:
-                    video_col = beautified_map.get(raw_lower_map['video_path'])
-
-                # 2. Fallback：模糊匹配美化后的列名
-                if not img_col or not video_col:
-                    for col in df.columns:
-                        col_lower = str(col).lower()
-                        if not img_col and ('file path' == col_lower or 'file_path' == col_lower
-                                            or ('img' in col_lower and 'icon' not in col_lower)
-                                            or '图片' in col_lower
-                                            or ('path' in col_lower and 'video' not in col_lower)):
-                            img_col = col
-                        if not video_col and ('video' in col_lower or '视频' in col_lower):
-                            video_col = col
-
-                if (img_col or video_col) and len(df) > 0:
+                if (_img_col_indices or _video_col_idx is not None) and len(df) > 0:
                     st.markdown("#### 🖼️ 媒体预览")
                     display_rows = min(len(df), 9)
                     for row_start in range(0, display_rows, 3):
@@ -799,22 +843,30 @@ def render_intelligent_qa():
                         for j, row_idx in enumerate(range(row_start, row_end)):
                             with media_cols[j]:
                                 has_media = False
-                                # 图片
-                                if img_col:
-                                    img_val = df.iloc[row_idx][img_col]
+                                # 图片：按优先级尝试所有图片列
+                                for _ic_idx in _img_col_indices:
+                                    if has_media:
+                                        break
+                                    img_val = df.iloc[row_idx, _ic_idx]
                                     if img_val and not pd.isna(img_val):
                                         img_path_str = str(img_val)
-                                        for p in [Path(img_path_str), Path("warning_img") / Path(img_path_str).name, ROOT / "warning_img" / Path(img_path_str).name, ROOT / img_path_str]:
+                                        for p in [Path(img_path_str),
+                                                  Path("warning_img") / Path(img_path_str).name,
+                                                  ROOT / "warning_img" / Path(img_path_str).name,
+                                                  ROOT / img_path_str]:
                                             if p.exists():
                                                 st.image(str(p), caption=f"第{row_idx+1}条", use_container_width=True)
                                                 has_media = True
                                                 break
-                                # 对应视频（紧跟在图片下方）
-                                if video_col:
-                                    vid_val = df.iloc[row_idx][video_col]
+                                # 视频
+                                if _video_col_idx is not None:
+                                    vid_val = df.iloc[row_idx, _video_col_idx]
                                     if vid_val and not pd.isna(vid_val):
                                         vid_str = str(vid_val)
-                                        for vp in [Path(vid_str), Path("warning_file") / Path(vid_str).name, ROOT / "warning_file" / Path(vid_str).name, ROOT / vid_str]:
+                                        for vp in [Path(vid_str),
+                                                   Path("warning_file") / Path(vid_str).name,
+                                                   ROOT / "warning_file" / Path(vid_str).name,
+                                                   ROOT / vid_str]:
                                             if vp.exists():
                                                 try:
                                                     st.video(vp.read_bytes())
