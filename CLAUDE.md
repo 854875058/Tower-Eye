@@ -86,6 +86,34 @@
 - **严禁在 widget 渲染后修改其 `st.session_state[widget_key]`**，只能在渲染前设置
 - 动态更新 widget 值的正确模式：用中间变量（如 `pending_question`）传递，在 widget 渲染前同步
 
+### Streamlit Widget Key 缓存导致显示错位（Bug 记录）
+
+**Bug 现象**：SQL 编辑器 `st.text_area(key="sql_editor")` 在执行新查询后仍显示上一次查询的 SQL。
+
+**根因**：Streamlit 在同一次 rerun 中 `del st.session_state['sql_editor']` 后又重建同名 widget 时，内部 widget state 缓存不一定被清除，导致 `value=` 参数被忽略。
+
+**修复方案**：使用版本号动态 key：
+```python
+st.session_state.sql_editor_version = st.session_state.get("sql_editor_version", 0) + 1
+st.text_area("SQL", value=new_sql, key=f"sql_editor_v{version}")
+```
+
+**规则总结**：
+- **需要在 rerun 间强制刷新内容的 widget，使用版本号动态 key**，不要靠 `del + 重建同名 key`
+- 格式：`key=f"widget_name_v{counter}"` + 每次更新递增 counter
+
+### NL2SQL "最近N条" vs "最近N天"（Bug 记录）
+
+**Bug 现象**：用户问"查询最近20条车辆闯入告警"，LLM 将"最近20"误解为时间过滤 `date('now', '-20 days')`，数据库无近期数据 → 返回 0 条。
+
+**根因**：DeepSeek LLM 没有区分"最近N条"（LIMIT N）和"最近N天"（时间过滤）的语义差异。
+
+**修复方案**：在 NL2SQL system prompt 中新增明确规则，强调"最近N条"只表示 LIMIT N，绝不添加时间条件。
+
+**规则总结**：
+- LLM prompt 中**必须明确区分量词表达式**（"N条/个/件" → LIMIT）和**时间表达式**（"N天/小时/月" → WHERE 时间过滤）
+- 任何可能被误解的中文表达，都应该在 prompt 中用正例+反例对比说明
+
 ---
 
 *最后更新: 2026-02-10*
