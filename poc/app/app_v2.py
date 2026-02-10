@@ -26,9 +26,9 @@ from poc.qa.trace import init_trace_manager, get_trace_manager
 from poc.qa.tools import init_tool_registry, get_tool_registry
 from poc.search.query import (
     build_lance_filter,
-    encode_query,
-    load_model,
+    hybrid_search,
 )
+from poc.search.model_manager import ModelManager
 
 # 设置页面为中文
 st.set_page_config(
@@ -153,23 +153,15 @@ apply_ant_design_pro_theme()
 # ============================================================================
 
 @st.cache_resource
-def get_cached_model(model_name: str, cache_dir: str = None, hf_mirror: str = None):
-    """缓存CLIP模型，避免重复加载"""
-    # 设置HuggingFace镜像源（国内加速）
-    if hf_mirror:
-        import os
-        os.environ['HF_ENDPOINT'] = hf_mirror
-        os.environ['HUGGINGFACE_HUB_CACHE'] = cache_dir if cache_dir else os.path.expanduser('~/.cache/huggingface')
-        st.info(f"🌐 使用HuggingFace镜像源: {hf_mirror}")
-
-    st.info(f"🔄 正在加载模型: {model_name}，请稍候...")
-    model = load_model(model_name, cache_dir=cache_dir, hf_mirror=hf_mirror)
-
-    # 显示模型信息
-    dims = model.get_sentence_embedding_dimension()
-    st.success(f"✅ 模型加载成功！维度: {dims}")
-
-    return model
+def get_cached_model_manager(_config_hash: str, config: Dict):
+    """缓存 ModelManager，支持 CLIP/Qwen 自动切换"""
+    search_cfg = config.get("search", {})
+    model_type = search_cfg.get("embedding_model", "clip")
+    st.info(f"🔄 正在加载模型（{model_type}），请稍候...")
+    manager = ModelManager(config)
+    dims = manager.get_embedding_dimension()
+    st.success(f"✅ 模型加载成功！类型: {model_type}，维度: {dims}")
+    return manager
 
 
 @st.cache_resource
@@ -327,7 +319,7 @@ def render_architecture_overview():
     with col2:
         st.metric("🔍 向量数据库", "LanceDB", help="GPU加速，混合检索")
     with col3:
-        st.metric("🧠 多模态模型", "CLIP-ViT-L-14", help="768维向量，语义理解")
+        st.metric("🧠 多模态模型", "Qwen3-VL", help="Embedding + Reranker 二阶段检索")
     with col4:
         st.metric("🏷️ 目标检测", "YOLOv8-World", help="开放词汇检测")
 
@@ -341,10 +333,13 @@ def render_architecture_overview():
     with col1:
         st.markdown("""
         **🤖 AI 模型层**
-        - **CLIP-ViT-L-14** (768维)
+        - **Qwen3-VL Embedding**
           - 图文跨模态理解
-          - GPU批量加速（128 batch）
-          - HuggingFace镜像加速
+          - HTTP API 远程推理
+          - 支持 CLIP 备选切换
+        - **Qwen3-VL Reranker**
+          - 二阶段精排
+          - 图文相关性重排序
         - **YOLOv8-World v2**
           - 开放词汇目标检测
           - 18类工程车辆识别
@@ -379,9 +374,9 @@ def render_architecture_overview():
         - **Streamlit** (交互界面)
           - 多页面应用
           - 实时可视化
-        - **Sentence-Transformers**
-          - 模型加载管理
-          - GPU自动检测
+        - **ModelManager**
+          - 统一模型管理
+          - CLIP/Qwen 自动切换
         """)
 
     st.markdown("---")
@@ -402,8 +397,8 @@ def render_architecture_overview():
                          │
 ┌────────────────────────▼────────────────────────────────────────┐
 │                  AI 模型层 (Model Inference)                     │
-│  CLIP-ViT-L-14 (768维) | YOLOv8-World v2 | DeepSeek Chat       │
-│  ✓ GPU加速  ✓ 批量处理  ✓ 混合检索  ✓ 自动标注                 │
+│  Qwen3-VL Embedding + Reranker | YOLOv8-World v2 | DeepSeek     │
+│  ✓ 二阶段检索  ✓ 批量处理  ✓ 混合检索  ✓ 自动标注               │
 └────────────────────────┬────────────────────────────────────────┘
                          │
 ┌────────────────────────▼────────────────────────────────────────┐
@@ -433,8 +428,8 @@ def render_architecture_overview():
         - ✅ 以图搜图（图像相似度）
         - ✅ 文本语义搜索
         - ✅ 混合检索（向量+关键词）
+        - ✅ Reranker 二阶段精排
         - ✅ 多条件过滤（时间/地点/类型）
-        - ✅ GPU加速（4倍速度提升）
         """)
 
     with col2:
@@ -462,7 +457,7 @@ def render_architecture_overview():
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric("向量化速度", "~80 张/秒", "GPU加速", help="RTX 4090, batch_size=128")
+        st.metric("向量化速度", "~80 张/秒", "API推理", help="Qwen3-VL 远程 Embedding 服务")
     with col2:
         st.metric("检索延迟", "< 100ms", "亚秒级", help="LanceDB向量检索")
     with col3:
@@ -476,14 +471,14 @@ def render_architecture_overview():
     st.subheader("✨ 技术亮点")
 
     st.markdown("""
-    1. **GPU自动检测与批量优化**
-       - 根据显存自动调整batch_size（8GB→16, 24GB→128）
-       - 向量化速度提升10-40倍
-       - 支持CPU降级运行
+    1. **二阶段检索架构**
+       - 第一阶段：Qwen3-VL Embedding 向量召回
+       - 第二阶段：Qwen3-VL Reranker 精排重排序
+       - 支持 CLIP 模型备选切换
 
     2. **混合检索算法**
        - 向量相似度 + 关键词匹配
-       - 可调节权重（默认0.7/0.3）
+       - 可调节权重（联动滑块，和为1）
        - 图像理解字段（summary）语义搜索
 
     3. **Agent自我修正机制**
@@ -766,11 +761,12 @@ def render_multimodal_search():
     st.header("🔍 多模态检索")
 
     st.markdown("""
-    基于 **CLIP 模型 + LanceDB** 的向量检索，支持：
+    基于 **Qwen3-VL + LanceDB** 的向量检索，支持：
     - 🖼️ 以图搜图（图像相似度搜索）
     - 📝 文本语义搜索
     - 🔍 图搜文（上传图片查询关联数据）
     - 🎯 多条件过滤（时间、地点、事件类型）
+    - 🔄 Reranker 二阶段精排（提升准确率）
     - ⚡ 向量与元数据一体化存储，查询更高效
     """)
 
@@ -902,19 +898,18 @@ def render_multimodal_search():
             # 使用 LanceDB 检索
             lancedb_dir = resolve_path(config.get("paths", {}).get("lancedb_dir", "poc/data/lancedb"))
             search_cfg = config.get("search", {})
-            model_name = search_cfg.get("clip_model", "clip-ViT-B-32")
-            cache_dir = search_cfg.get("model_cache_dir")
-            hf_mirror = search_cfg.get("hf_mirror")
 
             try:
                 # 加载模型和 LanceDB
-                model = get_cached_model(model_name, cache_dir=cache_dir, hf_mirror=hf_mirror)
+                import hashlib
+                config_hash = hashlib.md5(json.dumps(search_cfg, sort_keys=True).encode()).hexdigest()
+                manager = get_cached_model_manager(config_hash, config)
                 db = get_cached_lancedb(lancedb_dir)
                 table = db.open_table("embeddings")
 
                 # 根据检索模式编码查询
                 if search_mode == "📝 文本检索":
-                    query_vec = encode_query(model, query_text, None)
+                    query_vec = manager.encode_text(query_text).astype("float32")
                 else:
                     # 以图搜图或图搜文：保存上传的图片到临时文件
                     import tempfile
@@ -923,7 +918,7 @@ def render_multimodal_search():
                         tmp_path = Path(tmp_file.name)
 
                     try:
-                        query_vec = encode_query(model, None, tmp_path)
+                        query_vec = manager.encode_image(tmp_path).astype("float32")
                     finally:
                         # 清理临时文件
                         tmp_path.unlink(missing_ok=True)
@@ -939,21 +934,24 @@ def render_multimodal_search():
                 )
 
                 # 执行检索（混合或纯向量）
+                # Reranker 需要更多候选，先多取一些
+                reranker_enabled = search_cfg.get("reranker_enabled", False)
+                fetch_k = top_k * 3 if reranker_enabled and query_text else top_k
+
                 if search_mode == "📝 文本检索" and enable_hybrid and query_text:
                     # 混合检索
-                    from poc.search.query import hybrid_search
                     results_df = hybrid_search(
                         table,
                         query_vec,
                         query_text=query_text,
-                        top_k=top_k,
+                        top_k=fetch_k,
                         filter_str=filter_str,
                         vector_weight=vector_weight,
                         keyword_weight=keyword_weight,
                     )
                 else:
                     # 纯向量检索
-                    query = table.search(query_vec.tolist()).limit(top_k)
+                    query = table.search(query_vec.tolist()).limit(fetch_k)
                     if filter_str:
                         query = query.where(filter_str)
                     results_df = query.to_pandas()
@@ -998,6 +996,13 @@ def render_multimodal_search():
                             pass
 
                     results.append(result_item)
+
+                # Reranker 重排序
+                if reranker_enabled and query_text:
+                    st.info(f"🔄 Reranker 正在对 {len(results)} 条候选结果精排...")
+                    results = manager.rerank(query_text, results, top_k=top_k)
+                else:
+                    results = results[:top_k]
 
                 st.success(f"✅ 找到 {len(results)} 条结果")
 
@@ -1301,8 +1306,8 @@ def main():
         st.markdown("---")
         st.markdown("### 系统状态")
         st.success("✅ Agent 已就绪")
-        st.success("✅ GPU 加速已启用")
         st.success("✅ 混合检索已启用")
+        st.success("✅ Reranker 已启用")
 
         st.markdown("---")
         st.markdown("### 核心技术")
@@ -1310,7 +1315,7 @@ def main():
         - 🤖 **LangGraph** Agent编排
         - 🧠 **DeepSeek** 智能问答
         - 🔍 **LanceDB** 向量数据库
-        - 🖼️ **CLIP-ViT-L-14** 多模态
+        - 🖼️ **Qwen3-VL** 多模态
         - 🏷️ **YOLOv8-World** 目标检测
         - 🗄️ **SQLite** 结构化存储
         - 🎨 **Streamlit** 交互界面
