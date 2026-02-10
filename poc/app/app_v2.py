@@ -533,22 +533,25 @@ def render_intelligent_qa():
 
     # 初始化 session_state
     if 'selected_question' not in st.session_state:
-        st.session_state.selected_question = "近7天车辆闯入监控告警有多少条？"
+        st.session_state.selected_question = ""
+    if 'auto_execute' not in st.session_state:
+        st.session_state.auto_execute = False
 
     # 预设问题（放在输入框前面）
     st.markdown("**快速选择：**")
     preset_questions = [
-        "近7天车辆闯入监控告警有多少条？",
-        "查询最近的10条告警",
-        "统计所有告警数量",
-        "查询2026年1月的告警"
+        "按街道统计最近30天各类告警数量",
+        "查询最近20条车辆闯入告警的详细信息",
+        "统计各设备触发告警次数最多的TOP10",
+        "查询置信度大于0.9的高置信告警",
     ]
 
     cols = st.columns(len(preset_questions))
     for i, q in enumerate(preset_questions):
-        if cols[i].button(f"📝 {q[:10]}...", key=f"preset_{i}"):
+        if cols[i].button(f"📝 {q[:12]}...", key=f"preset_{i}"):
             st.session_state.selected_question = q
-            st.rerun()  # 必须刷新才能更新输入框
+            st.session_state.auto_execute = True
+            st.rerun()
 
     # 问题输入
     col1, col2 = st.columns([3, 1])
@@ -556,16 +559,21 @@ def render_intelligent_qa():
         question = st.text_input(
             "请输入您的问题",
             value=st.session_state.selected_question,
-            placeholder="例如：查询最近10条告警",
+            placeholder="例如：按街道统计最近30天各类告警数量",
             key="question_input"
         )
-        # 更新 session_state
         if question != st.session_state.selected_question:
             st.session_state.selected_question = question
     with col2:
         enable_trace = st.checkbox("启用追踪", value=True, help="记录完整执行过程")
 
-    if st.button("🚀 执行查询", type="primary", use_container_width=True):
+    # 点击按钮或快速选择自动执行
+    should_execute = st.button("🚀 执行查询", type="primary", use_container_width=True)
+    if st.session_state.auto_execute and question:
+        should_execute = True
+        st.session_state.auto_execute = False
+
+    if should_execute and question:
         config = load_config()
 
         # 初始化系统
@@ -659,97 +667,74 @@ def render_intelligent_qa():
             answer_data = result["answer"].get("value")
             if isinstance(answer_data, list) and len(answer_data) > 0:
                 # 列表结果，显示为表格
-                # 检查数据格式：如果是字典列表，直接转换；如果是元组列表，需要添加列名
                 if isinstance(answer_data[0], dict):
                     df = pd.DataFrame(answer_data)
                 elif isinstance(answer_data[0], (tuple, list)):
-                    # 从 SQL 参数中提取列名
                     sql = result.get("sql", "")
-                    # 尝试从 SELECT 语句中提取列名
                     import re
                     select_match = re.search(r'SELECT\s+(.*?)\s+FROM', sql, re.IGNORECASE | re.DOTALL)
                     if select_match:
                         columns_str = select_match.group(1)
-                        # 解析列名（处理 AS 别名）
                         columns = []
                         for col in columns_str.split(','):
                             col = col.strip()
-                            # 处理 AS 别名
                             if ' AS ' in col.upper():
                                 col = col.split(' AS ')[-1].strip()
-                            # 处理表名.列名格式
                             elif '.' in col:
                                 col = col.split('.')[-1].strip()
                             columns.append(col)
-
                         df = pd.DataFrame(answer_data, columns=columns)
                     else:
                         df = pd.DataFrame(answer_data)
                 else:
                     df = pd.DataFrame(answer_data)
 
-                # 美化列名（将下划线替换为空格，首字母大写）
+                # 统计信息
+                st.info(f"共返回 **{len(df)}** 条记录")
+
+                # 美化列名
                 df.columns = [col.replace('_', ' ').title() if isinstance(col, str) else col for col in df.columns]
 
                 st.dataframe(df, use_container_width=True)
 
-                # 如果结果包含图片路径，提供查看选项
-                if any('path' in str(col).lower() or 'file' in str(col).lower() for col in df.columns):
-                    st.info("💡 提示：结果中包含文件路径，您可以在下方查看图片")
+                # 自动展示图片（如果结果包含图片路径列）
+                img_col = None
+                for col in df.columns:
+                    col_lower = str(col).lower()
+                    if 'img' in col_lower or ('path' in col_lower and 'video' not in col_lower) or 'file_path' in col_lower or '图片' in col_lower:
+                        img_col = col
+                        break
 
-                    # 让用户选择查看哪一行的图片
-                    if len(df) > 0:
-                        with st.expander("🖼️ 查看图片", expanded=False):
-                            # 初始化 session_state
-                            if 'selected_row_idx' not in st.session_state:
-                                st.session_state.selected_row_idx = 0
-
-                            row_idx = st.selectbox(
-                                "选择要查看的记录",
-                                range(len(df)),
-                                format_func=lambda x: f"第 {x+1} 行",
-                                key="row_selector"  # 添加唯一key
-                            )
-
-                            if row_idx is not None:
-                                row_data = answer_data[row_idx]
-
-                                # 查找图片路径列
-                                img_path = None
-                                if isinstance(row_data, dict):
-                                    for key, value in row_data.items():
-                                        if value and ('path' in str(key).lower() or 'file' in str(key).lower()):
-                                            if str(value).endswith(('.jpg', '.jpeg', '.png', '.bmp')):
-                                                img_path = value
-                                                break
-                                elif isinstance(row_data, (tuple, list)) and len(row_data) > 3:
-                                    # 假设第4列是文件路径
-                                    img_path = row_data[3] if len(row_data) > 3 else None
-
-                                if img_path:
-                                    # 尝试显示图片
-                                    possible_paths = [
-                                        Path(img_path),
-                                        Path("warning_img") / Path(img_path).name,
-                                        ROOT / "warning_img" / Path(img_path).name,
-                                        ROOT / img_path
-                                    ]
-
-                                    img_found = False
-                                    for p in possible_paths:
-                                        if p.exists():
-                                            st.image(str(p), use_container_width=True)
-                                            img_found = True
-                                            break
-
-                                    if not img_found:
-                                        st.warning(f"图片文件不存在: {img_path}")
-                                else:
-                                    st.info("该记录没有图片路径")
+                if img_col and len(df) > 0:
+                    st.markdown("#### 🖼️ 图片预览")
+                    # 每行最多3张图
+                    display_rows = min(len(df), 9)
+                    for row_start in range(0, display_rows, 3):
+                        row_end = min(row_start + 3, display_rows)
+                        img_cols = st.columns(row_end - row_start)
+                        for j, row_idx in enumerate(range(row_start, row_end)):
+                            img_val = df.iloc[row_idx][img_col]
+                            if not img_val or pd.isna(img_val):
+                                continue
+                            img_path_str = str(img_val)
+                            possible_paths = [
+                                Path(img_path_str),
+                                Path("warning_img") / Path(img_path_str).name,
+                                ROOT / "warning_img" / Path(img_path_str).name,
+                                ROOT / img_path_str,
+                            ]
+                            with img_cols[j]:
+                                img_found = False
+                                for p in possible_paths:
+                                    if p.exists():
+                                        st.image(str(p), caption=f"第{row_idx+1}条", use_container_width=True)
+                                        img_found = True
+                                        break
+                                if not img_found:
+                                    st.caption(f"图片不存在: {Path(img_path_str).name}")
 
             elif isinstance(answer_data, int):
-                # 统计结果
-                st.metric("统计结果", answer_data)
+                st.metric("统计结果", f"{answer_data:,}")
             else:
                 st.json(result["answer"])
 
@@ -1136,6 +1121,8 @@ def render_multimodal_search():
                             with col1:
                                 st.markdown(f"**相似度**: {item['score']:.4f}")
                                 st.write(f"**事件类型**: {item.get('event_type', 'N/A')}")
+                                if item.get('alarm_level'):
+                                    st.write(f"**告警等级**: {item['alarm_level']}")
                                 st.write(f"**时间**: {item.get('alarm_time', 'N/A')}")
 
                                 # 完整地理信息
@@ -1167,10 +1154,10 @@ def render_multimodal_search():
                                 if item.get('confidence_level'):
                                     st.write(f"**置信度**: {item['confidence_level']:.2f}")
 
-                                # 显示图像理解
+                                # 显示图像理解（默认展开）
                                 if item.get('summary'):
-                                    with st.expander("📝 图像理解", expanded=False):
-                                        st.write(item['summary'])
+                                    st.markdown("**📝 图像理解：**")
+                                    st.write(item['summary'])
 
                             with col2:
                                 # 显示媒体文件

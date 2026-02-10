@@ -105,13 +105,18 @@ def parse_question(text: str) -> QueryPlan:
 
     if intent == "count":
         sql = (
-            "SELECT COUNT(*) AS cnt FROM events e "
+            "SELECT e.event_type AS 告警类型, COUNT(*) AS 数量 FROM events e "
             "LEFT JOIN assets a ON e.asset_id = a.asset_id"
             + where_sql
+            + " GROUP BY e.event_type ORDER BY 数量 DESC"
         )
     else:
         sql = (
-            "SELECT e.event_id, e.event_type, e.alarm_time, a.file_path, a.lat, a.lon "
+            "SELECT e.event_type AS 告警类型, e.alarm_time AS 告警时间, "
+            "e.address AS 地址, e.town_name AS 街道, "
+            "e.device_name AS 设备名称, e.algorithm_name AS 算法, "
+            "e.order_status AS 工单状态, e.confidence_level AS 置信度, "
+            "a.file_path AS 图片路径 "
             "FROM events e LEFT JOIN assets a ON e.asset_id = a.asset_id"
             + where_sql
             + " ORDER BY e.alarm_time DESC LIMIT ?"
@@ -148,8 +153,18 @@ def _call_deepseek_nl2sql(question: str, config: Dict, fallback: QueryPlan) -> Q
 
     schema_description = (
         "数据库中有两个主要表:\n"
-        "1) events(event_id, asset_id, event_type, alarm_level, alarm_source, alarm_time, lat, lon, region, extra_json)\n"
-        "2) assets(asset_id, file_path, file_name, captured_at, lat, lon)\n"
+        "1) events(event_id, asset_id, event_type, alarm_level, alarm_source, alarm_time, "
+        "lat, lon, region, extra_json, summary, description, address, device_name, confidence_level, "
+        "province_name, city_name, county_name, town_code, town_name, "
+        "device_code, channel_code, channel_name, "
+        "warning_order_id, warning_type_id, alarm_body, algorithm_code, algorithm_name, "
+        "emergency_level, importance_level, order_status, confidence_level_max, tenant_name, "
+        "video_path, img_src_path, img_icon_path)\n"
+        "2) assets(asset_id, media_type, file_path, file_name, captured_at, lat, lon, source)\n"
+        "常用字段说明: event_type=告警类型, alarm_time=告警时间, town_name=乡镇/街道, "
+        "county_name=区/县, device_code=设备编码, device_name=设备名称, "
+        "algorithm_name=算法名称, order_status=工单状态, address=地址, "
+        "img_src_path=原图路径, video_path=视频路径, summary=图像理解描述。\n"
         "请只查询这两个表, 避免任何DDL或写操作。"
     )
 
