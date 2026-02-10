@@ -67,11 +67,21 @@
   - `poc/.git`：推送到领导的仓库 `origin`（zhn_test 分支）
 - 只在明确得到用户指令时才推送到领导的仓库
 
-### Streamlit Widget 状态管理
-- **严禁同时使用 `value=` 参数和 `st.session_state[widget_key]`**：Streamlit 的 `value=` 参数只在 widget 首次创建时生效，后续 rerun 会被忽略
-- 需要动态更新 widget 值时，必须通过 `st.session_state[widget_key] = new_value` 在 widget 渲染前设置，且不能传 `value=` 参数
-- 追问按钮/查看明细按钮等需要触发自动查询的场景，必须同时设置 `st.session_state.question_input`（widget key）和 `st.session_state.auto_execute = True`，确保 rerun 后 text_input 能读取到正确的值
-- **按钮不能放在 `if should_execute:` 条件块内部**：Streamlit 的按钮点击会触发整个脚本 rerun，如果按钮渲染在条件块内部，rerun 时条件不成立 → 按钮不渲染 → 点击事件丢失 → 闪退。解决方案是将查询结果存入 `st.session_state`，结果渲染代码放在条件块外部，从 session_state 读取数据渲染
+### Streamlit 按钮与状态管理（Bug 记录）
+
+**Bug 现象**：智能问答页面的"查看明细"和"您可能还想了解"追问按钮点击后闪退，不会自动执行查询。
+
+**根因**：这些按钮渲染在 `if should_execute and question:` 条件块内部。Streamlit 中任何按钮点击都会触发整个脚本从头 rerun，而 rerun 时 `should_execute=False`（执行查询按钮未被点击），导致条件块被跳过 → 按钮不渲染 → 点击事件丢失 → 页面闪退。
+
+**修复方案**：
+1. 查询执行后将结果存入 `st.session_state.last_qa_result`
+2. 结果渲染代码移到 `if should_execute:` 块**外部**，从 `session_state` 读取
+3. 按钮点击时设置 `st.session_state.question_input = 新问题` + `auto_execute = True`，再 `st.rerun()`
+
+**规则总结**：
+- Streamlit 中需要交互的按钮（会触发后续操作的），**禁止**放在一次性条件块内部
+- 需要跨 rerun 保留的数据必须存入 `st.session_state`
+- 动态更新 `st.text_input` 的值时，用 `st.session_state[widget_key]` 而非 `value=` 参数
 
 ---
 
