@@ -765,14 +765,30 @@ def render_intelligent_qa():
                                     st.rerun()
 
                 # ---- 自动展示图片和视频 ----
+                # 优先用原始列名精确匹配，再 fallback 到模糊匹配
                 img_col = None
                 video_col = None
-                for col in df.columns:
-                    col_lower = str(col).lower()
-                    if not img_col and ('img' in col_lower or ('图片' in col_lower) or (col_lower in ('file path', 'file_path') or ('path' in col_lower and 'video' not in col_lower))):
-                        img_col = col
-                    if not video_col and ('video' in col_lower or '视频' in col_lower):
-                        video_col = col
+
+                # 1. 精确匹配 raw_columns（未美化的原始列名）
+                raw_lower_map = {rc.lower(): rc for rc in raw_columns}
+                beautified_map = dict(zip(raw_columns, df.columns))
+
+                if 'file_path' in raw_lower_map:
+                    img_col = beautified_map.get(raw_lower_map['file_path'])
+                if 'video_path' in raw_lower_map:
+                    video_col = beautified_map.get(raw_lower_map['video_path'])
+
+                # 2. Fallback：模糊匹配美化后的列名
+                if not img_col or not video_col:
+                    for col in df.columns:
+                        col_lower = str(col).lower()
+                        if not img_col and ('file path' == col_lower or 'file_path' == col_lower
+                                            or ('img' in col_lower and 'icon' not in col_lower)
+                                            or '图片' in col_lower
+                                            or ('path' in col_lower and 'video' not in col_lower)):
+                            img_col = col
+                        if not video_col and ('video' in col_lower or '视频' in col_lower):
+                            video_col = col
 
                 if (img_col or video_col) and len(df) > 0:
                     st.markdown("#### 🖼️ 媒体预览")
@@ -782,18 +798,7 @@ def render_intelligent_qa():
                         media_cols = st.columns(row_end - row_start)
                         for j, row_idx in enumerate(range(row_start, row_end)):
                             with media_cols[j]:
-                                # 视频
-                                if video_col:
-                                    vid_val = df.iloc[row_idx][video_col]
-                                    if vid_val and not pd.isna(vid_val):
-                                        vid_str = str(vid_val)
-                                        for vp in [Path(vid_str), Path("warning_file") / Path(vid_str).name, ROOT / "warning_file" / Path(vid_str).name, ROOT / vid_str]:
-                                            if vp.exists():
-                                                try:
-                                                    st.video(vp.read_bytes())
-                                                except Exception:
-                                                    pass
-                                                break
+                                has_media = False
                                 # 图片
                                 if img_col:
                                     img_val = df.iloc[row_idx][img_col]
@@ -802,7 +807,23 @@ def render_intelligent_qa():
                                         for p in [Path(img_path_str), Path("warning_img") / Path(img_path_str).name, ROOT / "warning_img" / Path(img_path_str).name, ROOT / img_path_str]:
                                             if p.exists():
                                                 st.image(str(p), caption=f"第{row_idx+1}条", use_container_width=True)
+                                                has_media = True
                                                 break
+                                # 对应视频（紧跟在图片下方）
+                                if video_col:
+                                    vid_val = df.iloc[row_idx][video_col]
+                                    if vid_val and not pd.isna(vid_val):
+                                        vid_str = str(vid_val)
+                                        for vp in [Path(vid_str), Path("warning_file") / Path(vid_str).name, ROOT / "warning_file" / Path(vid_str).name, ROOT / vid_str]:
+                                            if vp.exists():
+                                                try:
+                                                    st.video(vp.read_bytes())
+                                                    has_media = True
+                                                except Exception:
+                                                    pass
+                                                break
+                                if not has_media:
+                                    st.caption(f"第{row_idx+1}条：无媒体文件")
 
                 # ---- 智能追问：猜测下一步 ----
                 st.markdown("---")
