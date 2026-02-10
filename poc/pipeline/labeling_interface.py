@@ -1,11 +1,11 @@
 """
-自动标注工具 - Streamlit界面
-支持批量自动检测、标注结果浏览、手动画框标注
+自动标注工具界面 - 简洁美观版
 """
 
+import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Tuple
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -14,655 +14,956 @@ if str(ROOT) not in sys.path:
 import streamlit as st
 import cv2
 import numpy as np
-import urllib.request
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
-from pipeline.utils import load_yaml, resolve_path, ensure_parent_dir
-from pipeline.label_auto import (
-    discover_media,
-    save_yolo_label,
-    IMAGE_EXTS,
-)
 from streamlit_image_coordinates import streamlit_image_coordinates
 
-DEFAULT_CLASSES = [
-    'person', 'car', 'motorcycle', 'bus', 'truck', 'boat',
-    'excavator', 'bulldozer', 'loader', 'crane', 'dump truck', 'concrete mixer',
-    'trailer', 'van', 'tractor', 'forklift', 'ambulance', 'fire truck',
-]
+from pipeline.utils import resolve_path, ensure_parent_dir
+from pipeline.label_auto import save_yolo_label
+from pipeline.auto_label_engine import (
+    AutoLabelEngine, CLASS_NAMES_CN, TARGET_CLASSES,
+    get_track_color, TRACK_COLORS
+)
 
-MODEL_URLS = {
-    'yolov8x-worldv2.pt': 'https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8x-worldv2.pt',
-    'yolov8-worldv2.pt': 'https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8-worldv2.pt',
-    'yolov8x.pt': 'https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8x.pt',
-}
-
-DEFAULT_MODEL_DIR = "poc/data/pretrainModel"
+# 配置
+VIDEO_EXTS = ['.mp4', '.avi', '.mov', '.mkv', '.webp']
+DEFAULT_IMAGES_DIR = "warning_img"
+DEFAULT_VIDEOS_DIR = "warning_file"
 
 
-def get_model_path(model_name: str) -> Path:
-    model_dir = resolve_path(DEFAULT_MODEL_DIR)
-    return model_dir / model_name
+def init_state():
+    defaults = {
+        "files": [],
+        "idx": 0,
+        "anns": {},
+        "is_video": False,
+        "draw_start": {},
+        "cls_sel": "car",
+        "show_auto": True,
+        "show_manual": True,
+        "show_conf": False,
+        "conf_threshold": 0.25,
+        "zoom": 1.0,
+        "box_thickness": 2,
+        "class_filter": "全部",
+        "draw_enabled": True,
+        "img_dir": DEFAULT_IMAGES_DIR,
+        "vid_dir": DEFAULT_VIDEOS_DIR,
+        "out_dir": "poc/data/labels/auto",
+        "want_tracking": True,
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
 
-def download_model(model_name: str, model_path: Path) -> bool:
-    url = MODEL_URLS.get(model_name)
-    if not url:
-        st.error(f"未知模型: {model_name}")
-        return False
-    try:
-        st.info(f"正在下载模型: {model_name}...")
-        urllib.request.urlretrieve(url, str(model_path))
-        st.success(f"模型已下载: {model_path}")
-        return True
-    except Exception as e:
-        st.error(f"下载失败: {e}")
-        return False
+@st.cache_resource
+def get_engine() -> AutoLabelEngine:
+    return AutoLabelEngine()
 
 
-def ensure_model_available(model_name: str) -> Optional[Path]:
-    model_path = get_model_path(model_name)
-    if model_path.exists():
-        return model_path
-    if download_model(model_name, model_path):
-        return model_path
-    return None
+def summarize_anns(anns: List[Dict]) -> Tuple[int, int, int, Dict[str, int]]:
+    total = len(anns)
+    auto_cnt = sum(1 for a in anns if not a.get("manual"))
+    manual_cnt = total - auto_cnt
+    by_class: Dict[str, int] = {}
+    for a in anns:
+        cls = a.get("class", "unknown")
+        by_class[cls] = by_class.get(cls, 0) + 1
+    return total, auto_cnt, manual_cnt, by_class
 
 
-def yolo_labels_from_result(result, class_names):
-    labels = []
-    if not hasattr(result, "boxes") or result.boxes is None:
-        return labels
-    h, w = result.orig_shape
-    for box in result.boxes:
-        x1, y1, x2, y2 = box.xyxy[0].tolist()
-        cls_id = int(box.cls[0].item())
-        conf = float(box.conf[0].item())
-        x_center = ((x1 + x2) / 2.0) / w
-        y_center = ((y1 + y2) / 2.0) / h
-        width = (x2 - x1) / w
-        height = (y2 - y1) / h
-        if isinstance(class_names, dict):
-            label_name = class_names.get(cls_id, str(cls_id))
-        elif isinstance(class_names, (list, tuple)) and cls_id < len(class_names):
-            label_name = class_names[cls_id]
-        else:
-            label_name = str(cls_id)
-        labels.append((cls_id, label_name, x_center, y_center, width, height, conf))
-    return labels
+def filter_anns(
+    anns: List[Dict],
+    show_auto: bool,
+    show_manual: bool,
+    conf_threshold: float,
+    cls_filter: str,
+) -> List[Dict]:
+    res = []
+    for a in anns:
+        manual = a.get("manual", False)
+        if manual and not show_manual:
+            continue
+        if (not manual) and not show_auto:
+            continue
+        if (not manual) and a.get("confidence", 1.0) < conf_threshold:
+            continue
+        if cls_filter != "全部" and a.get("class") != cls_filter:
+            continue
+        res.append(a)
+    return res
 
 
-def draw_annotations(
-    image: np.ndarray,
-    annotations: List[Dict],
+def ensure_ann_list(key: str) -> List[Dict]:
+    anns = st.session_state.anns.get(key)
+    if not isinstance(anns, list):
+        st.session_state.anns[key] = []
+    return st.session_state.anns[key]
+
+
+def draw(
+    img: np.ndarray,
+    anns: List[Dict],
+    show_conf: bool = False,
+    thickness: int = 2,
+    font_size: int = 14,
 ) -> np.ndarray:
-    img = image.copy()
-
+    """绘制标注"""
     colors = {
-        'person': (0, 255, 0),
-        'truck': (255, 0, 0),
-        'dump truck': (0, 128, 255),
-        'excavator': (0, 0, 255),
-        'car': (0, 255, 0),
-        'bus': (0, 165, 255),
+        'person': (0, 255, 0), 'car': (0, 128, 255), 'truck': (255, 128, 0), 'bus': (128, 0, 255),
+        'van': (135, 206, 250), 'motorcycle': (255, 0, 128), 'bicycle': (0, 255, 255),
+        'excavator': (255, 165, 0), 'bulldozer': (0, 206, 209), 'dump truck': (255, 20, 147),
+        'tractor': (147, 112, 219), 'trailer': (255, 215, 0)
     }
 
-    for ann in annotations:
-        x1, y1, x2, y2 = ann['bbox']
-        class_name = ann['class']
-        confidence = ann.get('confidence', 1.0)
-        is_manual = ann.get('manual', False)
+    thickness = max(1, int(thickness))
+    font_size = max(10, int(font_size))
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img_pil = Image.fromarray(img_rgb)
+    draw_obj = ImageDraw.Draw(img_pil, "RGBA")
+    ih, iw = img.shape[:2]
 
-        if is_manual:
-            color = (0, 255, 0)
-        else:
-            color = colors.get(class_name, (255, 128, 0))
-
-        cv2.rectangle(img, (x1, y1), (x2, y2), color, 3)
-
-        label = f"{class_name}: {confidence:.2f}" if confidence < 1.0 else class_name
-        (label_w, label_h), _ = cv2.getTextSize(
-            label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2
-        )
-
-        if y1 - label_h - 10 < 0:
-            bg_y1 = y1 + label_h + 10
-            bg_y2 = y1
-        else:
-            bg_y1 = y1
-            bg_y2 = y1 - label_h - 10
-
-        cv2.rectangle(img, (x1, bg_y2), (x1 + label_w, bg_y1), color, -1)
-        cv2.putText(img, label, (x1, y1 - 5 if bg_y2 < y1 else y1 + label_h - 5),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-
-    return img
-
-
-def get_image_files(raw_images_dir: str) -> List[str]:
-    image_dir = resolve_path(raw_images_dir)
-    if not image_dir.exists():
-        return []
-    image_files = discover_media(image_dir, IMAGE_EXTS)
-    return [str(p) for p in sorted(image_files)]
-
-
-def batch_detect(image_files: List[str], model, confidence: float) -> Dict[str, List[Dict]]:
-    results = {}
-    for i, img_path in enumerate(image_files):
+    # 加载字体 - 尝试多个系统字体路径
+    font_paths = [
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/PingFangSC.ttc",
+        "/System/Library/Fonts/Hiragino Sans GB W3.otf",
+        "/System/Library/Fonts/STHeiti Light.ttc",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    ]
+    font = None
+    for fp in font_paths:
         try:
-            result = model(img_path, conf=confidence)[0]
-            labels = yolo_labels_from_result(result, model.names)
-
-            annotations = []
-            img = cv2.imread(img_path)
-            if img is None:
-                continue
-            h, w = img.shape[:2]
-
-            for cls_id, label_name, x_center, y_center, width, height, conf in labels:
-                x1 = int((x_center - width / 2) * w)
-                y1 = int((y_center - height / 2) * h)
-                x2 = int((x_center + width / 2) * w)
-                y2 = int((y_center + height / 2) * h)
-
-                annotations.append({
-                    'class': label_name,
-                    'confidence': round(conf, 4),
-                    'bbox': [x1, y1, x2, y2],
-                    'manual': False,
-                })
-
-            results[img_path] = annotations
+            font = ImageFont.truetype(fp, font_size)
+            break
         except Exception:
-            results[img_path] = []
+            continue
+    if font is None:
+        try:
+            font = ImageFont.truetype("arial.ttf", font_size)
+        except Exception:
+            font = ImageFont.load_default()
 
-        if (i + 1) % 10 == 0:
-            st.info(f"已处理 {i + 1}/{len(image_files)} 张...")
+    for ann in anns:
+        print(f"[Draw-Debug] ann: {ann}")
+        if "bbox" not in ann or "class" not in ann:
+            print(f"[Draw-Debug] 跳过: 缺少 bbox 或 class")
+            continue
+        x1, y1, x2, y2 = ann['bbox']
+        # 检查是否是归一化坐标（所有值 <= 1.0），如果是则转换为像素坐标
+        if max(x1, y1, x2, y2) <= 1.0:
+            x1 = int(x1 * iw)
+            y1 = int(y1 * ih)
+            x2 = int(x2 * iw)
+            y2 = int(y2 * ih)
+        else:
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+        x1 = max(0, min(iw - 1, x1))
+        x2 = max(0, min(iw - 1, x2))
+        y1 = max(0, min(ih - 1, y1))
+        y2 = max(0, min(ih - 1, y2))
+        if x2 <= x1 or y2 <= y1:
+            print(f"[Draw-Debug] 跳过: 无效 bbox ({x1}, {y1}, {x2}, {y2})")
+            continue
+        c = colors.get(ann['class'], (255, 128, 0))
+        print(f"[Draw-Debug] 绘制: class={ann['class']}, bbox=({x1}, {y1}, {x2}, {y2})")
+        tag = "手" if ann.get("manual") else "自"
+        label = CLASS_NAMES_CN.get(ann['class'], ann['class'])
+        label = f"[{tag}] {label}"
+        if show_conf:
+            label = f"{label} {ann.get('confidence', 1.0):.2f}"
 
-    return results
+        draw_obj.rectangle([x1, y1, x2, y2], outline=(*c, 255), width=thickness)
+        try:
+            text_bbox = draw_obj.textbbox((0, 0), label, font=font)
+            text_w = text_bbox[2] - text_bbox[0]
+            text_h = text_bbox[3] - text_bbox[1]
+        except Exception:
+            text_w, text_h = draw_obj.textsize(label, font=font)
+        pad = 2
+        tx1 = x1
+        ty1 = max(0, y1 - text_h - pad * 2)
+        tx2 = min(iw - 1, x1 + text_w + pad * 2)
+        ty2 = min(ih - 1, ty1 + text_h + pad * 2)
+        draw_obj.rectangle([tx1, ty1, tx2, ty2], fill=(*c, 200))
+        draw_obj.text((tx1 + pad, ty1 + pad), label, font=font, fill=(255, 255, 255, 255))
+
+    return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+
+
+def draw_tracking(
+    img: np.ndarray,
+    tracks: List[Dict],
+    show_conf: bool = False,
+    thickness: int = 3,
+    font_size: int = 16,
+) -> np.ndarray:
+    """绘制带跟踪ID的标注"""
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img_pil = Image.fromarray(img_rgb)
+    draw_obj = ImageDraw.Draw(img_pil, "RGBA")
+    ih, iw = img.shape[:2]
+
+    # 加载字体 - 尝试多个系统字体路径
+    font_paths = [
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/PingFangSC.ttc",
+        "/System/Library/Fonts/Hiragino Sans GB W3.otf",
+        "/System/Library/Fonts/STHeiti Light.ttc",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    ]
+    font = None
+    for fp in font_paths:
+        try:
+            font = ImageFont.truetype(fp, font_size)
+            break
+        except Exception:
+            continue
+    if font is None:
+        try:
+            font = ImageFont.truetype("arial.ttf", font_size)
+        except Exception:
+            font = ImageFont.load_default()
+
+    for trk in tracks:
+        if "bbox" not in trk or "track_id" not in trk:
+            continue
+        x1, y1, x2, y2 = trk['bbox']
+        # 检查是否是归一化坐标（所有值 <= 1.0），如果是则转换为像素坐标
+        if max(x1, y1, x2, y2) <= 1.0:
+            x1 = int(x1 * iw)
+            y1 = int(y1 * ih)
+            x2 = int(x2 * iw)
+            y2 = int(y2 * ih)
+        else:
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+        track_id = trk.get('track_id', 0)
+        cls = trk.get('class', 'unknown')
+        conf = trk.get('confidence', 0.0)
+
+        # 边界检查
+        x1 = max(0, min(iw - 1, x1))
+        x2 = max(0, min(iw - 1, x2))
+        y1 = max(0, min(ih - 1, y1))
+        y2 = max(0, min(ih - 1, y2))
+
+        if x2 <= x1 or y2 <= y1:
+            continue
+
+        # 颜色基于跟踪ID
+        color = get_track_color(track_id)
+        label_color = (*color, 200)
+
+        # 类别中文名
+        cls_cn = CLASS_NAMES_CN.get(cls, cls)
+
+        # 标签文本
+        label = f"#{track_id} {cls_cn}"
+        if show_conf and conf > 0:
+            label = f"{label} {conf:.2f}"
+
+        # 绘制边界框
+        draw_obj.rectangle([x1, y1, x2, y2], outline=(*color, 255), width=thickness)
+
+        # 计算标签尺寸
+        try:
+            text_bbox = draw_obj.textbbox((0, 0), label, font=font)
+            text_w = text_bbox[2] - text_bbox[0]
+            text_h = text_bbox[3] - text_bbox[1]
+        except Exception:
+            text_w, text_h = 120, 20
+
+        pad = 4
+        tx1 = x1
+        ty1 = max(0, y1 - text_h - pad * 2)
+        tx2 = min(iw - 1, tx1 + text_w + pad * 2)
+        ty2 = min(ih - 1, ty1 + text_h + pad * 2)
+
+        # 绘制标签背景
+        draw_obj.rectangle([tx1, ty1, tx2, ty2], fill=label_color)
+        # 绘制标签文字
+        draw_obj.text((tx1 + pad, ty1 + pad), label, font=font, fill=(255, 255, 255, 255))
+
+        # 绘制中心点
+        cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+        draw_obj.ellipse([cx - 5, cy - 5, cx + 5, cy + 5], fill=(*color, 255), outline=(255, 255, 255, 255))
+
+    return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+
+
+def save_labels(path: Path, anns: List[Dict], w: int, h: int):
+    """保存YOLO格式标签"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    labels = []
+    for ann in anns:
+        x1, y1, x2, y2 = ann['bbox']
+        cls_id = ann.get("class_id")
+        if cls_id is None:
+            cls_id = TARGET_CLASSES.get(ann.get("class", ""), 0)
+        labels.append((
+            cls_id,
+            ann.get('class', 'unknown'),
+            ((x1 + x2) / 2) / w,
+            ((y1 + y2) / 2) / h,
+            (x2 - x1) / w,
+            (y2 - y1) / h,
+            ann.get('confidence', 1.0)
+        ))
+    save_yolo_label(path, labels)
 
 
 def render_labeling_interface():
-    """渲染自动标注界面"""
-    # 注意：不要在这里调用 st.set_page_config()，因为主应用已经设置过了
+    init_state()
 
-    # 初始化会话状态
-    if 'annotations' not in st.session_state:
-        st.session_state.annotations = {}
-    if 'image_files' not in st.session_state:
-        st.session_state.image_files = []
-    if 'current_image_idx' not in st.session_state:
-        st.session_state.current_image_idx = 0
-    if 'detection_done' not in st.session_state:
-        st.session_state.detection_done = False
-    if 'model_loaded' not in st.session_state:
-        st.session_state.model_loaded = False
-    if 'model_path' not in st.session_state:
-        st.session_state.model_path = ""
-    if 'draw_start' not in st.session_state:
-        st.session_state.draw_start = None
-    if 'draw_end' not in st.session_state:
-        st.session_state.draw_end = None
-    if 'last_click' not in st.session_state:
-        st.session_state.last_click = None
+    engine = get_engine()
+    engine_ready = engine.is_available()
 
-    annotations = st.session_state.annotations
-    image_files = st.session_state.image_files
+    st.markdown(
+        """
+        <style>
+        .main-header {
+            text-align: center;
+            padding: 1rem;
+            background: linear-gradient(90deg, #5B8FF9 0%, #61DDAA 100%);
+            color: white;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+        }
+        .sub-note {
+            color: #f2f2f2;
+            font-size: 0.9rem;
+            margin-top: -0.2rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="main-header"><h1>🏷️ 自动标注工具</h1><div class="sub-note">自动预标注 · 手动修正 · YOLO 导出</div></div>',
+        unsafe_allow_html=True,
+    )
 
-    st.header("🏷️ 自动标注工具")
-
-    # 侧边栏配置（注意：在主应用中侧边栏已被占用，这里改为主区域配置）
-    st.subheader("配置")
-
-    col_config1, col_config2 = st.columns([1, 1])
-
-    with col_config1:
-        # 模型配置
-        st.markdown("**模型设置**")
-        config = load_yaml("poc/config/poc.yaml")
-        model_name = st.selectbox(
-            "选择模型",
-            options=['yolov8x-worldv2.pt', 'yolov8-worldv2.pt', 'yolov8x.pt'],
-            index=0
+    # ===== 侧边栏 =====
+    with st.sidebar:
+        st.header("📁 数据源")
+        mtype = st.radio(
+            "文件类型",
+            ["图片", "视频"],
+            horizontal=True,
+            index=1 if st.session_state.is_video else 0,
         )
+        st.session_state.is_video = (mtype == "视频")
+        st.session_state.idx = 0  # 重置索引
 
-        # 检查本地是否有模型
-        model_path = get_model_path(model_name)
-        local_exists = model_path.exists()
+        if st.session_state.is_video:
+            st.text_input("视频目录", value=st.session_state.get("vid_dir", DEFAULT_VIDEOS_DIR), key="vid_dir")
+        else:
+            st.text_input("图片目录", value=st.session_state.get("img_dir", DEFAULT_IMAGES_DIR), key="img_dir")
 
-        # 自动加载本地模型
-        if local_exists and not st.session_state.model_loaded:
-            try:
-                with st.spinner("正在加载本地模型..."):
-                    from ultralytics import YOLO
-                    st.session_state.model = YOLO(str(model_path))
-                    st.session_state.model_loaded = True
-                    st.session_state.model_path = str(model_path)
-                st.success(f"模型已加载: {Path(model_path).name}")
-            except Exception as e:
-                st.error(f"加载失败: {e}")
-        elif not local_exists and not st.session_state.model_loaded:
-            st.warning("本地未找到模型，正在下载...")
-            if ensure_model_available(model_name):
-                st.rerun()
+        # 自动检查是否有保存的状态
+        if not st.session_state.get('files'):
+            cur_dir = st.session_state.vid_dir if st.session_state.is_video else st.session_state.img_dir
+            cur_dir_name = Path(cur_dir).name
+            state_dir = ROOT / "data" / "tmp" / ("videos" if st.session_state.is_video else "images")
+            state_dir.mkdir(parents=True, exist_ok=True)
+            state_file = state_dir / f"{cur_dir_name}_state.json"
+            if state_file.exists():
+                try:
+                    with open(state_file, 'r', encoding='utf-8') as f:
+                        state_data = json.load(f)
+                    saved_files = state_data.get('files', [])
+                    # 验证文件是否还存在
+                    if saved_files and all(Path(f).exists() for f in saved_files):
+                        st.session_state.files = saved_files
+                        st.session_state.anns = state_data.get('anns', {})
+                        st.session_state.idx = 0
+                        # 清除旧的场景描述缓存
+                        for k in list(st.session_state.keys()):
+                            if k.startswith('img_desc_') or k.startswith('video_desc_'):
+                                del st.session_state[k]
+                        st.rerun()
+                except Exception as e:
+                    print(f"[UI] 自动恢复状态失败: {e}")
 
-        # 显示当前模型状态
-        if st.session_state.model_loaded:
-            st.caption(f"当前模型: {Path(st.session_state.model_path).name}")
+        st.text_input("输出目录", value=st.session_state.get("out_dir", "poc/data/labels/auto"), key="out_dir")
+        ensure_parent_dir(resolve_path(st.session_state.out_dir) / ".placeholder")
 
-        # 置信度阈值
-        confidence = st.slider("检测置信度", 0.1, 0.9, 0.25)
+        if st.session_state.is_video:
+            st.session_state.want_tracking = True
+            st.session_state.frame_interval = 1
+            st.session_state.detect_size = 640
+            if not st.session_state.want_tracking:
+                num_workers = st.selectbox("并行进程数", [1, 2, 4, 8], index=2,
+                    help="不跟踪时可启用多进程并行检测。CPU核心数建议设为最大")
+                st.session_state.num_workers = num_workers
 
-    with col_config2:
-        # 路径配置
-        st.markdown("**路径设置**")
-        raw_images_dir = st.text_input(
-            "图像目录",
-            value=config.get("paths", {}).get("raw_images_dir", "warning_img")
-        )
+        st.divider()
 
-        labels_dir = st.text_input(
-            "标签输出目录",
-            value="poc/data/labels/auto"
-        )
-        ensure_parent_dir(resolve_path(labels_dir) / ".placeholder")
+        # 统一的扫描标注按钮
+        if st.button("🚀 扫描并开始标注", type="primary", use_container_width=True, disabled=not engine_ready):
+            if not engine_ready:
+                st.error("自动标注引擎不可用，请检查 API 配置")
+            else:
+                odir = resolve_path(st.session_state.out_dir)
+                odir.mkdir(parents=True, exist_ok=True)
 
-        if st.button("扫描图片", use_container_width=True):
-            st.session_state.image_files = get_image_files(raw_images_dir)
-            st.session_state.detection_done = False
-            st.session_state.current_image_idx = 0
-            st.session_state.draw_start = None
-            st.session_state.draw_end = None
-            st.rerun()
+                # 扫描文件
+                if st.session_state.is_video:
+                    d = resolve_path(st.session_state.vid_dir)
+                    if d.exists():
+                        files = sorted({str(f) for ext in VIDEO_EXTS for f in d.glob(f"*{ext}")})
+                    else:
+                        st.error("❌ 视频目录不存在")
+                        files = []
+                else:
+                    d = resolve_path(st.session_state.img_dir)
+                    if d.exists():
+                        files = sorted([str(f) for f in d.glob("*") if f.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp', '.webp']])
+                    else:
+                        st.error("❌ 图片目录不存在")
+                        files = []
 
-    st.divider()
+                if not files:
+                    st.error("未找到任何文件")
+                else:
+                    st.session_state.files = files
+                    st.session_state.idx = 0
+                    st.session_state.anns = {}
+                    st.session_state.draw_start = {}
+                    st.session_state.use_tracking = st.session_state.get('want_tracking', False)
 
-    # 主内容区
-    if not image_files:
-        with st.spinner("扫描图片目录..."):
-            st.session_state.image_files = get_image_files(raw_images_dir)
-            image_files = st.session_state.image_files
+                    # 显示设置默认值
+                    if 'show_auto' not in st.session_state:
+                        st.session_state.show_auto = True
+                    if 'show_manual' not in st.session_state:
+                        st.session_state.show_manual = True
+                    if 'show_conf' not in st.session_state:
+                        st.session_state.show_conf = True
+                    if 'conf_threshold' not in st.session_state:
+                        st.session_state.conf_threshold = 0.1
+                    if 'box_thickness' not in st.session_state:
+                        st.session_state.box_thickness = 2
+                    if 'class_filter' not in st.session_state:
+                        st.session_state.class_filter = "全部"
 
-    if not image_files:
-        st.warning(f"未找到图片")
-        st.info("请将图片放入指定目录。")
+                    # 准备临时目录
+                    if st.session_state.is_video:
+                        tmp_dir = ROOT / "data" / "tmp" / "videos"
+                    else:
+                        tmp_dir = ROOT / "data" / "tmp" / "images"
+                    tmp_dir.mkdir(parents=True, exist_ok=True)
+
+                    # 检查是否已有保存的状态
+                    dir_name = Path(st.session_state.img_dir if not st.session_state.is_video else st.session_state.vid_dir).name
+                    state_file = tmp_dir / f"{dir_name}_state.json"
+
+                    loaded_state = None
+                    if state_file.exists():
+                        try:
+                            with open(state_file, 'r', encoding='utf-8') as f:
+                                loaded_state = json.load(f)
+                            # 验证状态中的文件列表是否匹配
+                            if loaded_state.get('files') == files:
+                                st.info("✅ 检测到已保存的标注状态，正在恢复...")
+                                st.session_state.files = loaded_state.get('files', files)
+                                st.session_state.anns = loaded_state.get('anns', {})
+                                st.session_state.idx = loaded_state.get('idx', 0)
+                                # 恢复场景描述缓存
+                                for k in list(st.session_state.keys()):
+                                    if k.startswith('img_desc_') or k.startswith('video_desc_'):
+                                        del st.session_state[k]
+                                st.rerun()
+                                return
+                            else:
+                                st.info("检测到旧状态文件，将重新处理")
+                        except Exception as e:
+                            print(f"[UI] 加载状态失败: {e}")
+
+                    # 开始标注
+                    progress = st.progress(0)
+                    progress_text = st.empty()
+                    all_res = {}
+                    if st.session_state.is_video:
+                        interval = st.session_state.get('frame_interval', 3)
+                        detect_size = st.session_state.get('detect_size', 320)
+                        num_workers = st.session_state.get('num_workers', 4)
+                        for i, vf in enumerate(files):
+                            progress.progress((i + 1) / len(files))
+                            progress_text.text(f"处理中: {i + 1}/{len(files)}")
+                            if st.session_state.use_tracking:
+                                with st.spinner(f"处理视频: {Path(vf).name} (间隔{interval}帧, 分辨率{detect_size})"):
+                                    result = engine.detect_video_with_tracking(vf, frame_interval=interval, detect_size=detect_size, preview_dir=str(tmp_dir))
+                                    all_res[vf] = result
+                            else:
+                                # 多进程并行检测（不带跟踪）
+                                with st.spinner(f"处理视频: {Path(vf).name} (多进程{num_workers}核, 分辨率{detect_size})"):
+                                    frames = engine.detect_video_parallel(vf, num_workers=num_workers, frame_interval=interval, detect_size=detect_size)
+                                    all_res[vf] = frames
+                        st.session_state.anns = all_res
+                    else:
+                        for i, f in enumerate(files):
+                            progress.progress((i + 1) / len(files))
+                            progress_text.text(f"处理中: {i + 1}/{len(files)}")
+                            with st.spinner(f"YOLO+VL检测: {Path(f).name}"):
+                                auto_res = engine.detect_image_yolo_then_vl(f, preview_dir=str(tmp_dir))
+                                all_res[f] = auto_res
+                        st.session_state.anns = all_res
+                    # 保存状态到文件
+                    dir_name = Path(st.session_state.img_dir if not st.session_state.is_video else st.session_state.vid_dir).name
+                    if st.session_state.is_video:
+                        state_dir = ROOT / "data" / "tmp" / "videos"
+                    else:
+                        state_dir = ROOT / "data" / "tmp" / "images"
+                    state_dir.mkdir(parents=True, exist_ok=True)
+                    state_file = state_dir / f"{dir_name}_state.json"
+                    state_data = {
+                        'files': files,
+                        'anns': st.session_state.anns,
+                        'idx': st.session_state.idx,
+                        'is_video': st.session_state.is_video,
+                        'dir_name': dir_name,
+                    }
+                    with open(state_file, 'w', encoding='utf-8') as f:
+                        json.dump(state_data, f, ensure_ascii=False)
+                    progress.empty()
+                    progress_text.empty()
+
+        # 预览视频下载按钮
+        if st.session_state.get('use_tracking') and st.session_state.is_video:
+            cur = st.session_state.files[st.session_state.idx] if st.session_state.files else None
+            if cur:
+                video_p = Path(cur)
+                tmp_dir = ROOT / "data" / "tmp" / "videos"
+                tmp_dir.mkdir(parents=True, exist_ok=True)
+                preview_path = tmp_dir / (video_p.name.replace(video_p.suffix, '') + '_tracked.mp4')
+                print(f"[UI] 下载按钮检查预览视频: {preview_path}")
+                if preview_path.exists():
+                    print(f"[UI] 预览视频存在，大小: {preview_path.stat().st_size / 1024 / 1024:.2f} MB")
+                    with open(preview_path, 'rb') as f:
+                        st.download_button(
+                            label="📥 下载预览视频",
+                            data=f.read(),
+                            file_name=preview_path.name,
+                            mime='video/mp4'
+                        )
+                else:
+                    print(f"[UI] 预览视频不存在，无法下载")
+
+        st.divider()
+        if st.button("💾 保存全部", use_container_width=True, disabled=not st.session_state.anns):
+            if st.session_state.is_video:
+                st.warning("视频暂不支持保存为 YOLO 标签")
+            else:
+                for f in st.session_state.files:
+                    ia = st.session_state.anns.get(f, [])
+                    fi = cv2.imread(f)
+                    if fi is not None:
+                        save_labels(
+                            resolve_path(st.session_state.out_dir) / f"{Path(f).stem}.txt",
+                            ia,
+                            fi.shape[1],
+                            fi.shape[0],
+                        )
+                st.success("✅ 已保存到 " + st.session_state.out_dir)
+
+        st.caption("保存格式：YOLO txt（class x y w h）")
+
+        if not engine_ready:
+            st.warning("自动标注引擎不可用，请检查 API 配置")
+
+        st.divider()
+        st.subheader("📋 类别")
+        for cls in TARGET_CLASSES.keys():
+            cn = CLASS_NAMES_CN.get(cls, cls)
+            st.caption(f"• {cn} ({cls})")
+
+    # ===== 主界面 =====
+    files = st.session_state.files
+    if not files:
+        st.info("👈 请在左侧设置目录并扫描文件")
+        st.caption("支持自动标注预览、手动修正，并保存为 YOLO 格式")
         return
 
-    st.success(f"找到 {len(image_files)} 张图片")
+    # 文件导航栏
+    st.markdown("### 📂 文件导航")
+    col_nav1, col_nav2, col_nav3 = st.columns([1, 4, 1])
+    with col_nav1:
+        if st.button("◀ 上一张", disabled=st.session_state.idx == 0):
+            st.session_state.idx = max(0, st.session_state.idx - 1)
+    with col_nav2:
+        cur_file = files[st.session_state.idx]
+        file_name = Path(cur_file).name
+        total = len(files)
+        current = st.session_state.idx + 1
+        st.markdown(
+            f"""
+            <div style="text-align: center; padding: 10px; background: #f0f2f6; border-radius: 10px;">
+                <strong>{file_name}</strong> <span style="color: #666;">({current}/{total})</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with col_nav3:
+        if st.button("下一张 ▶", disabled=st.session_state.idx >= len(files) - 1):
+            st.session_state.idx = min(len(files) - 1, st.session_state.idx + 1)
 
-    # 批量检测按钮
-    if not st.session_state.detection_done:
-        st.divider()
-        col_start, col_progress = st.columns([1, 3])
-        with col_start:
-            if st.button("开始批量自动标注", type="primary", use_container_width=True, disabled=not st.session_state.model_loaded):
-                if not st.session_state.model_loaded:
-                    st.warning("请先加载模型")
-                else:
-                    with st.spinner("批量检测中，请稍候..."):
-                        results = batch_detect(image_files, st.session_state.model, confidence)
-                        st.session_state.annotations = results
-                        st.session_state.detection_done = True
-                    st.success(f"检测完成! 共 {len(image_files)} 张图片")
-                    st.rerun()
-        with col_progress:
-            if st.session_state.model_loaded:
-                st.info("点击按钮开始批量检测所有图片")
-            else:
-                st.warning("请先加载模型")
+    cur = files[st.session_state.idx]
+    class_keys = list(TARGET_CLASSES.keys())
 
-    # 检测完成后显示结果
-    if st.session_state.detection_done:
-        # 统计信息
-        total_anns = sum(len(anns) for anns in annotations.values())
-        detected_count = sum(1 for anns in annotations.values() if len(anns) > 0)
-        class_counts = {}
-        for anns in annotations.values():
-            for ann in anns:
-                cls = ann['class']
-                class_counts[cls] = class_counts.get(cls, 0) + 1
-
-        st.divider()
-        st.subheader("检测结果统计")
-        col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
-        col_stat1.metric("总图片数", len(image_files))
-        col_stat2.metric("有标注", detected_count)
-        col_stat3.metric("无标注", len(image_files) - detected_count)
-        col_stat4.metric("总标注数", total_anns)
-
-        if class_counts:
-            st.write("类别分布:")
-            st.json(class_counts)
-
-        # 图片浏览
-        st.divider()
-        st.subheader("标注结果浏览与编辑")
-
-        current_idx = st.session_state.current_image_idx
-        if current_idx >= len(image_files):
-            current_idx = 0
-            st.session_state.current_image_idx = 0
-
-        col_nav1, col_nav2, col_nav3 = st.columns([2, 1, 1])
-        with col_nav1:
-            selected_image = st.selectbox(
-                "选择图片",
-                range(len(image_files)),
-                index=current_idx,
-                format_func=lambda i: Path(image_files[i]).name
-            )
-            st.session_state.current_image_idx = selected_image
-            # 切换图片时清除点击状态
-            if current_idx != selected_image:
-                st.session_state.draw_start = None
-                st.session_state.draw_end = None
-                st.session_state.last_click = None
-        with col_nav2:
-            if st.button("上一张", disabled=selected_image == 0, use_container_width=True):
-                st.session_state.current_image_idx = selected_image - 1
-                st.session_state.draw_start = None
-                st.session_state.draw_end = None
-                st.session_state.last_click = None
-                st.rerun()
-        with col_nav3:
-            if st.button("下一张", disabled=selected_image == len(image_files) - 1, use_container_width=True):
-                st.session_state.current_image_idx = selected_image + 1
-                st.session_state.draw_start = None
-                st.session_state.draw_end = None
-                st.session_state.last_click = None
-                st.rerun()
-
-        current_image_path = image_files[selected_image]
-        current_image_name = Path(current_image_path).stem
-
-        # 工具栏
-        st.divider()
-        col_tools1, col_tools2, col_tools3, col_tools4 = st.columns(4)
-
-        with col_tools1:
-            if st.button("重新检测当前", use_container_width=True):
-                if st.session_state.model_loaded:
-                    with st.spinner("检测中..."):
-                        img = cv2.imread(current_image_path)
-                        result = st.session_state.model(current_image_path, conf=confidence)[0]
-                        labels = yolo_labels_from_result(result, st.session_state.model.names)
-
-                        anns = []
-                        h, w = img.shape[:2]
-                        for cls_id, label_name, x_center, y_center, width, height, conf in labels:
-                            x1 = int((x_center - width / 2) * w)
-                            y1 = int((y_center - height / 2) * h)
-                            x2 = int((x_center + width / 2) * w)
-                            y2 = int((y_center + height / 2) * h)
-                            anns.append({
-                                'class': label_name,
-                                'confidence': round(conf, 4),
-                                'bbox': [x1, y1, x2, y2],
-                                'manual': False,
-                            })
-                        annotations[current_image_path] = anns
-                    st.session_state.draw_start = None
-                    st.session_state.draw_end = None
-                    st.rerun()
-
-        with col_tools2:
-            if st.button("清空当前标注", use_container_width=True):
-                annotations[current_image_path] = []
-                st.session_state.draw_start = None
-                st.session_state.draw_end = None
-                st.rerun()
-
-        with col_tools3:
-            if st.button("保存当前", use_container_width=True):
-                output_dir = resolve_path(labels_dir)
-                output_dir.mkdir(parents=True, exist_ok=True)
-                output_path = output_dir / f"{current_image_name}.txt"
-
-                img = cv2.imread(current_image_path)
-                if img is not None:
-                    h, w = img.shape[:2]
-                    yolo_labels = []
-                    for ann in annotations.get(current_image_path, []):
-                        x1, y1, x2, y2 = ann['bbox']
-                        cls_id = DEFAULT_CLASSES.index(ann['class']) if ann['class'] in DEFAULT_CLASSES else 0
-                        x_center = ((x1 + x2) / 2) / w
-                        y_center = ((y1 + y2) / 2) / h
-                        box_w = (x2 - x1) / w
-                        box_h = (y2 - y1) / h
-                        yolo_labels.append((cls_id, ann['class'], x_center, y_center, box_w, box_h, ann.get('confidence', 1.0)))
-                    save_yolo_label(output_path, yolo_labels)
-                    st.success("已保存")
-
-        with col_tools4:
-            if st.button("保存全部", use_container_width=True):
-                output_dir = resolve_path(labels_dir)
-                output_dir.mkdir(parents=True, exist_ok=True)
-                saved_count = 0
-                for img_path, anns in annotations.items():
-                    img_stem = Path(img_path).stem
-                    output_path = output_dir / f"{img_stem}.txt"
-                    try:
-                        temp_img = cv2.imread(str(img_path))
-                        if temp_img is not None:
-                            h, w = temp_img.shape[:2]
-                            yolo_labels = []
-                            for ann in anns:
-                                x1, y1, x2, y2 = ann['bbox']
-                                cls_id = DEFAULT_CLASSES.index(ann['class']) if ann['class'] in DEFAULT_CLASSES else 0
-                                x_center = ((x1 + x2) / 2) / w
-                                y_center = ((y1 + y2) / 2) / h
-                                box_w = (x2 - x1) / w
-                                box_h = (y2 - y1) / h
-                                yolo_labels.append((cls_id, ann['class'], x_center, y_center, box_w, box_h, ann.get('confidence', 1.0)))
-                            save_yolo_label(output_path, yolo_labels)
-                            saved_count += 1
-                    except Exception:
-                        pass
-                st.success(f"已保存 {saved_count} 张")
-
-        # 手动标注区域
-        st.divider()
-        st.subheader("手动画框标注")
-
-        # 加载图片
-        img = cv2.imread(current_image_path)
+    # 图片预览
+    if not st.session_state.is_video:
+        img = cv2.imread(cur)
         if img is None:
-            st.error("无法读取图片")
+            st.error("图片读取失败")
             return
-
         h, w = img.shape[:2]
+        img_anns = ensure_ann_list(cur)
 
-        # 选择类别
-        col_class1, col_class2 = st.columns([2, 1])
-        with col_class1:
-            selected_class = st.selectbox("选择要标注的类别", DEFAULT_CLASSES, index=0, key="draw_class")
-        with col_class2:
-            st.markdown("""
-            **操作步骤：**
-            1. 先点击图片左上角
-            2. 再点击图片右下角
-            """)
+        total_cnt, auto_cnt, manual_cnt, by_class = summarize_anns(img_anns)
+        col_stat1, col_stat2, col_stat3 = st.columns(3)
+        col_stat1.metric("标注总数", total_cnt)
+        col_stat2.metric("自动标注", auto_cnt)
+        col_stat3.metric("手动标注", manual_cnt)
 
-        # 计算显示尺寸（用于坐标转换）
+        st.divider()
+
+        # 结果预览区域
+        st.subheader("📷 结果预览")
+
+        # 获取标注数据
+        img_anns = ensure_ann_list(cur)
+        visible_anns = filter_anns(
+            img_anns,
+            show_auto=st.session_state.show_auto,
+            show_manual=st.session_state.show_manual,
+            conf_threshold=st.session_state.conf_threshold,
+            cls_filter=st.session_state.class_filter,
+        )
+
+        # 初始化点击状态（必须在使用前定义）
+        draw_start_key = f"draw_start_{cur}"
+        draw_end_key = f"draw_end_{cur}"
+        last_click_key = f"last_click_{cur}"
+
+        if draw_start_key not in st.session_state:
+            st.session_state[draw_start_key] = None
+        if draw_end_key not in st.session_state:
+            st.session_state[draw_end_key] = None
+        if last_click_key not in st.session_state:
+            st.session_state[last_click_key] = None
+
+        # 绘制标注框到图片
+        disp = img.copy()
+        disp = draw(
+            disp,
+            visible_anns,
+            show_conf=st.session_state.show_conf,
+            thickness=max(1, int(st.session_state.box_thickness)),
+            font_size=14,
+        )
+
+        # 绘制正在画的框（绿色）
+        if st.session_state[draw_start_key] and st.session_state[draw_end_key]:
+            x1 = min(st.session_state[draw_start_key][0], st.session_state[draw_end_key][0])
+            y1 = min(st.session_state[draw_start_key][1], st.session_state[draw_end_key][1])
+            x2 = max(st.session_state[draw_start_key][0], st.session_state[draw_end_key][0])
+            y2 = max(st.session_state[draw_start_key][1], st.session_state[draw_end_key][1])
+            cv2.rectangle(disp, (x1, y1), (x2, y2), (0, 255, 0), 4)
+
+        disp_rgb = cv2.cvtColor(disp, cv2.COLOR_BGR2RGB)
+
+        # 计算显示尺寸
         max_display_width = 800
         display_width = min(w, max_display_width)
         display_height = int(h * display_width / w) if w > 0 else h
-
-        # 计算缩放比例（显示坐标 -> 原始坐标）
         scale_x = w / display_width
         scale_y = h / display_height
 
-        # 在原始图片上绘制所有框（自动识别 + 正在画的）
-        annotated_img = draw_annotations(img, annotations.get(current_image_path, []))
-
-        if st.session_state.draw_start and st.session_state.draw_end:
-            x1 = min(st.session_state.draw_start[0], st.session_state.draw_end[0])
-            y1 = min(st.session_state.draw_start[1], st.session_state.draw_end[1])
-            x2 = max(st.session_state.draw_start[0], st.session_state.draw_end[0])
-            y2 = max(st.session_state.draw_start[1], st.session_state.draw_end[1])
-            cv2.rectangle(annotated_img, (x1, y1), (x2, y2), (0, 255, 0), 3)
-
-        annotated_rgb = cv2.cvtColor(annotated_img, cv2.COLOR_BGR2RGB)
-
         # 缩放到显示尺寸
-        annotated_rgb_resized = cv2.resize(annotated_rgb, (display_width, display_height), interpolation=cv2.INTER_AREA)
+        disp_rgb_resized = cv2.resize(disp_rgb, (display_width, display_height), interpolation=cv2.INTER_AREA)
 
-        # 显示图片区域
-        st.markdown("### 点击下方图片进行标注")
-        st.info(f"图片尺寸: {w}×{h} | 显示尺寸: {display_width}×{display_height} | 缩放: {scale_x:.2f}×{scale_y:.2f}")
-
-        # 获取点击坐标
+        # 获取点击坐标（在 col_img 块外部，避免作用域问题）
         coords_value = streamlit_image_coordinates(
-            annotated_rgb_resized,
-            key="draw_coords",
+            disp_rgb_resized,
+            key=f"draw_coords_{cur}",
             height=display_height,
             width=display_width,
         )
 
-        # 处理点击坐标
+        # 处理点击坐标（在任何 with 块外部）
         if coords_value is not None:
             click_x = coords_value['x']
             click_y = coords_value['y']
 
-            # 如果是无效坐标，忽略
-            if click_x == 0 and click_y == 0:
-                pass
-            else:
-                last_click = st.session_state.get('last_click')
-
+            if not (click_x == 0 and click_y == 0):
+                last_click = st.session_state.get(last_click_key)
                 if last_click != coords_value:
-                    st.session_state.last_click = coords_value
+                    st.session_state[last_click_key] = coords_value
+                    orig_x = int(click_x * (w / display_width))
+                    orig_y = int(click_y * (h / display_height))
 
-                    # 转换到原始图片坐标
-                    orig_x = int(click_x * scale_x)
-                    orig_y = int(click_y * scale_y)
-
-                    # 检查是否是第一次点击
-                    if st.session_state.draw_start is None:
-                        st.session_state.draw_start = (orig_x, orig_y)
-                        st.session_state.draw_end = None
-                        st.toast(f"起点已设置: ({orig_x}, {orig_y})，请点击右下角")
-                        st.rerun()
-                    elif st.session_state.draw_end is None:
-                        # 防止重复点击同一点
-                        if st.session_state.draw_start == (orig_x, orig_y):
-                            st.toast("请点击不同的位置作为终点")
+                    if st.session_state[draw_start_key] is None:
+                        st.session_state[draw_start_key] = (orig_x, orig_y)
+                        st.session_state[draw_end_key] = None
+                    elif st.session_state[draw_end_key] is None:
+                        if st.session_state[draw_start_key] == (orig_x, orig_y):
+                            st.toast("请点击不同的位置")
                         else:
-                            st.session_state.draw_end = (orig_x, orig_y)
-                            # 两点都获取后添加标注
-                            x1 = min(st.session_state.draw_start[0], st.session_state.draw_end[0])
-                            y1 = min(st.session_state.draw_start[1], st.session_state.draw_end[1])
-                            x2 = max(st.session_state.draw_start[0], st.session_state.draw_end[0])
-                            y2 = max(st.session_state.draw_start[1], st.session_state.draw_end[1])
+                            st.session_state[draw_end_key] = (orig_x, orig_y)
+                            x1 = min(st.session_state[draw_start_key][0], st.session_state[draw_end_key][0])
+                            y1 = min(st.session_state[draw_start_key][1], st.session_state[draw_end_key][1])
+                            x2 = max(st.session_state[draw_start_key][0], st.session_state[draw_end_key][0])
+                            y2 = max(st.session_state[draw_start_key][1], st.session_state[draw_end_key][1])
 
-                            if x2 > x1 and y2 > y1 and (x2 - x1) > 10 and (y2 - y1) > 10:
-                                if current_image_path not in annotations:
-                                    annotations[current_image_path] = []
-                                annotations[current_image_path].append({
-                                    'class': selected_class,
-                                    'confidence': 1.0,
-                                    'bbox': [x1, y1, x2, y2],
-                                    'manual': True
+                            if x2 > x1 and y2 > y1 and (x2 - x1) > 5 and (y2 - y1) > 5:
+                                # 临时 selected_class 用于处理点击
+                                if 'cls_sel' not in st.session_state:
+                                    st.session_state.cls_sel = class_keys[0]
+                                img_anns.append({
+                                    "class": st.session_state.cls_sel,
+                                    "class_id": TARGET_CLASSES[st.session_state.cls_sel],
+                                    "confidence": 1.0,
+                                    "bbox": [x1 / w, y1 / h, x2 / w, y2 / h],
+                                    "manual": True,
                                 })
-                                st.toast(f"已添加标注: {selected_class}")
-                                st.session_state.draw_start = None
-                                st.session_state.draw_end = None
-                                st.session_state.last_click = None
+                                st.toast(f"已添加: {CLASS_NAMES_CN.get(st.session_state.cls_sel, st.session_state.cls_sel)}")
+                                st.session_state[draw_start_key] = None
+                                st.session_state[draw_end_key] = None
+                                st.session_state[last_click_key] = None
                                 st.rerun()
                             else:
-                                st.warning("框太小，请重新点击")
-                                st.session_state.draw_start = None
-                                st.session_state.draw_end = None
+                                st.warning("框太小")
+                                st.session_state[draw_start_key] = None
+                                st.session_state[draw_end_key] = None
+                                st.session_state[last_click_key] = None
+                    else:
+                        st.session_state[draw_start_key] = (orig_x, orig_y)
+                        st.session_state[draw_end_key] = None
 
-        # 显示当前画框状态
-        if st.session_state.draw_start:
-            sx, sy = st.session_state.draw_start
-            st.warning(f"起点已设置: ({sx}, {sy})，请在图片上点击右下角")
+        # 图片 + 右侧标注列表布局
+        col_img, col_tool = st.columns([4, 2], gap="large")
 
-        # 取消画框按钮
-        if st.session_state.draw_start or st.session_state.draw_end:
-            if st.button("取消画框"):
-                st.session_state.draw_start = None
-                st.session_state.draw_end = None
-                st.rerun()
-
-        # 标注列表
-        st.divider()
-        col_left, col_right = st.columns([2, 1])
-
-        with col_left:
-            st.markdown("### 标注列表")
-            current_annotations = annotations.get(current_image_path, [])
-
-            if not current_annotations:
-                st.info("暂无标注，请手动画框或等待自动检测")
+        with col_img:
+            # 显示图片和状态提示
+            if st.session_state[draw_start_key]:
+                sx, sy = st.session_state[draw_start_key]
+                st.info(f"👆 起点: ({sx}, {sy})，请点击右下角完成画框")
             else:
-                for idx, ann in enumerate(current_annotations):
-                    is_manual = ann.get('manual', False)
-                    prefix = "[手]" if is_manual else "[自动]"
-                    conf_str = f" {ann.get('confidence', 1.0):.2f}" if ann.get('confidence', 1.0) < 1.0 else ""
+                st.info("👆 点击图片左上角和右下角绘制标注框")
 
-                    with st.expander(f"{prefix} {ann['class']}{conf_str}", expanded=True):
-                        col_a, col_b = st.columns([3, 1])
-                        with col_a:
-                            new_cls = st.selectbox(
-                                "类别",
-                                DEFAULT_CLASSES,
-                                index=DEFAULT_CLASSES.index(ann['class']) if ann['class'] in DEFAULT_CLASSES else 0,
-                                key=f"class_{selected_image}_{idx}"
-                            )
-                            if new_cls != ann['class']:
-                                annotations[current_image_path][idx]['class'] = new_cls
-                                st.rerun()
-                        with col_b:
-                            if st.button("删除", key=f"del_{selected_image}_{idx}"):
-                                annotations[current_image_path].pop(idx)
-                                st.rerun()
+            # 场景描述
+            img_desc_key = f"img_desc_{cur}"
+            if img_desc_key not in st.session_state:
+                st.session_state[img_desc_key] = None
+            if st.session_state[img_desc_key] is None:
+                with st.spinner("正在分析场景..."):
+                    tmp_dir = ROOT / "data" / "tmp" / "images"
+                    tmp_dir.mkdir(parents=True, exist_ok=True)
+                    desc = engine.describe_image(cur, preview_dir=str(tmp_dir))
+                    st.session_state[img_desc_key] = desc
+            if st.session_state[img_desc_key]:
+                st.markdown(f"""
+                <div style="padding: 10px; background: #e8f4f8; border-radius: 8px; margin: 10px 0;">
+                    <strong style="color: #1a73e8;">📝 场景描述</strong>
+                    <p style="margin: 5px 0 0 0; color: #333;">{st.session_state[img_desc_key]}</p>
+                </div>
+                """, unsafe_allow_html=True)
 
-                        x1, y1, x2, y2 = ann['bbox']
-                        col_x1, col_y1 = st.columns(2)
-                        with col_x1:
-                            nx1 = st.number_input(f"x1##{idx}", value=x1, min_value=0, max_value=w, key=f"nx1_{idx}")
-                        with col_y1:
-                            ny1 = st.number_input(f"y1##{idx}", value=y1, min_value=0, max_value=h, key=f"ny1_{idx}")
-                        col_x2, col_y2 = st.columns(2)
-                        with col_x2:
-                            nx2 = st.number_input(f"x2##{idx}", value=x2, min_value=0, max_value=w, key=f"nx2_{idx}")
-                        with col_y2:
-                            ny2 = st.number_input(f"y2##{idx}", value=y2, min_value=0, max_value=h, key=f"ny2_{idx}")
+            # 手动标注设置（图片下方）
+            st.caption(f"图片尺寸: {w}×{h}")
+            col_manual, col_cancel, col_stats = st.columns([2, 1, 2])
+            with col_manual:
+                st.markdown("**手动标注**")
+                selected_class = st.selectbox(
+                    "选择类别",
+                    class_keys,
+                    key="cls_sel",
+                    format_func=lambda x: CLASS_NAMES_CN.get(x, x),
+                )
+            with col_cancel:
+                if st.session_state[draw_start_key] or st.session_state[draw_end_key]:
+                    if st.button("取消画框", type="secondary"):
+                        st.session_state[draw_start_key] = None
+                        st.session_state[draw_end_key] = None
+                        st.session_state[last_click_key] = None
+                        # 清除 streamlit_image_coordinates 的缓存
+                        del st.session_state[f"draw_coords_{cur}"]
+                        st.rerun()
+            with col_stats:
+                st.caption(f"显示 {len(visible_anns)}/{len(img_anns)} 个标注")
 
-                        if [nx1, ny1, nx2, ny2] != [x1, y1, x2, y2]:
-                            annotations[current_image_path][idx]['bbox'] = [nx1, ny1, nx2, ny2]
-                            st.rerun()
+        with col_tool:
+            # 标注列表
+            st.subheader("📋 标注列表")
 
-        with col_right:
-            st.markdown("### 使用说明")
-            st.markdown("""
-            **自动检测:**
-            - 点击"开始批量自动标注"
-            - 自动检测所有图片
+            if not img_anns:
+                st.info("暂无标注")
+            else:
+                # 类别统计
+                if by_class:
+                    summary = " / ".join(
+                        f"{CLASS_NAMES_CN.get(k, k)} {v}"
+                        for k, v in sorted(by_class.items(), key=lambda x: -x[1])
+                    )
+                    st.caption(f"类别统计：{summary}")
 
-            **手动标注:**
-            1. 选择类别
-            2. 点击图片左上角
-            3. 点击图片右下角
-            4. 框自动添加到列表
+                # 显示所有标注
+                for i, a in enumerate(img_anns):
+                    tag = "手动" if a.get("manual") else "自动"
+                    label = CLASS_NAMES_CN.get(a.get("class", ""), a.get("class", "unknown"))
 
-            **颜色说明:**
-            - 绿色 = 手动标注
-            - 橙色 = 自动检测
+                    cols = st.columns([1, 2, 2, 1, 1])
+                    cols[0].write(f"**{i + 1}**")
+                    cols[1].write(f"{tag} · {label}")
 
-            **编辑标注:**
-            - 可修改类别
-            - 可调整坐标
-            - 可删除标注
-            """)
+                    cls_key = f"ann_cls_{cur}_{i}"
+                    if cls_key not in st.session_state:
+                        st.session_state[cls_key] = a.get("class", class_keys[0])
+                    new_cls = cols[2].selectbox(
+                        "选择类别",
+                        class_keys,
+                        key=cls_key,
+                        index=class_keys.index(a.get("class", class_keys[0])) if a.get("class") in class_keys else 0,
+                        format_func=lambda x: CLASS_NAMES_CN.get(x, x),
+                    )
+                    if new_cls != a.get("class"):
+                        a["class"] = new_cls
+                        a["class_id"] = TARGET_CLASSES[new_cls]
 
+                    bbox = a.get("bbox", [0, 0, 0, 0])
+                    if max(bbox) <= 1.0:
+                        px1, py1, px2, py2 = int(bbox[0] * w), int(bbox[1] * h), int(bbox[2] * w), int(bbox[3] * h)
+                        cols[3].caption(f"{px1},{py1},{px2},{py2}")
+                    else:
+                        cols[3].caption(f"{int(bbox[0])},{int(bbox[1])},{int(bbox[2])},{int(bbox[3])}")
 
-def main():
-    render_labeling_interface()
+                    if cols[4].button("删除", key=f"del_{cur}_{i}", type="secondary"):
+                        st.session_state.anns[cur].pop(i)
+                        st.rerun()
+
+                # 操作按钮
+                st.divider()
+                col_save, col_clear = st.columns(2)
+                with col_save:
+                    if st.button("💾 保存", use_container_width=True):
+                        save_labels(resolve_path(st.session_state.out_dir) / f"{Path(cur).stem}.txt", img_anns, w, h)
+                        st.success("✅ 已保存")
+                with col_clear:
+                    if st.button("🗑️ 清空", type="secondary", use_container_width=True):
+                        st.session_state.anns[cur] = []
+                        st.rerun()
+
+    # 视频预览
+    else:
+        data = st.session_state.anns.get(cur, {})
+        frames = data if isinstance(data, dict) else {}
+        if not frames:
+            st.info("当前视频暂无标注结果")
+            return
+
+        # 判断是否为跟踪模式
+        first_frame_data = list(frames.values())[0] if frames else {}
+        is_tracking_mode = 'tracks' in first_frame_data or 'track_id' in (first_frame_data[0] if first_frame_data else {})
+
+        fidxs = sorted(frames.keys())
+        col_img, col_tool = st.columns([4, 2], gap="large")
+
+        with col_tool:
+            # 视频场景描述
+            video_desc_key = f"video_desc_{cur}"
+            if video_desc_key not in st.session_state:
+                st.session_state[video_desc_key] = None
+            if st.session_state[video_desc_key] is None:
+                with st.spinner("正在分析视频场景..."):
+                    tmp_dir = ROOT / "data" / "tmp" / "videos"
+                    tmp_dir.mkdir(parents=True, exist_ok=True)
+                    desc = engine.describe_video(cur, preview_dir=str(tmp_dir))
+                    st.session_state[video_desc_key] = desc
+            if st.session_state[video_desc_key]:
+                st.markdown(f"""
+                <div style="padding: 10px; background: #e8f4f8; border-radius: 8px; margin-bottom: 10px;">
+                    <strong style="color: #1a73e8;">📝 视频场景描述</strong>
+                    <p style="margin: 5px 0 0 0; color: #333;">{st.session_state[video_desc_key]}</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # 视频信息
+            st.subheader("📊 视频信息")
+            total_tracks = sum(f.get('total_tracks', 0) for f in frames.values())
+            st.metric("总跟踪帧数", len(frames))
+            st.metric("同时跟踪目标峰值", max((f.get('total_tracks', 0) for f in frames.values()), default=0))
+
+        with col_img:
+            st.subheader("🎬 视频预览")
+
+            if is_tracking_mode:
+                video_p = Path(cur)
+                tmp_dir = ROOT / "data" / "tmp" / "videos"
+                tmp_dir.mkdir(parents=True, exist_ok=True)
+                preview_path = tmp_dir / (video_p.name.replace(video_p.suffix, '') + '_tracked.mp4')
+                print(f"[UI] 预览视频路径: {preview_path}")
+                print(f"[UI] 预览视频存在: {preview_path.exists()}")
+
+                if preview_path.exists():
+                    try:
+                        file_size = preview_path.stat().st_size
+                        print(f"[UI] 预览视频大小: {file_size / 1024 / 1024:.2f} MB")
+
+                        with open(preview_path, 'rb') as f:
+                            video_bytes = f.read()
+                        print(f"[UI] 读取视频字节数: {len(video_bytes)}")
+
+                        st.video(video_bytes)
+                        print(f"[UI] 视频已渲染")
+                    except Exception as e:
+                        print(f"[UI] 视频加载失败: {e}")
+                        st.error(f"视频加载失败: {e}")
+                else:
+                    print(f"[UI] 预览视频不存在")
+                    st.warning("预览视频未生成，请重新运行带跟踪的标注")
+
+            else:
+                # 普通模式
+                fidx = st.selectbox("选择帧", range(len(fidxs)), format_func=lambda i: f"帧 {fidxs[i]}", key="fidx_select")
+                frame_data = frames.get(fidxs[fidx], {})
+                fanns = frame_data if isinstance(frame_data, list) else []
+                visible = filter_anns(
+                    fanns,
+                    show_auto=st.session_state.show_auto,
+                    show_manual=st.session_state.show_manual,
+                    conf_threshold=st.session_state.conf_threshold,
+                    cls_filter=st.session_state.class_filter,
+                )
+
+                col_stat1, col_stat2 = st.columns(2)
+                col_stat1.metric("当前帧", fidxs[fidx])
+                col_stat2.metric("目标数量", len(visible))
+
+                st.divider()
+                cap = cv2.VideoCapture(cur)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, fidxs[fidx])
+                ret, frame = cap.read()
+                cap.release()
+                if ret:
+                    st.image(
+                        draw(
+                            frame,
+                            visible,
+                            show_conf=st.session_state.show_conf,
+                            thickness=st.session_state.box_thickness,
+                            font_size=14,
+                        ),
+                        channels="BGR",
+                        width=900,
+                    )
 
 
 if __name__ == "__main__":
-    main()
+    st.set_page_config(page_title="自动标注工具", layout="wide", page_icon="🏷️")
+    render_labeling_interface()
+
+
+def render_interface():
+    """兼容旧版本的入口函数"""
+    render_labeling_interface()
