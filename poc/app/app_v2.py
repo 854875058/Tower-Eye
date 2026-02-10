@@ -824,11 +824,10 @@ def render_multimodal_search():
             enable_hybrid = st.checkbox("混合检索", value=True, help="启用向量+关键词混合检索")
 
         if enable_hybrid:
-            col_w1, col_w2 = st.columns(2)
-            with col_w1:
-                vector_weight = st.slider("向量权重", 0.0, 1.0, 0.7, 0.1)
-            with col_w2:
-                keyword_weight = st.slider("关键词权重", 0.0, 1.0, 0.3, 0.1)
+            vector_weight = st.slider("向量权重 / 关键词权重", 0.0, 1.0, 0.7, 0.1,
+                                      help="向左拖动增加关键词权重，向右拖动增加向量权重")
+            keyword_weight = round(1.0 - vector_weight, 1)
+            st.caption(f"向量权重: {vector_weight}　|　关键词权重: {keyword_weight}")
     else:
         # 以图搜图或图搜文
         col1, col2 = st.columns([2, 1])
