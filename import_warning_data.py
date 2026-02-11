@@ -158,79 +158,82 @@ def import_warning_csv(csv_path: str, db_path: str):
                 img_src_path = urls_to_local_paths(file_img_url_src, "image")
                 img_icon_path = urls_to_local_paths(file_img_url_icon, "image")
 
-                # ---- 确定主图文件 ----
-                img_urls = (file_img_url_src.split(',') if file_img_url_src
-                            else file_img_url_icon.split(','))
-                url_path = img_urls[0].strip() if img_urls else ''
-                file_name = Path(url_path).name if url_path else ''
-
-                if not file_name:
-                    continue
-
-                asset_id = create_asset_id(warning_order_id, file_name)
-                file_path = f"warning_img/{file_name}"
-
                 # ---- extra_json 保留完整原始数据 ----
                 extra_json = json.dumps(
                     {k: v for k, v in row.items() if v},
                     ensure_ascii=False,
                 )
 
-                # ---- 插入 assets 表 ----
-                cursor.execute("""
-                    INSERT OR REPLACE INTO assets
-                    (asset_id, media_type, file_path, file_name,
-                     captured_at, lat, lon, source)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    asset_id, 'image', file_path, file_name,
-                    alarm_time,
-                    float(latitude) if latitude else None,
-                    float(longitude) if longitude else None,
-                    'warning_csv',
-                ))
-                assets_inserted += 1
+                # ---- 收集所有原图文件名（每张独立入库） ----
+                src_names = [Path(u.strip()).name for u in file_img_url_src.split(',') if u.strip() and Path(u.strip()).name]
+                icon_names = [Path(u.strip()).name for u in file_img_url_icon.split(',') if u.strip() and Path(u.strip()).name]
+                # 如果没有原图，用框图
+                all_img_names = src_names if src_names else icon_names
+                if not all_img_names:
+                    continue
 
-                # ---- 插入 events 表（全量字段） ----
-                cursor.execute("""
-                    INSERT OR REPLACE INTO events
-                    (event_id, asset_id, event_type, alarm_level,
-                     alarm_source, alarm_time, lat, lon, region,
-                     extra_json, summary, description, address,
-                     device_name, confidence_level,
-                     province_name, city_name, county_name,
-                     town_code, town_name,
-                     device_code, channel_code, channel_name,
-                     warning_order_id, warning_type_id, alarm_body,
-                     algorithm_code, algorithm_name,
-                     emergency_level, importance_level, order_status,
-                     confidence_level_max, tenant_name,
-                     video_path, img_src_path, img_icon_path)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
-                            ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """, (
-                    asset_id, asset_id,
-                    warning_type_name,
-                    emergency_level or 'medium',
-                    row.get('warning_source_name', 'AI告警'),
-                    alarm_time,
-                    float(latitude) if latitude else None,
-                    float(longitude) if longitude else None,
-                    province_name,
-                    extra_json,
-                    summary, description, address, device_name,
-                    float(confidence_level) if confidence_level else None,
-                    province_name, city_name, county_name,
-                    town_code, town_name,
-                    device_code, channel_code, channel_name,
-                    warning_order_id, warning_type_id, alarm_body,
-                    algorithm_code, algorithm_name,
-                    emergency_level, importance_level, order_status,
-                    float(confidence_level) if confidence_level else None,
-                    tenant_name,
-                    video_path, img_src_path, img_icon_path,
-                ))
-                events_inserted += 1
+                # 为每张图片创建独立的 asset + event
+                for img_name in all_img_names:
+                    asset_id = create_asset_id(warning_order_id, img_name)
+                    file_path = f"warning_img/{img_name}"
+
+                    # 找到该图对应的框图（_01_ → _02_）
+                    paired_icon = img_name.replace('_01_', '_02_')
+                    this_icon_path = f"warning_img/{paired_icon}" if paired_icon != img_name and paired_icon in set(icon_names) else img_icon_path
+
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO assets
+                        (asset_id, media_type, file_path, file_name,
+                         captured_at, lat, lon, source)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        asset_id, 'image', file_path, img_name,
+                        alarm_time,
+                        float(latitude) if latitude else None,
+                        float(longitude) if longitude else None,
+                        'warning_csv',
+                    ))
+                    assets_inserted += 1
+
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO events
+                        (event_id, asset_id, event_type, alarm_level,
+                         alarm_source, alarm_time, lat, lon, region,
+                         extra_json, summary, description, address,
+                         device_name, confidence_level,
+                         province_name, city_name, county_name,
+                         town_code, town_name,
+                         device_code, channel_code, channel_name,
+                         warning_order_id, warning_type_id, alarm_body,
+                         algorithm_code, algorithm_name,
+                         emergency_level, importance_level, order_status,
+                         confidence_level_max, tenant_name,
+                         video_path, img_src_path, img_icon_path)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+                                ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """, (
+                        asset_id, asset_id,
+                        warning_type_name,
+                        emergency_level or 'medium',
+                        row.get('warning_source_name', 'AI告警'),
+                        alarm_time,
+                        float(latitude) if latitude else None,
+                        float(longitude) if longitude else None,
+                        province_name,
+                        extra_json,
+                        summary, description, address, device_name,
+                        float(confidence_level) if confidence_level else None,
+                        province_name, city_name, county_name,
+                        town_code, town_name,
+                        device_code, channel_code, channel_name,
+                        warning_order_id, warning_type_id, alarm_body,
+                        algorithm_code, algorithm_name,
+                        emergency_level, importance_level, order_status,
+                        float(confidence_level) if confidence_level else None,
+                        tenant_name,
+                        video_path, file_path, this_icon_path,
+                    ))
+                    events_inserted += 1
 
                 if events_inserted % 100 == 0:
                     conn.commit()
