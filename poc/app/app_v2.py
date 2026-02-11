@@ -1465,11 +1465,16 @@ def render_multimodal_search():
             lon = ""
             radius_km = 5.0
 
-    # 检查是否可以执行检索（文本、图片、视频帧任一即可）
-    can_search = bool(query_text) or bool(query_image) or bool(_uploaded_video_frame)
+    # 检查是否可以执行检索（文本/图片/视频 或 任意筛选条件）
+    has_query = bool(query_text) or bool(query_image) or bool(_uploaded_video_frame)
+    has_filter = bool(filter_event) or bool(filter_city) or bool(filter_county) or bool(filter_town) \
+        or bool(filter_device) or bool(filter_algorithm) or bool(filter_alarm_level) \
+        or bool(filter_order_status) or enable_time_filter or enable_geo_filter \
+        or filter_confidence[0] > 0.0 or filter_confidence[1] < 1.0
+    can_search = has_query or has_filter
 
     if not can_search:
-        st.info("请输入检索文本、上传图片或视频")
+        st.info("请输入检索文本、上传图片/视频，或设置筛选条件")
 
     if st.button("🔍 开始检索", type="primary", use_container_width=True, disabled=not can_search):
         start_time_str = None
@@ -1516,6 +1521,7 @@ def render_multimodal_search():
 
                 # 根据检索模式编码查询
                 # ---- 根据输入类型编码查询向量 ----
+                query_vec = None
                 if query_text:
                     # 文本检索：自动提取结构化实体
                     from poc.qa.nl2sql import (
@@ -1573,106 +1579,195 @@ def render_multimodal_search():
                         tmp_path.unlink(missing_ok=True)
 
                 else:
-                    st.warning("请提供检索输入")
-                    return
+                    # 纯筛选模式（无查询向量）— 直接查 SQLite
+                    pass
 
-                # 构建 LanceDB 过滤条件
-                filter_str = build_lance_filter(
-                    event_type=filters.get("event_type"),
-                    start_time=filters.get("start_time"),
-                    end_time=filters.get("end_time"),
-                    lat=filters.get("lat"),
-                    lon=filters.get("lon"),
-                    radius_km=filters.get("radius_km", 5.0),
-                    town_name=filters.get("town_name"),
-                    county_name=filters.get("county_name"),
-                    city_name=filters.get("city_name"),
-                    device_name=filters.get("device_name"),
-                    alarm_level=filters.get("alarm_level"),
-                    confidence_min=filters.get("confidence_min"),
-                    confidence_max=filters.get("confidence_max"),
-                    order_status=filters.get("order_status"),
-                    algorithm_name=filters.get("algorithm_name"),
-                    table_columns=table_columns,
-                )
-
-                # 提示用户缺失字段
-                _expected_filter_cols = {"city_name", "county_name", "town_name", "device_name",
-                                         "alarm_level", "confidence_level", "order_status", "algorithm_name"}
-                _missing = _expected_filter_cols - table_columns
-                if _missing:
-                    st.warning(f"向量库缺少字段 {_missing}，相关过滤条件已自动跳过。请重新运行 embed 脚本更新向量库。")
-
-                # 执行检索（混合或纯向量）
-                # Reranker 需要更多候选，先多取一些
-                reranker_enabled = search_cfg.get("reranker_enabled", False)
-                fetch_k = top_k * 3 if reranker_enabled and query_text else top_k
-
-                if query_text and enable_hybrid:
-                    # 混合检索
-                    results_df = hybrid_search(
-                        table,
-                        query_vec,
-                        query_text=query_text,
-                        top_k=fetch_k,
-                        filter_str=filter_str,
-                        vector_weight=vector_weight,
-                        keyword_weight=keyword_weight,
+                # ---- 纯筛选模式：无向量，走 SQLite ----
+                if query_vec is None:
+                    conn = connect_db(db_path)
+                    sql = (
+                        "SELECT e.*, a.file_path, a.file_name "
+                        "FROM events e LEFT JOIN assets a ON e.asset_id = a.asset_id "
+                        "WHERE 1=1"
                     )
+                    params = []
+                    if filters.get("event_type"):
+                        sql += " AND e.event_type LIKE ?"
+                        params.append(f"%{filters['event_type']}%")
+                    if filters.get("city_name"):
+                        sql += " AND e.extra_json LIKE ?"
+                        params.append(f'%"city_name": "{filters["city_name"]}"%')
+                    if filters.get("county_name"):
+                        sql += " AND e.extra_json LIKE ?"
+                        params.append(f'%"county_name": "{filters["county_name"]}"%')
+                    if filters.get("town_name"):
+                        sql += " AND e.extra_json LIKE ?"
+                        params.append(f'%"town_name": "{filters["town_name"]}"%')
+                    if filters.get("device_name"):
+                        sql += " AND e.device_name LIKE ?"
+                        params.append(f"%{filters['device_name']}%")
+                    if filters.get("alarm_level"):
+                        sql += " AND e.extra_json LIKE ?"
+                        params.append(f'%"emergency_level": "{filters["alarm_level"]}"%')
+                    if filters.get("order_status"):
+                        sql += " AND e.extra_json LIKE ?"
+                        params.append(f'%"order_status": "{filters["order_status"]}"%')
+                    if filters.get("algorithm_name"):
+                        sql += " AND e.extra_json LIKE ?"
+                        params.append(f'%{filters["algorithm_name"]}%')
+                    if filters.get("confidence_min") is not None:
+                        sql += " AND e.confidence_level >= ?"
+                        params.append(filters["confidence_min"])
+                    if filters.get("confidence_max") is not None:
+                        sql += " AND e.confidence_level <= ?"
+                        params.append(filters["confidence_max"])
+                    if filters.get("start_time"):
+                        sql += " AND e.alarm_time >= ?"
+                        params.append(filters["start_time"])
+                    if filters.get("end_time"):
+                        sql += " AND e.alarm_time <= ?"
+                        params.append(filters["end_time"])
+                    sql += f" ORDER BY e.alarm_time DESC LIMIT {top_k}"
+
+                    rows = conn.execute(sql, params).fetchall()
+                    conn.close()
+
+                    results = []
+                    for r in rows:
+                        rd = dict(r)
+                        extra = {}
+                        if rd.get("extra_json"):
+                            try:
+                                extra = json.loads(rd["extra_json"])
+                            except Exception:
+                                pass
+                        results.append({
+                            "asset_id": rd.get("asset_id", ""),
+                            "score": 0.0,
+                            "file_path": rd.get("file_path", ""),
+                            "file_name": rd.get("file_name", ""),
+                            "captured_at": rd.get("alarm_time", ""),
+                            "lat": rd.get("lat") or 0.0,
+                            "lon": rd.get("lon") or 0.0,
+                            "event_type": rd.get("event_type", ""),
+                            "alarm_time": rd.get("alarm_time", ""),
+                            "alarm_level": rd.get("alarm_level") or extra.get("emergency_level", ""),
+                            "summary": rd.get("summary", ""),
+                            "description": rd.get("description", ""),
+                            "address": rd.get("address", ""),
+                            "device_name": rd.get("device_name", ""),
+                            "confidence_level": rd.get("confidence_level"),
+                            "province_name": extra.get("province_name", ""),
+                            "city_name": extra.get("city_name", ""),
+                            "county_name": extra.get("county_name", ""),
+                            "town_name": extra.get("town_name", ""),
+                            "device_code": extra.get("device_code", ""),
+                            "algorithm_name": extra.get("algorithm_name", ""),
+                            "order_status": extra.get("order_status", ""),
+                            "video_url": f"warning_file/{Path(extra.get('video_url', '').split(',')[0].strip()).name}" if extra.get("video_url") else "",
+                            "file_img_url_src": rd.get("file_path", ""),
+                            "file_img_url_icon": "",
+                        })
+
+                    st.success(f"✅ 筛选到 {len(results)} 条结果")
+
                 else:
-                    # 纯向量检索
-                    query = table.search(query_vec.tolist()).limit(fetch_k)
-                    if filter_str:
-                        query = query.where(filter_str)
-                    results_df = query.to_pandas()
+                    # ---- 向量检索模式 ----
+                    filter_str = build_lance_filter(
+                        event_type=filters.get("event_type"),
+                        start_time=filters.get("start_time"),
+                        end_time=filters.get("end_time"),
+                        lat=filters.get("lat"),
+                        lon=filters.get("lon"),
+                        radius_km=filters.get("radius_km", 5.0),
+                        town_name=filters.get("town_name"),
+                        county_name=filters.get("county_name"),
+                        city_name=filters.get("city_name"),
+                        device_name=filters.get("device_name"),
+                        alarm_level=filters.get("alarm_level"),
+                        confidence_min=filters.get("confidence_min"),
+                        confidence_max=filters.get("confidence_max"),
+                        order_status=filters.get("order_status"),
+                        algorithm_name=filters.get("algorithm_name"),
+                        table_columns=table_columns,
+                    )
 
-                # 转换为结果列表
-                results = []
-                for _, row in results_df.iterrows():
-                    result_item = {
-                        "asset_id": row["asset_id"],
-                        "score": float(row.get("hybrid_score", row["_distance"])),
-                        "file_path": row["file_path"],
-                        "file_name": row["file_name"],
-                        "captured_at": row["captured_at"],
-                        "lat": float(row["lat"]),
-                        "lon": float(row["lon"]),
-                        "event_type": row["event_type"],
-                        "alarm_time": row["alarm_time"],
-                        "alarm_level": row["alarm_level"],
-                        "summary": row.get("summary", ""),
-                        "description": row.get("description", ""),
-                        "address": row.get("address", ""),
-                        "device_name": row.get("device_name", ""),
-                        "confidence_level": float(row["confidence_level"]) if row.get("confidence_level") else None,
-                        # 新增字段（直接从 LanceDB 获取）
-                        "province_name": row.get("province_name", ""),
-                        "city_name": row.get("city_name", ""),
-                        "county_name": row.get("county_name", ""),
-                        "town_name": row.get("town_name", ""),
-                        "device_code": row.get("device_code", ""),
-                        "algorithm_name": row.get("algorithm_name", ""),
-                        "order_status": row.get("order_status", ""),
-                        "video_url": row.get("video_path", ""),
-                        "file_img_url_src": row.get("img_src_path", ""),
-                        "file_img_url_icon": row.get("img_icon_path", ""),
-                    }
+                    # 提示用户缺失字段
+                    _expected_filter_cols = {"city_name", "county_name", "town_name", "device_name",
+                                             "alarm_level", "confidence_level", "order_status", "algorithm_name"}
+                    _missing = _expected_filter_cols - table_columns
+                    if _missing:
+                        st.warning(f"向量库缺少字段 {_missing}，相关过滤条件已自动跳过。请重新运行 embed 脚本更新向量库。")
 
-                    results.append(result_item)
+                    # 执行检索（混合或纯向量）
+                    reranker_enabled = search_cfg.get("reranker_enabled", False)
+                    fetch_k = top_k * 3 if reranker_enabled and query_text else top_k
 
-                # Reranker 重排序
-                if reranker_enabled and query_text:
-                    st.info(f"🔄 Reranker 正在对 {len(results)} 条候选结果精排...")
-                    results = manager.rerank(query_text, results, top_k=top_k)
-                else:
-                    results = results[:top_k]
+                    if query_text and enable_hybrid:
+                        results_df = hybrid_search(
+                            table,
+                            query_vec,
+                            query_text=query_text,
+                            top_k=fetch_k,
+                            filter_str=filter_str,
+                            vector_weight=vector_weight,
+                            keyword_weight=keyword_weight,
+                        )
+                    else:
+                        query = table.search(query_vec.tolist()).limit(fetch_k)
+                        if filter_str:
+                            query = query.where(filter_str)
+                        results_df = query.to_pandas()
 
-                st.success(f"✅ 找到 {len(results)} 条结果")
+                    # 转换为结果列表
+                    results = []
+                    for _, row in results_df.iterrows():
+                        result_item = {
+                            "asset_id": row["asset_id"],
+                            "score": float(row.get("hybrid_score", row["_distance"])),
+                            "file_path": row["file_path"],
+                            "file_name": row["file_name"],
+                            "captured_at": row["captured_at"],
+                            "lat": float(row["lat"]),
+                            "lon": float(row["lon"]),
+                            "event_type": row["event_type"],
+                            "alarm_time": row["alarm_time"],
+                            "alarm_level": row["alarm_level"],
+                            "summary": row.get("summary", ""),
+                            "description": row.get("description", ""),
+                            "address": row.get("address", ""),
+                            "device_name": row.get("device_name", ""),
+                            "confidence_level": float(row["confidence_level"]) if row.get("confidence_level") else None,
+                            "province_name": row.get("province_name", ""),
+                            "city_name": row.get("city_name", ""),
+                            "county_name": row.get("county_name", ""),
+                            "town_name": row.get("town_name", ""),
+                            "device_code": row.get("device_code", ""),
+                            "algorithm_name": row.get("algorithm_name", ""),
+                            "order_status": row.get("order_status", ""),
+                            "video_url": row.get("video_path", ""),
+                            "file_img_url_src": row.get("img_src_path", ""),
+                            "file_img_url_icon": row.get("img_icon_path", ""),
+                        }
+                        results.append(result_item)
+
+                    # Reranker 重排序
+                    if reranker_enabled and query_text:
+                        st.info(f"🔄 Reranker 正在对 {len(results)} 条候选结果精排...")
+                        results = manager.rerank(query_text, results, top_k=top_k)
+                    else:
+                        results = results[:top_k]
+
+                    st.success(f"✅ 找到 {len(results)} 条结果")
 
                 # 显示结果
                 for idx, item in enumerate(results):
                     with st.container():
-                        st.markdown(f"### 结果 {idx + 1} — 相似度: {item['score']:.4f}")
+                        score = item.get('score', 0)
+                        if score and score > 0:
+                            st.markdown(f"### 结果 {idx + 1} — 相似度: {score:.4f}")
+                        else:
+                            st.markdown(f"### 结果 {idx + 1}")
 
                         col1, col2 = st.columns([1, 2])
 
