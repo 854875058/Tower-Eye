@@ -1283,7 +1283,7 @@ def render_multimodal_search():
                                       help="向左拖动增加关键词权重，向右拖动增加向量权重")
             keyword_weight = round(1.0 - vector_weight, 1)
             st.caption(f"向量: {vector_weight}　|　关键词: {keyword_weight}")
-        show_related_data = st.checkbox("显示关联数据", value=False, help="展示每条结果的完整资产/事件/检测/标注信息")
+        show_related_data = st.checkbox("显示关联数据", value=True, help="展开同一告警工单的所有图片和完整事件详情")
 
     # 过滤条件
     with st.expander("🎛️ 高级过滤", expanded=False):
@@ -1638,6 +1638,10 @@ def render_multimodal_search():
                                 st.markdown("**📝 图像理解：**")
                                 st.write(item['summary'])
 
+                            if item.get('description') and item.get('description') != item.get('summary'):
+                                st.markdown("**📄 详细描述：**")
+                                st.write(item['description'])
+
                         with col2:
                             # ---- 媒体展示：图片 / 视频 tab ----
                             video_url = item.get("video_url", "")
@@ -1693,41 +1697,130 @@ def render_multimodal_search():
                             with st.expander(f"📋 关联数据 — 结果 {idx + 1}", expanded=False):
                                 asset_id = item.get("asset_id")
                                 conn = connect_db(db_path)
-                                asset_info = conn.execute("SELECT * FROM assets WHERE asset_id = ?", (asset_id,)).fetchone()
-                                events = conn.execute("SELECT * FROM events WHERE asset_id = ?", (asset_id,)).fetchall()
-                                detections = conn.execute("SELECT * FROM detections WHERE asset_id = ?", (asset_id,)).fetchall()
-                                annotations = conn.execute("SELECT * FROM annotations WHERE asset_id = ?", (asset_id,)).fetchall()
+
+                                # 获取当前事件信息
+                                cur_event = conn.execute(
+                                    "SELECT * FROM events WHERE asset_id = ?", (asset_id,)
+                                ).fetchone()
+
+                                # 尝试获取 warning_order_id 以查找同一告警的所有数据
+                                warning_order_id = None
+                                extra_data = {}
+                                if cur_event:
+                                    ed = dict(cur_event)
+                                    # 优先从直接字段获取
+                                    warning_order_id = ed.get("warning_order_id")
+                                    # 回退到 extra_json
+                                    if not warning_order_id and ed.get("extra_json"):
+                                        try:
+                                            extra_data = json.loads(ed["extra_json"])
+                                            warning_order_id = extra_data.get("warning_order_id")
+                                        except Exception:
+                                            pass
+
+                                # 查找同一告警工单下的所有事件
+                                sibling_events = []
+                                if warning_order_id:
+                                    # 先尝试直接字段
+                                    try:
+                                        sibling_events = conn.execute(
+                                            "SELECT e.*, a.file_path, a.file_name "
+                                            "FROM events e LEFT JOIN assets a ON e.asset_id = a.asset_id "
+                                            "WHERE e.warning_order_id = ?",
+                                            (warning_order_id,)
+                                        ).fetchall()
+                                    except Exception:
+                                        # 字段不存在时回退到 extra_json LIKE 查询
+                                        sibling_events = conn.execute(
+                                            "SELECT e.*, a.file_path, a.file_name "
+                                            "FROM events e LEFT JOIN assets a ON e.asset_id = a.asset_id "
+                                            "WHERE e.extra_json LIKE ?",
+                                            (f'%"warning_order_id": "{warning_order_id}"%',)
+                                        ).fetchall()
+
                                 conn.close()
 
-                                dc1, dc2 = st.columns(2)
-                                with dc1:
-                                    if asset_info:
-                                        ad = dict(asset_info)
-                                        st.json({"资产ID": ad.get("asset_id"), "文件名": ad.get("file_name"),
-                                                 "拍摄时间": ad.get("captured_at"), "纬度": ad.get("lat"),
-                                                 "经度": ad.get("lon"), "地址": ad.get("location_name")})
-                                    if events:
-                                        st.markdown("**🚨 告警事件**")
-                                        st.dataframe(pd.DataFrame([
-                                            {"事件类型": dict(e).get("event_type"), "告警时间": dict(e).get("alarm_time"),
-                                             "置信度": dict(e).get("confidence"), "描述": dict(e).get("description")}
-                                            for e in events
-                                        ]), use_container_width=True)
-                                with dc2:
-                                    if detections:
-                                        st.markdown("**🔍 检测结果**")
-                                        st.dataframe(pd.DataFrame([
-                                            {"类别": dict(d).get("class_name"), "置信度": dict(d).get("confidence"),
-                                             "边界框": dict(d).get("bbox")}
-                                            for d in detections
-                                        ]), use_container_width=True)
-                                    if annotations:
-                                        st.markdown("**📝 标注信息**")
-                                        st.dataframe(pd.DataFrame([
-                                            {"标注类型": dict(a).get("annotation_type"), "标注者": dict(a).get("annotator"),
-                                             "标注时间": dict(a).get("annotated_at"), "内容": dict(a).get("content")}
-                                            for a in annotations
-                                        ]), use_container_width=True)
+                                if warning_order_id:
+                                    st.caption(f"工单号: {warning_order_id}  |  同一告警共 {len(sibling_events)} 条记录")
+
+                                # ---- 同一告警的所有图片 ----
+                                if sibling_events:
+                                    sibling_imgs = []
+                                    for se in sibling_events:
+                                        sd = dict(se)
+                                        fp = sd.get("file_path") or sd.get("file_name")
+                                        if fp:
+                                            sibling_imgs.append(fp)
+
+                                    if len(sibling_imgs) > 1:
+                                        st.markdown("**📸 同一告警的所有图片**")
+                                        img_cols = st.columns(min(len(sibling_imgs), 4))
+                                        for si, simg in enumerate(sibling_imgs[:8]):
+                                            with img_cols[si % min(len(sibling_imgs), 4)]:
+                                                for sp in [Path(simg),
+                                                           Path("warning_img") / Path(simg).name,
+                                                           ROOT / "warning_img" / Path(simg).name]:
+                                                    if sp.exists():
+                                                        is_current = (Path(simg).name == item.get("file_name"))
+                                                        caption = f"{'★ 当前' if is_current else ''} {Path(simg).name}"
+                                                        st.image(str(sp), caption=caption, use_container_width=True)
+                                                        break
+
+                                # ---- 完整事件详情 ----
+                                if cur_event:
+                                    ed = dict(cur_event)
+                                    st.markdown("**📋 完整事件信息**")
+                                    # 从 extra_json 获取更多原始字段
+                                    if not extra_data and ed.get("extra_json"):
+                                        try:
+                                            extra_data = json.loads(ed["extra_json"])
+                                        except Exception:
+                                            extra_data = {}
+
+                                    # 合并显示：优先用结构化字段，补充 extra_json 中的额外字段
+                                    display_info = {}
+                                    # 基础信息
+                                    field_map = [
+                                        ("event_type", "事件类型"),
+                                        ("alarm_level", "告警等级"),
+                                        ("alarm_time", "告警时间"),
+                                        ("alarm_source", "告警来源"),
+                                        ("address", "地址"),
+                                        ("device_name", "设备名称"),
+                                        ("confidence_level", "置信度"),
+                                        ("summary", "图像理解"),
+                                        ("description", "描述"),
+                                    ]
+                                    for field, label in field_map:
+                                        val = ed.get(field) or extra_data.get(field)
+                                        if val and str(val).strip():
+                                            display_info[label] = val
+
+                                    # extra_json 中的补充字段
+                                    extra_field_map = [
+                                        ("warning_type_name", "告警类型"),
+                                        ("warning_source_name", "告警来源"),
+                                        ("alarm_body", "告警主体"),
+                                        ("algorithm_name", "算法名称"),
+                                        ("algorithm_code", "算法编码"),
+                                        ("emergency_level", "紧急等级"),
+                                        ("importance_level", "重要等级"),
+                                        ("order_status", "工单状态"),
+                                        ("tenant_name", "租户"),
+                                        ("province_name", "省份"),
+                                        ("city_name", "城市"),
+                                        ("county_name", "区县"),
+                                        ("town_name", "乡镇/街道"),
+                                        ("device_code", "设备编码"),
+                                        ("channel_name", "通道名称"),
+                                        ("channel_code", "通道编码"),
+                                    ]
+                                    for field, label in extra_field_map:
+                                        val = ed.get(field) or extra_data.get(field)
+                                        if val and str(val).strip() and label not in display_info:
+                                            display_info[label] = val
+
+                                    st.json(display_info)
 
                         st.markdown("---")
 
