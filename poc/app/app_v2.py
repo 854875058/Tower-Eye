@@ -866,18 +866,24 @@ def render_architecture_overview():
 
     st.subheader("📊 当前数据统计")
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    # 从 LanceDB 获取实际向量数
+    lance_count = 0
+    try:
+        lancedb_dir = resolve_path(config.get("paths", {}).get("lancedb_dir", "poc/data/lancedb"))
+        _db = get_cached_lancedb(lancedb_dir)
+        _tbl = _db.open_table("embeddings")
+        lance_count = _tbl.count_rows()
+    except Exception:
+        pass
+
+    col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.metric("Assets", f"{stats['assets']:,}")
+        st.metric("资产数", f"{stats['assets']:,}")
     with col2:
-        st.metric("Events", f"{stats['events']:,}")
+        st.metric("事件数", f"{stats['events']:,}")
     with col3:
-        st.metric("Detections", f"{stats['detections']:,}")
-    with col4:
-        st.metric("Annotations", f"{stats['annotations']:,}")
-    with col5:
-        st.metric("Embeddings", f"{stats['embeddings']:,}")
+        st.metric("向量数", f"{lance_count:,}")
 
 
 def render_intelligent_qa():
@@ -2200,16 +2206,30 @@ def render_system_monitor():
     config = load_config()
     db_path = resolve_path(config.get("paths", {}).get("db_path", "poc/data/metadata.db"))
 
+    # 确保 trace_manager 已初始化
+    try:
+        init_systems(config)
+    except Exception:
+        pass
+
     # 数据统计
     st.subheader("📈 数据统计")
     stats = db_stats(db_path)
 
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("资产数", stats["assets"])
-    col2.metric("事件数", stats["events"])
-    col3.metric("检测数", stats["detections"])
-    col4.metric("标注数", stats["annotations"])
-    col5.metric("向量数", stats["embeddings"])
+    # 从 LanceDB 获取实际向量数
+    lance_count = 0
+    try:
+        lancedb_dir = resolve_path(config.get("paths", {}).get("lancedb_dir", "poc/data/lancedb"))
+        db = get_cached_lancedb(lancedb_dir)
+        lance_table = db.open_table("embeddings")
+        lance_count = lance_table.count_rows()
+    except Exception:
+        pass
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("资产数", f"{stats['assets']:,}")
+    col2.metric("事件数", f"{stats['events']:,}")
+    col3.metric("向量数", f"{lance_count:,}")
 
     st.markdown("---")
 
