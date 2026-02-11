@@ -155,7 +155,7 @@ apply_ant_design_pro_theme()
 
 @st.cache_resource
 def get_cached_model_manager(_config_hash: str, config: Dict):
-    """缓存 ModelManager，支持 CLIP/Qwen 自动切换"""
+    """缓存 ModelManager"""
     search_cfg = config.get("search", {})
     model_type = search_cfg.get("embedding_model", "clip")
     st.info(f"🔄 正在加载模型（{model_type}），请稍候...")
@@ -444,7 +444,6 @@ def render_architecture_overview():
         - **Qwen3-VL Embedding**
           - 图文跨模态理解
           - HTTP API 远程推理
-          - 支持 CLIP 备选切换
         - **Qwen3-VL Reranker**
           - 二阶段精排
           - 图文相关性重排序
@@ -487,7 +486,7 @@ def render_architecture_overview():
           - 实时可视化
         - **ModelManager**
           - 统一模型管理
-          - CLIP/Qwen 自动切换
+          - Qwen3-VL Embedding + Reranker
         """)
 
     st.markdown("---")
@@ -542,8 +541,9 @@ def render_architecture_overview():
         - ✅ 安全护栏保护
 
         **🔍 多模态检索**
-        - ✅ 以图搜图（图像相似度）
+        - ✅ 图文视频统一入口互搜
         - ✅ 文本语义搜索
+        - ✅ 视频上传自动抽帧检索
         - ✅ 混合检索（向量+关键词）
         - ✅ Reranker 二阶段精排
         - ✅ 多条件过滤（时间/地点/类型）
@@ -594,7 +594,7 @@ def render_architecture_overview():
     1. **二阶段检索架构**
        - 第一阶段：Qwen3-VL Embedding 向量召回
        - 第二阶段：Qwen3-VL Reranker 精排重排序
-       - 支持 CLIP 模型备选切换
+       - 图文视频统一入口互搜
 
     2. **混合检索算法**
        - 向量相似度 + 关键词匹配
