@@ -130,7 +130,7 @@ def main():
     paths_cfg = config.get("paths", {})
 
     img_dir = resolve_path(paths_cfg.get("raw_images_dir", "warning_img"))
-    db_path = str(resolve_path(paths_cfg.get("db_path", "poc/data/metadata.db")))
+    db_path = resolve_path(paths_cfg.get("db_path", "poc/data/metadata.db"))
     lancedb_dir = str(resolve_path(paths_cfg.get("lancedb_dir", "poc/data/lancedb")))
 
     print("=" * 60)
