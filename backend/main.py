@@ -21,7 +21,7 @@ from datetime import datetime
 import numpy as np
 
 from poc.pipeline.utils import load_yaml, resolve_path, connect_db
-from poc.search.query import load_model, encode_query, build_lance_filter
+from poc.search.query import load_model, encode_query
 
 app = FastAPI(
     title="多模态检索系统 API",
@@ -161,38 +161,53 @@ async def search(request: SearchRequest):
             query_vec = np.random.rand(dims).astype("float32")
             query_vec /= max(1e-12, float(np.linalg.norm(query_vec)))
 
-        # 构建过滤条件
-        filter_str = build_lance_filter(
-            event_type=request.event_type,
-            start_time=request.start_time,
-            end_time=request.end_time,
-            lat=request.lat,
-            lon=request.lon,
-            radius_km=request.radius_km,
-        )
-
-        # 执行检索
+        # 执行向量检索（LanceDB 只返回 asset_id + _distance）
         query_builder = table.search(query_vec).limit(request.top_k)
-        if filter_str:
-            query_builder = query_builder.where(filter_str)
+        results_df = query_builder.to_pandas()
 
-        results = query_builder.to_pandas()
+        # 从 SQLite 补全展示字段
+        db_path = resolve_path(config.get("paths", {}).get("db_path", "poc/data/metadata.db"))
+        asset_ids = results_df["asset_id"].tolist()
+        distances = {row["asset_id"]: float(row.get("_distance", 0)) for _, row in results_df.iterrows()}
 
-        # 转换结果为 JSON 格式
+        events_map = {}
+        if asset_ids:
+            conn = connect_db(str(db_path))
+            placeholders = ", ".join("?" for _ in asset_ids)
+            sql = (
+                "SELECT e.*, a.file_path, a.file_name "
+                "FROM events e LEFT JOIN assets a ON e.asset_id = a.asset_id "
+                f"WHERE a.asset_id IN ({placeholders})"
+            )
+            for row in conn.execute(sql, asset_ids).fetchall():
+                rd = dict(row)
+                events_map[rd["asset_id"]] = rd
+            conn.close()
+
+        # 转换结果为 JSON 格式（保持向量排序）
         results_list = []
-        for _, row in results.iterrows():
+        for aid in asset_ids:
+            rd = events_map.get(aid, {})
+            extra = {}
+            if rd.get("extra_json"):
+                try:
+                    extra = json.loads(rd["extra_json"])
+                except Exception:
+                    pass
             result = {
-                "asset_id": row.get("asset_id", ""),
-                "event_type": row.get("event_type", ""),
-                "alarm_time": row.get("alarm_time", ""),
-                "captured_at": row.get("captured_at", ""),
-                "lat": float(row.get("lat", 0)) if row.get("lat") else None,
-                "lon": float(row.get("lon", 0)) if row.get("lon") else None,
-                "region": row.get("region", ""),
-                "summary": row.get("summary", ""),
-                "file_path": row.get("file_path", ""),
-                "media_type": row.get("media_type", ""),
-                "distance": float(row.get("_distance", 0)) if "_distance" in row else None,
+                "asset_id": aid,
+                "event_type": rd.get("event_type", ""),
+                "alarm_time": rd.get("alarm_time", ""),
+                "captured_at": rd.get("alarm_time", ""),
+                "lat": rd.get("lat") if rd.get("lat") else None,
+                "lon": rd.get("lon") if rd.get("lon") else None,
+                "summary": rd.get("summary", ""),
+                "file_path": rd.get("file_path", ""),
+                "distance": distances.get(aid, 0),
+                "address": rd.get("address", ""),
+                "device_name": rd.get("device_name", ""),
+                "city_name": extra.get("city_name", ""),
+                "algorithm_name": extra.get("algorithm_name", ""),
             }
             results_list.append(result)
 

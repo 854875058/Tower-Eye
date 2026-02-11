@@ -267,26 +267,16 @@ def main() -> None:
         print(f"向量生成完成，耗时: {elapsed_time:.2f} 秒")
         print(f"平均速度: {len(images) / elapsed_time:.2f} 张/秒")
 
-    # 从 SQLite 获取资产元数据
+    # 从 SQLite 获取资产元数据（只需最小标识字段，结构化数据留在 SQLite）
     conn = connect_db(db_path)
     assets_data = {}
-    assets_by_filename = {}  # 新增：通过文件名索引
+    assets_by_filename = {}
     for row in conn.execute("""
-        SELECT a.asset_id, a.file_path, a.file_name, a.captured_at, a.lat, a.lon,
-               e.event_type, e.alarm_time, e.alarm_level, e.summary, e.description,
-               e.address, e.device_name, e.confidence_level,
-               e.province_name, e.city_name, e.county_name,
-               e.town_name, e.device_code, e.algorithm_name,
-               e.order_status, e.video_path, e.img_src_path, e.img_icon_path,
-               e.algorithm_code, e.channel_name, e.tenant_name,
-               e.alarm_body, e.importance_level, e.warning_order_id,
-               e.extra_json
+        SELECT a.asset_id, a.file_path, a.file_name
         FROM assets a
-        LEFT JOIN events e ON a.asset_id = e.asset_id
     """).fetchall():
         row_dict = dict(row)
         assets_data[row["file_path"]] = row_dict
-        # 同时通过文件名索引（处理路径不匹配的情况）
         if row["file_name"]:
             assets_by_filename[row["file_name"]] = row_dict
     conn.close()
@@ -316,48 +306,11 @@ def main() -> None:
 
         matched_count += 1
 
-        # 从 extra_json 提取不在直接列中的字段
-        _extra = {}
-        if asset_info.get("extra_json"):
-            try:
-                import json as _json
-                _extra = _json.loads(asset_info["extra_json"])
-            except Exception:
-                pass
-
         lance_data.append({
             "asset_id": asset_info["asset_id"],
             "file_path": str(path),
             "file_name": asset_info["file_name"],
-            "captured_at": asset_info["captured_at"] or "",
-            "lat": float(asset_info["lat"]) if asset_info["lat"] is not None else 0.0,
-            "lon": float(asset_info["lon"]) if asset_info["lon"] is not None else 0.0,
-            "event_type": asset_info["event_type"] or "",
-            "alarm_time": asset_info["alarm_time"] or "",
-            "alarm_level": asset_info["alarm_level"] or "",
-            "summary": asset_info.get("summary") or "",
-            "description": asset_info.get("description") or "",
-            "address": asset_info.get("address") or "",
-            "device_name": asset_info.get("device_name") or "",
-            "confidence_level": float(asset_info["confidence_level"]) if asset_info.get("confidence_level") else 0.0,
-            "province_name": asset_info.get("province_name") or "",
-            "city_name": asset_info.get("city_name") or "",
-            "county_name": asset_info.get("county_name") or "",
-            "town_name": asset_info.get("town_name") or "",
-            "device_code": asset_info.get("device_code") or "",
-            "algorithm_name": asset_info.get("algorithm_name") or "",
-            "algorithm_code": asset_info.get("algorithm_code") or "",
-            "order_status": asset_info.get("order_status") or "",
-            "importance_level": asset_info.get("importance_level") or "",
-            "alarm_body": asset_info.get("alarm_body") or "",
-            "tenant_name": asset_info.get("tenant_name") or "",
-            "channel_name": asset_info.get("channel_name") or "",
-            "warning_source_name": _extra.get("warning_source_name") or "",
-            "video_path": asset_info.get("video_path") or "",
-            "img_src_path": asset_info.get("img_src_path") or "",
-            "img_icon_path": asset_info.get("img_icon_path") or "",
-            "model_name": model_name,
-            "vector": vec.tolist(),  # LanceDB 需要 list 格式
+            "vector": vec.tolist(),
         })
 
     # 写入 LanceDB

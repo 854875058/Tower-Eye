@@ -2,7 +2,7 @@ import argparse
 import json
 import math
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from poc.pipeline.utils import load_yaml, resolve_path
 
@@ -162,6 +162,23 @@ def hybrid_search(
     return results_df.head(top_k)
 
 
+def build_asset_id_filter(asset_ids: List[str]) -> Optional[str]:
+    """
+    根据 asset_id 列表生成 LanceDB WHERE 条件。
+
+    Args:
+        asset_ids: 需要过滤的 asset_id 列表
+
+    Returns:
+        形如 "asset_id IN ('id1','id2',...)" 的字符串，空列表返回 None
+    """
+    if not asset_ids:
+        return None
+    escaped = [aid.replace("'", "''") for aid in asset_ids]
+    in_list = ", ".join(f"'{aid}'" for aid in escaped)
+    return f"asset_id IN ({in_list})"
+
+
 def build_lance_filter(
     event_type: Optional[str] = None,
     start_time: Optional[str] = None,
@@ -169,170 +186,16 @@ def build_lance_filter(
     lat: Optional[float] = None,
     lon: Optional[float] = None,
     radius_km: float = 5.0,
-    town_name: Optional[str] = None,
-    county_name: Optional[str] = None,
-    city_name: Optional[str] = None,
-    device_name: Optional[str] = None,
-    device_code: Optional[str] = None,
-    alarm_level: Optional[str] = None,
-    confidence_min: Optional[float] = None,
-    confidence_max: Optional[float] = None,
-    order_status: Optional[str] = None,
-    algorithm_name: Optional[str] = None,
-    algorithm_code: Optional[str] = None,
-    importance_level: Optional[str] = None,
-    warning_source_name: Optional[str] = None,
-    alarm_body: Optional[str] = None,
-    tenant_name: Optional[str] = None,
-    channel_name: Optional[str] = None,
-    table_columns: Optional[set] = None,
+    **kwargs,
 ) -> Optional[str]:
     """
-    构建 LanceDB 过滤条件（SQL WHERE 语法）
-    优化版：修复多条件联合查询问题
+    构建 LanceDB 过滤条件 — 精简版。
 
-    Args:
-        table_columns: LanceDB 表的列名集合，传入后会跳过表中不存在的字段，
-                       避免旧版向量库缺少 city_name 等列时崩溃。
+    结构化字段过滤已迁移到 SQLite，此函数仅保留向后兼容签名。
+    实际过滤通过 build_asset_id_filter() 传入 asset_id IN 条件。
     """
-    conditions = []
-    skipped = []
-
-    def _has_col(col_name: str) -> bool:
-        """检查字段是否存在于表 schema 中"""
-        if table_columns is None:
-            return True  # 未传入时不做限制，保持向后兼容
-        return col_name in table_columns
-
-    if event_type and _has_col("event_type"):
-        conditions.append(f"event_type = '{event_type}'")
-    elif event_type:
-        skipped.append("event_type")
-
-    # 优化时间过滤逻辑
-    if (start_time or end_time) and _has_col("alarm_time"):
-        if start_time and end_time:
-            conditions.append(f"(alarm_time BETWEEN '{start_time}' AND '{end_time}')")
-        elif start_time:
-            conditions.append(f"alarm_time >= '{start_time}'")
-        elif end_time:
-            conditions.append(f"alarm_time <= '{end_time}'")
-    elif start_time or end_time:
-        skipped.append("alarm_time")
-
-    if lat is not None and lon is not None:
-        if _has_col("lat") and _has_col("lon"):
-            lat_delta = radius_km / 111.0
-            lon_delta = radius_km / (111.0 * max(0.1, math.cos(math.radians(lat))))
-            min_lat = lat - lat_delta
-            max_lat = lat + lat_delta
-            min_lon = lon - lon_delta
-            max_lon = lon + lon_delta
-            conditions.append(f"(lat >= {min_lat} AND lat <= {max_lat} AND lon >= {min_lon} AND lon <= {max_lon})")
-        else:
-            skipped.append("lat/lon")
-
-    if town_name:
-        if _has_col("town_name"):
-            conditions.append(f"town_name = '{town_name}'")
-        else:
-            skipped.append("town_name")
-
-    if county_name:
-        if _has_col("county_name"):
-            conditions.append(f"county_name = '{county_name}'")
-        else:
-            skipped.append("county_name")
-
-    if city_name:
-        if _has_col("city_name"):
-            conditions.append(f"city_name = '{city_name}'")
-        else:
-            skipped.append("city_name")
-
-    if device_name:
-        if _has_col("device_name"):
-            conditions.append(f"device_name LIKE '%{device_name}%'")
-        else:
-            skipped.append("device_name")
-
-    if alarm_level:
-        if _has_col("alarm_level"):
-            conditions.append(f"alarm_level = '{alarm_level}'")
-        else:
-            skipped.append("alarm_level")
-
-    if confidence_min is not None:
-        if _has_col("confidence_level"):
-            conditions.append(f"confidence_level >= {confidence_min}")
-        else:
-            skipped.append("confidence_level")
-
-    if confidence_max is not None:
-        if _has_col("confidence_level"):
-            conditions.append(f"confidence_level <= {confidence_max}")
-        else:
-            if "confidence_level" not in skipped:
-                skipped.append("confidence_level")
-
-    if order_status:
-        if _has_col("order_status"):
-            conditions.append(f"order_status = '{order_status}'")
-        else:
-            skipped.append("order_status")
-
-    if algorithm_name:
-        if _has_col("algorithm_name"):
-            conditions.append(f"algorithm_name LIKE '%{algorithm_name}%'")
-        else:
-            skipped.append("algorithm_name")
-
-    if algorithm_code:
-        if _has_col("algorithm_code"):
-            conditions.append(f"algorithm_code = '{algorithm_code}'")
-        else:
-            skipped.append("algorithm_code")
-
-    if device_code:
-        if _has_col("device_code"):
-            conditions.append(f"device_code = '{device_code}'")
-        else:
-            skipped.append("device_code")
-
-    if importance_level:
-        if _has_col("importance_level"):
-            conditions.append(f"importance_level = '{importance_level}'")
-        else:
-            skipped.append("importance_level")
-
-    if warning_source_name:
-        if _has_col("warning_source_name"):
-            conditions.append(f"warning_source_name = '{warning_source_name}'")
-        else:
-            skipped.append("warning_source_name")
-
-    if alarm_body:
-        if _has_col("alarm_body"):
-            conditions.append(f"alarm_body LIKE '%{alarm_body}%'")
-        else:
-            skipped.append("alarm_body")
-
-    if tenant_name:
-        if _has_col("tenant_name"):
-            conditions.append(f"tenant_name = '{tenant_name}'")
-        else:
-            skipped.append("tenant_name")
-
-    if channel_name:
-        if _has_col("channel_name"):
-            conditions.append(f"channel_name LIKE '%{channel_name}%'")
-        else:
-            skipped.append("channel_name")
-
-    if skipped:
-        print(f"[build_lance_filter] 跳过向量库中不存在的字段: {skipped}，请重新运行 embed 更新向量库")
-
-    return " AND ".join(conditions) if conditions else None
+    # 保留空壳以兼容 CLI main() 等旧调用方
+    return None
 
 
 def main() -> None:
@@ -392,15 +255,8 @@ def main() -> None:
         else:
             raise RuntimeError("Specify --text or --image for query.")
 
-    # 构建过滤条件
-    filter_str = build_lance_filter(
-        event_type=args.event_type,
-        start_time=args.start_time,
-        end_time=args.end_time,
-        lat=args.lat,
-        lon=args.lon,
-        radius_km=args.radius_km,
-    )
+    # 构建过滤条件（已迁移到 SQLite，此处不再过滤）
+    filter_str = None
 
     # 执行检索（混合或纯向量）
     if args.hybrid and args.text:
@@ -408,7 +264,7 @@ def main() -> None:
             table,
             query_vec,
             query_text=args.text,
-            top_k=args.top_k * 2,  # 获取更多候选结果用于 rerank
+            top_k=args.top_k * 2,
             filter_str=filter_str,
             vector_weight=vector_weight,
             keyword_weight=keyword_weight,
@@ -419,35 +275,62 @@ def main() -> None:
             query = query.where(filter_str)
         results_df = query.to_pandas()
 
-    # 转换为列表格式
-    results = []
+    # 从 LanceDB 只取 asset_id + distance，然后用 SQLite 补全展示字段
+    asset_ids = results_df["asset_id"].tolist()
+    distances = {}
+    hybrid_scores = {}
     for _, row in results_df.iterrows():
+        aid = row["asset_id"]
+        distances[aid] = float(row.get("_distance", 0))
+        if "hybrid_score" in row:
+            hybrid_scores[aid] = float(row["hybrid_score"])
+
+    # 从 SQLite 批量获取完整事件信息
+    from poc.pipeline.utils import connect_db
+    db_path = resolve_path(paths_cfg.get("db_path", "poc/data/metadata.db"))
+    conn = connect_db(str(db_path))
+    events_map = {}
+    if asset_ids:
+        placeholders = ", ".join("?" for _ in asset_ids)
+        sql = (
+            "SELECT e.*, a.file_path, a.file_name "
+            "FROM events e LEFT JOIN assets a ON e.asset_id = a.asset_id "
+            f"WHERE a.asset_id IN ({placeholders})"
+        )
+        for row in conn.execute(sql, asset_ids).fetchall():
+            rd = dict(row)
+            events_map[rd["asset_id"]] = rd
+    conn.close()
+
+    # 转换为列表格式（保持 LanceDB 排序）
+    results = []
+    for aid in asset_ids:
+        rd = events_map.get(aid, {})
+        extra = {}
+        if rd.get("extra_json"):
+            try:
+                extra = json.loads(rd["extra_json"])
+            except Exception:
+                pass
+        dist = distances.get(aid, 0)
         result_item = {
-            "asset_id": row["asset_id"],
-            "distance": float(row.get("_distance", 0)),
-            "score": float(row.get("hybrid_score", row.get("_distance", 0))),
-            "file_path": row["file_path"],
-            "file_name": row["file_name"],
-            "captured_at": row["captured_at"],
-            "lat": float(row["lat"]),
-            "lon": float(row["lon"]),
-            "event_type": row["event_type"],
-            "alarm_time": row["alarm_time"],
-            "alarm_level": row["alarm_level"],
+            "asset_id": aid,
+            "distance": dist,
+            "score": hybrid_scores.get(aid, dist),
+            "file_path": rd.get("file_path", ""),
+            "file_name": rd.get("file_name", ""),
+            "captured_at": rd.get("alarm_time", ""),
+            "lat": rd.get("lat") or 0.0,
+            "lon": rd.get("lon") or 0.0,
+            "event_type": rd.get("event_type", ""),
+            "alarm_time": rd.get("alarm_time", ""),
+            "alarm_level": rd.get("alarm_level") or extra.get("emergency_level", ""),
+            "summary": rd.get("summary", ""),
+            "description": rd.get("description", ""),
+            "address": rd.get("address", ""),
+            "device_name": rd.get("device_name", ""),
+            "confidence_level": rd.get("confidence_level"),
         }
-
-        # 添加新字段
-        if "summary" in row:
-            result_item["summary"] = row["summary"]
-        if "description" in row:
-            result_item["description"] = row["description"]
-        if "address" in row:
-            result_item["address"] = row["address"]
-        if "device_name" in row:
-            result_item["device_name"] = row["device_name"]
-        if "confidence_level" in row:
-            result_item["confidence_level"] = float(row["confidence_level"])
-
         results.append(result_item)
 
     # Reranker（如果启用）

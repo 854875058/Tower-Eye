@@ -26,7 +26,7 @@ from poc.qa.agent import create_agent
 from poc.qa.trace import init_trace_manager, get_trace_manager
 from poc.qa.tools import init_tool_registry, get_tool_registry
 from poc.search.query import (
-    build_lance_filter,
+    build_asset_id_filter,
     hybrid_search,
 )
 from poc.search.model_manager import ModelManager
@@ -148,6 +148,150 @@ def apply_ant_design_pro_theme():
 
 
 apply_ant_design_pro_theme()
+
+
+# ============================================================================
+# SQLite 辅助函数（结构化过滤 + 数据补全）
+# ============================================================================
+
+def build_sqlite_filter(filters: dict) -> Tuple[str, list]:
+    """
+    根据筛选条件构建 SQLite WHERE 子句 + 参数列表。
+
+    Returns:
+        (where_clause, params) — where_clause 以 " AND ..." 开头，可直接拼接到 WHERE 1=1 后面
+    """
+    clauses = []
+    params: list = []
+
+    if filters.get("event_type"):
+        clauses.append("e.event_type LIKE ?")
+        params.append(f"%{filters['event_type']}%")
+    if filters.get("city_name"):
+        clauses.append("e.extra_json LIKE ?")
+        params.append(f'%"city_name": "{filters["city_name"]}"%')
+    if filters.get("county_name"):
+        clauses.append("e.extra_json LIKE ?")
+        params.append(f'%"county_name": "{filters["county_name"]}"%')
+    if filters.get("town_name"):
+        clauses.append("e.extra_json LIKE ?")
+        params.append(f'%"town_name": "{filters["town_name"]}"%')
+    if filters.get("device_name"):
+        clauses.append("e.device_name LIKE ?")
+        params.append(f"%{filters['device_name']}%")
+    if filters.get("alarm_level"):
+        clauses.append("e.extra_json LIKE ?")
+        params.append(f'%"emergency_level": "{filters["alarm_level"]}"%')
+    if filters.get("order_status"):
+        clauses.append("e.extra_json LIKE ?")
+        params.append(f'%"order_status": "{filters["order_status"]}"%')
+    if filters.get("algorithm_name"):
+        clauses.append("e.extra_json LIKE ?")
+        params.append(f'%{filters["algorithm_name"]}%')
+    if filters.get("algorithm_code"):
+        clauses.append("e.extra_json LIKE ?")
+        params.append(f'%"algorithm_code": "{filters["algorithm_code"]}"%')
+    if filters.get("device_code"):
+        clauses.append("e.extra_json LIKE ?")
+        params.append(f'%"device_code": "{filters["device_code"]}"%')
+    if filters.get("importance_level"):
+        clauses.append("e.extra_json LIKE ?")
+        params.append(f'%"importance_level": "{filters["importance_level"]}"%')
+    if filters.get("warning_source_name"):
+        clauses.append("e.extra_json LIKE ?")
+        params.append(f'%"warning_source_name": "{filters["warning_source_name"]}"%')
+    if filters.get("alarm_body"):
+        clauses.append("e.extra_json LIKE ?")
+        params.append(f'%"alarm_body": "{filters["alarm_body"]}"%')
+    if filters.get("tenant_name"):
+        clauses.append("e.extra_json LIKE ?")
+        params.append(f'%"tenant_name": "{filters["tenant_name"]}"%')
+    if filters.get("channel_name"):
+        clauses.append("e.extra_json LIKE ?")
+        params.append(f'%"channel_name": "{filters["channel_name"]}"%')
+    if filters.get("confidence_min") is not None:
+        clauses.append("e.confidence_level >= ?")
+        params.append(filters["confidence_min"])
+    if filters.get("confidence_max") is not None:
+        clauses.append("e.confidence_level <= ?")
+        params.append(filters["confidence_max"])
+    if filters.get("start_time"):
+        clauses.append("e.alarm_time >= ?")
+        params.append(filters["start_time"])
+    if filters.get("end_time"):
+        clauses.append("e.alarm_time <= ?")
+        params.append(filters["end_time"])
+
+    where_clause = ""
+    if clauses:
+        where_clause = " AND " + " AND ".join(clauses)
+    return where_clause, params
+
+
+def fetch_events_by_asset_ids(db_path, asset_ids: List[str]) -> Dict[str, dict]:
+    """
+    根据 asset_id 列表从 SQLite 批量获取完整事件信息。
+
+    Returns:
+        {asset_id: {完整字段 dict, 含 extra_json 解析后的字段}} 映射
+    """
+    if not asset_ids:
+        return {}
+    conn = connect_db(db_path)
+    placeholders = ", ".join("?" for _ in asset_ids)
+    sql = (
+        "SELECT e.*, a.file_path, a.file_name "
+        "FROM events e LEFT JOIN assets a ON e.asset_id = a.asset_id "
+        f"WHERE a.asset_id IN ({placeholders})"
+    )
+    rows = conn.execute(sql, asset_ids).fetchall()
+    conn.close()
+
+    result = {}
+    for r in rows:
+        rd = dict(r)
+        extra = {}
+        if rd.get("extra_json"):
+            try:
+                extra = json.loads(rd["extra_json"])
+            except Exception:
+                pass
+        rd["_extra"] = extra
+        result[rd["asset_id"]] = rd
+    return result
+
+
+def _build_result_item_from_sqlite(rd: dict, score: float = 0.0) -> dict:
+    """从 SQLite 行数据构建统一的结果 dict"""
+    extra = rd.get("_extra", {})
+    return {
+        "asset_id": rd.get("asset_id", ""),
+        "score": score,
+        "file_path": rd.get("file_path", ""),
+        "file_name": rd.get("file_name", ""),
+        "captured_at": rd.get("alarm_time", ""),
+        "lat": rd.get("lat") or 0.0,
+        "lon": rd.get("lon") or 0.0,
+        "event_type": rd.get("event_type", ""),
+        "alarm_time": rd.get("alarm_time", ""),
+        "alarm_level": rd.get("alarm_level") or extra.get("emergency_level", ""),
+        "summary": rd.get("summary", ""),
+        "description": rd.get("description", ""),
+        "address": rd.get("address", ""),
+        "device_name": rd.get("device_name", ""),
+        "confidence_level": rd.get("confidence_level"),
+        "province_name": extra.get("province_name", ""),
+        "city_name": extra.get("city_name", ""),
+        "county_name": extra.get("county_name", ""),
+        "town_name": extra.get("town_name", ""),
+        "device_code": extra.get("device_code", ""),
+        "algorithm_name": extra.get("algorithm_name", ""),
+        "order_status": extra.get("order_status", ""),
+        "video_url": f"warning_file/{Path(extra.get('video_url', '').split(',')[0].strip()).name}" if extra.get("video_url") else "",
+        "file_img_url_src": rd.get("file_path", ""),
+        "file_img_url_icon": "",
+    }
+
 
 # ============================================================================
 # 缓存函数
@@ -1638,7 +1782,6 @@ def render_multimodal_search():
                 manager = get_cached_model_manager(config_hash, config)
                 db = get_cached_lancedb(lancedb_dir)
                 table = db.open_table("embeddings")
-                table_columns = set(table.schema.names)
 
                 # 根据检索模式编码查询
                 # ---- 根据输入类型编码查询向量 ----
@@ -1711,64 +1854,8 @@ def render_multimodal_search():
                         "FROM events e LEFT JOIN assets a ON e.asset_id = a.asset_id "
                         "WHERE 1=1"
                     )
-                    params = []
-                    if filters.get("event_type"):
-                        sql += " AND e.event_type LIKE ?"
-                        params.append(f"%{filters['event_type']}%")
-                    if filters.get("city_name"):
-                        sql += " AND e.extra_json LIKE ?"
-                        params.append(f'%"city_name": "{filters["city_name"]}"%')
-                    if filters.get("county_name"):
-                        sql += " AND e.extra_json LIKE ?"
-                        params.append(f'%"county_name": "{filters["county_name"]}"%')
-                    if filters.get("town_name"):
-                        sql += " AND e.extra_json LIKE ?"
-                        params.append(f'%"town_name": "{filters["town_name"]}"%')
-                    if filters.get("device_name"):
-                        sql += " AND e.device_name LIKE ?"
-                        params.append(f"%{filters['device_name']}%")
-                    if filters.get("alarm_level"):
-                        sql += " AND e.extra_json LIKE ?"
-                        params.append(f'%"emergency_level": "{filters["alarm_level"]}"%')
-                    if filters.get("order_status"):
-                        sql += " AND e.extra_json LIKE ?"
-                        params.append(f'%"order_status": "{filters["order_status"]}"%')
-                    if filters.get("algorithm_name"):
-                        sql += " AND e.extra_json LIKE ?"
-                        params.append(f'%{filters["algorithm_name"]}%')
-                    if filters.get("algorithm_code"):
-                        sql += " AND e.extra_json LIKE ?"
-                        params.append(f'%"algorithm_code": "{filters["algorithm_code"]}"%')
-                    if filters.get("device_code"):
-                        sql += " AND e.extra_json LIKE ?"
-                        params.append(f'%"device_code": "{filters["device_code"]}"%')
-                    if filters.get("importance_level"):
-                        sql += " AND e.extra_json LIKE ?"
-                        params.append(f'%"importance_level": "{filters["importance_level"]}"%')
-                    if filters.get("warning_source_name"):
-                        sql += " AND e.extra_json LIKE ?"
-                        params.append(f'%"warning_source_name": "{filters["warning_source_name"]}"%')
-                    if filters.get("alarm_body"):
-                        sql += " AND e.extra_json LIKE ?"
-                        params.append(f'%"alarm_body": "{filters["alarm_body"]}"%')
-                    if filters.get("tenant_name"):
-                        sql += " AND e.extra_json LIKE ?"
-                        params.append(f'%"tenant_name": "{filters["tenant_name"]}"%')
-                    if filters.get("channel_name"):
-                        sql += " AND e.extra_json LIKE ?"
-                        params.append(f'%"channel_name": "{filters["channel_name"]}"%')
-                    if filters.get("confidence_min") is not None:
-                        sql += " AND e.confidence_level >= ?"
-                        params.append(filters["confidence_min"])
-                    if filters.get("confidence_max") is not None:
-                        sql += " AND e.confidence_level <= ?"
-                        params.append(filters["confidence_max"])
-                    if filters.get("start_time"):
-                        sql += " AND e.alarm_time >= ?"
-                        params.append(filters["start_time"])
-                    if filters.get("end_time"):
-                        sql += " AND e.alarm_time <= ?"
-                        params.append(filters["end_time"])
+                    where_extra, params = build_sqlite_filter(filters)
+                    sql += where_extra
                     sql += f" ORDER BY e.alarm_time DESC LIMIT {top_k}"
 
                     rows = conn.execute(sql, params).fetchall()
@@ -1783,135 +1870,94 @@ def render_multimodal_search():
                                 extra = json.loads(rd["extra_json"])
                             except Exception:
                                 pass
-                        results.append({
-                            "asset_id": rd.get("asset_id", ""),
-                            "score": 0.0,
-                            "file_path": rd.get("file_path", ""),
-                            "file_name": rd.get("file_name", ""),
-                            "captured_at": rd.get("alarm_time", ""),
-                            "lat": rd.get("lat") or 0.0,
-                            "lon": rd.get("lon") or 0.0,
-                            "event_type": rd.get("event_type", ""),
-                            "alarm_time": rd.get("alarm_time", ""),
-                            "alarm_level": rd.get("alarm_level") or extra.get("emergency_level", ""),
-                            "summary": rd.get("summary", ""),
-                            "description": rd.get("description", ""),
-                            "address": rd.get("address", ""),
-                            "device_name": rd.get("device_name", ""),
-                            "confidence_level": rd.get("confidence_level"),
-                            "province_name": extra.get("province_name", ""),
-                            "city_name": extra.get("city_name", ""),
-                            "county_name": extra.get("county_name", ""),
-                            "town_name": extra.get("town_name", ""),
-                            "device_code": extra.get("device_code", ""),
-                            "algorithm_name": extra.get("algorithm_name", ""),
-                            "order_status": extra.get("order_status", ""),
-                            "video_url": f"warning_file/{Path(extra.get('video_url', '').split(',')[0].strip()).name}" if extra.get("video_url") else "",
-                            "file_img_url_src": rd.get("file_path", ""),
-                            "file_img_url_icon": "",
-                        })
+                        rd["_extra"] = extra
+                        results.append(_build_result_item_from_sqlite(rd))
 
                     st.success(f"✅ 筛选到 {len(results)} 条结果")
 
                 else:
-                    # ---- 向量检索模式 ----
-                    filter_str = build_lance_filter(
-                        event_type=filters.get("event_type"),
-                        start_time=filters.get("start_time"),
-                        end_time=filters.get("end_time"),
-                        lat=filters.get("lat"),
-                        lon=filters.get("lon"),
-                        radius_km=filters.get("radius_km", 5.0),
-                        town_name=filters.get("town_name"),
-                        county_name=filters.get("county_name"),
-                        city_name=filters.get("city_name"),
-                        device_name=filters.get("device_name"),
-                        device_code=filters.get("device_code"),
-                        alarm_level=filters.get("alarm_level"),
-                        confidence_min=filters.get("confidence_min"),
-                        confidence_max=filters.get("confidence_max"),
-                        order_status=filters.get("order_status"),
-                        algorithm_name=filters.get("algorithm_name"),
-                        algorithm_code=filters.get("algorithm_code"),
-                        importance_level=filters.get("importance_level"),
-                        warning_source_name=filters.get("warning_source_name"),
-                        alarm_body=filters.get("alarm_body"),
-                        tenant_name=filters.get("tenant_name"),
-                        channel_name=filters.get("channel_name"),
-                        table_columns=table_columns,
-                    )
-
-                    # 提示用户缺失字段
-                    _expected_filter_cols = {
-                        "city_name", "county_name", "town_name", "device_name", "device_code",
-                        "alarm_level", "confidence_level", "order_status", "algorithm_name",
-                        "algorithm_code", "importance_level", "warning_source_name",
-                        "alarm_body", "tenant_name", "channel_name",
-                    }
-                    _missing = _expected_filter_cols - table_columns
-                    if _missing:
-                        st.warning(f"向量库缺少字段 {_missing}，相关过滤条件已自动跳过。请重新运行 embed 脚本更新向量库。")
-
-                    # 执行检索（混合或纯向量）
+                    # ---- 向量检索模式（结构化过滤走 SQLite）----
                     reranker_enabled = search_cfg.get("reranker_enabled", False)
                     fetch_k = top_k * 3 if reranker_enabled and query_text else top_k
 
-                    if query_text and enable_hybrid:
-                        results_df = hybrid_search(
-                            table,
-                            query_vec,
-                            query_text=query_text,
-                            top_k=fetch_k,
-                            filter_str=filter_str,
-                            vector_weight=vector_weight,
-                            keyword_weight=keyword_weight,
+                    # 步骤 1：有筛选条件时，先从 SQLite 获取符合条件的 asset_id 集合
+                    where_extra, sql_params = build_sqlite_filter(filters)
+                    pre_filtered_ids = None  # None 表示不做预过滤
+                    if where_extra:
+                        conn = connect_db(db_path)
+                        id_sql = (
+                            "SELECT DISTINCT a.asset_id "
+                            "FROM events e LEFT JOIN assets a ON e.asset_id = a.asset_id "
+                            "WHERE 1=1" + where_extra
                         )
-                    else:
-                        query = table.search(query_vec.tolist()).limit(fetch_k)
-                        if filter_str:
-                            query = query.where(filter_str)
-                        results_df = query.to_pandas()
+                        pre_filtered_ids = [
+                            r[0] for r in conn.execute(id_sql, sql_params).fetchall()
+                        ]
+                        conn.close()
 
-                    # 转换为结果列表
-                    results = []
-                    for _, row in results_df.iterrows():
-                        result_item = {
-                            "asset_id": row["asset_id"],
-                            "score": float(row.get("hybrid_score", row["_distance"])),
-                            "file_path": row["file_path"],
-                            "file_name": row["file_name"],
-                            "captured_at": row["captured_at"],
-                            "lat": float(row["lat"]),
-                            "lon": float(row["lon"]),
-                            "event_type": row["event_type"],
-                            "alarm_time": row["alarm_time"],
-                            "alarm_level": row["alarm_level"],
-                            "summary": row.get("summary", ""),
-                            "description": row.get("description", ""),
-                            "address": row.get("address", ""),
-                            "device_name": row.get("device_name", ""),
-                            "confidence_level": float(row["confidence_level"]) if row.get("confidence_level") else None,
-                            "province_name": row.get("province_name", ""),
-                            "city_name": row.get("city_name", ""),
-                            "county_name": row.get("county_name", ""),
-                            "town_name": row.get("town_name", ""),
-                            "device_code": row.get("device_code", ""),
-                            "algorithm_name": row.get("algorithm_name", ""),
-                            "order_status": row.get("order_status", ""),
-                            "video_url": row.get("video_path", ""),
-                            "file_img_url_src": row.get("img_src_path", ""),
-                            "file_img_url_icon": row.get("img_icon_path", ""),
-                        }
-                        results.append(result_item)
+                        if not pre_filtered_ids:
+                            # 筛选条件无匹配，直接返回空
+                            results = []
+                            st.warning("筛选条件无匹配结果")
+                            st.success(f"✅ 找到 {len(results)} 条结果")
+                            # 跳到结果展示
+                        else:
+                            st.info(f"筛选条件匹配 {len(pre_filtered_ids)} 条记录，正在向量检索...")
 
-                    # Reranker 重排序
-                    if reranker_enabled and query_text:
-                        st.info(f"🔄 Reranker 正在对 {len(results)} 条候选结果精排...")
-                        results = manager.rerank(query_text, results, top_k=top_k)
-                    else:
-                        results = results[:top_k]
+                    # 步骤 2：LanceDB 向量搜索（仅拿 asset_id + _distance）
+                    if pre_filtered_ids is None or pre_filtered_ids:
+                        # 构建 asset_id IN 条件
+                        lance_filter = None
+                        post_filter_ids = None
+                        if pre_filtered_ids is not None:
+                            if len(pre_filtered_ids) <= 100:
+                                # 数量较少，直接用 IN 条件
+                                lance_filter = build_asset_id_filter(pre_filtered_ids)
+                            else:
+                                # 数量较多，LanceDB 先搜更多条，Python 侧后过滤
+                                post_filter_ids = set(pre_filtered_ids)
+                                fetch_k = fetch_k * 3
 
-                    st.success(f"✅ 找到 {len(results)} 条结果")
+                        if query_text and enable_hybrid:
+                            results_df = hybrid_search(
+                                table,
+                                query_vec,
+                                query_text=query_text,
+                                top_k=fetch_k,
+                                filter_str=lance_filter,
+                                vector_weight=vector_weight,
+                                keyword_weight=keyword_weight,
+                            )
+                        else:
+                            query = table.search(query_vec.tolist()).limit(fetch_k)
+                            if lance_filter:
+                                query = query.where(lance_filter)
+                            results_df = query.to_pandas()
+
+                        # Python 侧后过滤（当 asset_id 太多无法用 IN 时）
+                        if post_filter_ids is not None:
+                            results_df = results_df[results_df["asset_id"].isin(post_filter_ids)]
+
+                        # 步骤 3：用 asset_id 从 SQLite 补全所有展示字段
+                        lance_asset_ids = results_df["asset_id"].tolist()
+                        events_map = fetch_events_by_asset_ids(db_path, lance_asset_ids)
+
+                        # 构建结果列表（保持向量相似度排序）
+                        results = []
+                        for _, row in results_df.iterrows():
+                            aid = row["asset_id"]
+                            score = float(row.get("hybrid_score", row["_distance"]))
+                            rd = events_map.get(aid, {"_extra": {}})
+                            results.append(_build_result_item_from_sqlite(rd, score=score))
+
+                        # Reranker 重排序
+                        if reranker_enabled and query_text:
+                            st.info(f"🔄 Reranker 正在对 {len(results)} 条候选结果精排...")
+                            results = manager.rerank(query_text, results, top_k=top_k)
+                        else:
+                            results = results[:top_k]
+
+                        st.success(f"✅ 找到 {len(results)} 条结果")
 
                 # 显示结果
                 for idx, item in enumerate(results):
