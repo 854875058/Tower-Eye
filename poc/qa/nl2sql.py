@@ -285,8 +285,11 @@ def _parse_llm_json(content: str) -> dict:
 
 def _build_nl2sql_system_prompt(schema_prompt: str) -> str:
     """构建 NL2SQL 的 system prompt"""
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return (
         "你是一个专业的 NL2SQL 助手，负责将中文自然语言问题转换为 SQLite SQL 查询。\n\n"
+        f"# 当前时间\n{now_str}\n"
+        "所有涉及'最近N天'、'本月'、'今天'、'昨天'等相对时间的表达，都必须基于上面的当前时间计算。\n\n"
         "# 数据库 Schema\n"
         f"{schema_prompt}\n\n"
         "# 实体提取规则（非常重要）\n"
@@ -409,8 +412,10 @@ def call_llm_fix_sql(question: str, failed_sql: str, error_msg: str,
     api_key, url, model, timeout = _get_llm_config(config)
     schema_prompt = build_schema_prompt(db_path)
 
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     system_prompt = (
         "你是一个 SQL 修正助手。用户之前生成的 SQL 执行失败了，请根据错误信息修正 SQL。\n\n"
+        f"# 当前时间\n{now_str}\n\n"
         "# 数据库 Schema\n"
         f"{schema_prompt}\n\n"
         "# 关键规则\n"

@@ -114,6 +114,19 @@ st.text_area("SQL", value=new_sql, key=f"sql_editor_v{version}")
 - LLM prompt 中**必须明确区分量词表达式**（"N条/个/件" → LIMIT）和**时间表达式**（"N天/小时/月" → WHERE 时间过滤）
 - 任何可能被误解的中文表达，都应该在 prompt 中用正例+反例对比说明
 
+### NL2SQL 时间计算错误 — LLM 不知道当前日期（Bug 记录）
+
+**Bug 现象**：用户问"按街道统计最近30天各类告警数量"，LLM 生成的 SQL 中时间条件为 `alarm_time >= '2025-03-28'`，而实际当前日期是 2026-02-11，差了将近一年。
+
+**根因**：NL2SQL 的 system prompt 中没有注入当前日期，DeepSeek LLM 的训练数据截止时间较早，无法推断"现在"是什么时候，导致"最近30天"的计算完全错误。
+
+**修复方案**：在 `_build_nl2sql_system_prompt()` 和 `call_llm_fix_sql()` 的 system prompt 中注入 `datetime.now()` 的当前时间，并明确要求 LLM 基于该时间计算所有相对时间表达式。
+
+**规则总结**：
+- **所有涉及时间计算的 LLM prompt，必须注入当前时间**（`datetime.now()`）
+- 不能假设 LLM 知道"现在"是什么时候——它的训练数据有截止日期
+- 格式示例：`# 当前时间\n2026-02-11 16:30:00\n`
+
 ---
 
-*最后更新: 2026-02-10*
+*最后更新: 2026-02-11*
