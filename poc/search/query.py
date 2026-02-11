@@ -173,11 +173,18 @@ def build_lance_filter(
     county_name: Optional[str] = None,
     city_name: Optional[str] = None,
     device_name: Optional[str] = None,
+    device_code: Optional[str] = None,
     alarm_level: Optional[str] = None,
     confidence_min: Optional[float] = None,
     confidence_max: Optional[float] = None,
     order_status: Optional[str] = None,
     algorithm_name: Optional[str] = None,
+    algorithm_code: Optional[str] = None,
+    importance_level: Optional[str] = None,
+    warning_source_name: Optional[str] = None,
+    alarm_body: Optional[str] = None,
+    tenant_name: Optional[str] = None,
+    channel_name: Optional[str] = None,
     table_columns: Optional[set] = None,
 ) -> Optional[str]:
     """
@@ -279,6 +286,48 @@ def build_lance_filter(
             conditions.append(f"algorithm_name LIKE '%{algorithm_name}%'")
         else:
             skipped.append("algorithm_name")
+
+    if algorithm_code:
+        if _has_col("algorithm_code"):
+            conditions.append(f"algorithm_code = '{algorithm_code}'")
+        else:
+            skipped.append("algorithm_code")
+
+    if device_code:
+        if _has_col("device_code"):
+            conditions.append(f"device_code = '{device_code}'")
+        else:
+            skipped.append("device_code")
+
+    if importance_level:
+        if _has_col("importance_level"):
+            conditions.append(f"importance_level = '{importance_level}'")
+        else:
+            skipped.append("importance_level")
+
+    if warning_source_name:
+        if _has_col("warning_source_name"):
+            conditions.append(f"warning_source_name = '{warning_source_name}'")
+        else:
+            skipped.append("warning_source_name")
+
+    if alarm_body:
+        if _has_col("alarm_body"):
+            conditions.append(f"alarm_body LIKE '%{alarm_body}%'")
+        else:
+            skipped.append("alarm_body")
+
+    if tenant_name:
+        if _has_col("tenant_name"):
+            conditions.append(f"tenant_name = '{tenant_name}'")
+        else:
+            skipped.append("tenant_name")
+
+    if channel_name:
+        if _has_col("channel_name"):
+            conditions.append(f"channel_name LIKE '%{channel_name}%'")
+        else:
+            skipped.append("channel_name")
 
     if skipped:
         print(f"[build_lance_filter] 跳过向量库中不存在的字段: {skipped}，请重新运行 embed 更新向量库")

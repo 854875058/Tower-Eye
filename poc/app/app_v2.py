@@ -300,6 +300,40 @@ def get_area_options(db_path_str: str) -> Dict[str, List[str]]:
     return {"city": h["cities"], "county": all_counties, "town": all_towns}
 
 
+@st.cache_data(ttl=300)
+def get_dropdown_options(db_path_str: str) -> Dict[str, List[str]]:
+    """从 extra_json 提取各字段的 DISTINCT 值，用于下拉筛选框"""
+    from poc.pipeline.utils import connect_db
+    db_path = Path(db_path_str)
+    if not db_path.exists():
+        return {}
+    conn = connect_db(db_path)
+
+    # 需要提取的字段列表
+    json_fields = [
+        "tenant_name", "channel_name", "device_name", "device_code",
+        "algorithm_name", "algorithm_code", "warning_source_name",
+        "warning_type_name", "alarm_body", "importance_level",
+    ]
+    result = {}
+    for field in json_fields:
+        try:
+            rows = conn.execute(
+                f"SELECT DISTINCT json_extract(extra_json, '$.{field}') AS val "
+                f"FROM events "
+                f"WHERE json_extract(extra_json, '$.{field}') IS NOT NULL "
+                f"AND json_extract(extra_json, '$.{field}') != '' "
+                f"ORDER BY val"
+            ).fetchall()
+            vals = [r["val"] for r in rows]
+            if vals:
+                result[field] = vals
+        except Exception:
+            pass
+    conn.close()
+    return result
+
+
 def db_stats(db_path: Path) -> Dict[str, int]:
     if not Path(db_path).exists():
         return {"assets": 0, "events": 0, "detections": 0, "annotations": 0, "embeddings": 0}
@@ -1346,19 +1380,53 @@ def render_multimodal_search():
 
     # 过滤条件
     with st.expander("🎛️ 高级过滤", expanded=False):
+        dd_opts = get_dropdown_options(str(db_path))
+
         # 第一行：事件类型 + 告警等级 + 工单状态
         fc1, fc2, fc3 = st.columns(3)
         with fc1:
-            filter_event = st.text_input("事件类型", value="", placeholder="如：车辆闯入监控告警")
+            _wt_opts = [""] + dd_opts.get("warning_type_name", [])
+            filter_event = st.selectbox(
+                "告警类型", _wt_opts,
+                format_func=lambda x: "全部" if x == "" else x,
+                key="filter_event_type"
+            )
         with fc2:
-            filter_alarm_level = st.selectbox("告警等级", ["", "01"], format_func=lambda x: "全部" if x == "" else f"等级 {x}")
+            filter_alarm_level = st.selectbox(
+                "紧急等级", ["", "1", "2", "3"],
+                format_func=lambda x: {"": "全部", "1": "等级1(高)", "2": "等级2(中)", "3": "等级3(低)"}.get(x, x)
+            )
         with fc3:
             filter_order_status = st.selectbox(
                 "工单状态", ["", "1", "2", "4", "6"],
                 format_func=lambda x: {"": "全部", "1": "待处理", "2": "处理中", "4": "已完成", "6": "已关闭"}.get(x, x)
             )
 
-        # 第二行：城市 + 区县 + 街道（级联下拉）
+        # 第二行：重要等级 + 告警来源 + 告警主体
+        fc1b, fc2b, fc3b = st.columns(3)
+        with fc1b:
+            _imp_opts = [""] + dd_opts.get("importance_level", [])
+            filter_importance = st.selectbox(
+                "重要等级", _imp_opts,
+                format_func=lambda x: "全部" if x == "" else f"等级 {x}",
+                key="filter_importance"
+            )
+        with fc2b:
+            _ws_opts = [""] + dd_opts.get("warning_source_name", [])
+            filter_warning_source = st.selectbox(
+                "告警来源", _ws_opts,
+                format_func=lambda x: "全部" if x == "" else x,
+                key="filter_warning_source"
+            )
+        with fc3b:
+            _ab_opts = [""] + dd_opts.get("alarm_body", [])
+            filter_alarm_body = st.selectbox(
+                "告警主体", _ab_opts,
+                format_func=lambda x: "全部" if x == "" else x,
+                key="filter_alarm_body"
+            )
+
+        # 第三行：城市 + 区县 + 街道（级联下拉）
         area_h = get_area_hierarchy(str(db_path))
         fc4, fc5, fc6 = st.columns(3)
         with fc4:
@@ -1382,7 +1450,6 @@ def render_multimodal_search():
             if filter_county:
                 town_options = [""] + area_h["town_by_county"].get(filter_county, [])
             elif filter_city:
-                # 选了城市没选区县：显示该城市下所有街道
                 related_counties = area_h["county_by_city"].get(filter_city, [])
                 town_options = [""] + sorted({t for c in related_counties for t in area_h["town_by_county"].get(c, [])})
             else:
@@ -1393,14 +1460,56 @@ def render_multimodal_search():
                 key="filter_town_select"
             )
 
-        # 第三行：设备名称 + 算法名称 + 置信度
+        # 第四行：租户 + 设备名称 + 设备编码
         fc7, fc8, fc9 = st.columns(3)
         with fc7:
-            filter_device = st.text_input("设备名称", value="", placeholder="模糊匹配")
+            _tn_opts = [""] + dd_opts.get("tenant_name", [])
+            filter_tenant = st.selectbox(
+                "租户", _tn_opts,
+                format_func=lambda x: "全部" if x == "" else x,
+                key="filter_tenant"
+            )
         with fc8:
-            filter_algorithm = st.text_input("算法名称", value="", placeholder="模糊匹配")
+            _dn_opts = [""] + dd_opts.get("device_name", [])
+            filter_device = st.selectbox(
+                "设备名称", _dn_opts,
+                format_func=lambda x: "全部" if x == "" else x,
+                key="filter_device_name"
+            )
         with fc9:
-            filter_confidence = st.slider("置信度范围", 0.0, 1.0, (0.0, 1.0), 0.05, key="confidence_slider")
+            _dc_opts = [""] + dd_opts.get("device_code", [])
+            filter_device_code = st.selectbox(
+                "设备编码", _dc_opts,
+                format_func=lambda x: "全部" if x == "" else x,
+                key="filter_device_code"
+            )
+
+        # 第五行：通道名称 + 算法名称 + 算法编码
+        fc10, fc11, fc12 = st.columns(3)
+        with fc10:
+            _cn_opts = [""] + dd_opts.get("channel_name", [])
+            filter_channel = st.selectbox(
+                "通道名称", _cn_opts,
+                format_func=lambda x: "全部" if x == "" else x,
+                key="filter_channel"
+            )
+        with fc11:
+            _an_opts = [""] + dd_opts.get("algorithm_name", [])
+            filter_algorithm = st.selectbox(
+                "算法名称", _an_opts,
+                format_func=lambda x: "全部" if x == "" else x,
+                key="filter_algorithm"
+            )
+        with fc12:
+            _ac_opts = [""] + dd_opts.get("algorithm_code", [])
+            filter_algorithm_code = st.selectbox(
+                "算法编码", _ac_opts,
+                format_func=lambda x: "全部" if x == "" else x,
+                key="filter_algorithm_code"
+            )
+
+        # 第六行：置信度
+        filter_confidence = st.slider("置信度范围", 0.0, 1.0, (0.0, 1.0), 0.05, key="confidence_slider")
 
         # 第四行：时间过滤
         st.markdown("**时间过滤**")
@@ -1467,10 +1576,15 @@ def render_multimodal_search():
 
     # 检查是否可以执行检索（文本/图片/视频 或 任意筛选条件）
     has_query = bool(query_text) or bool(query_image) or bool(_uploaded_video_frame)
-    has_filter = bool(filter_event) or bool(filter_city) or bool(filter_county) or bool(filter_town) \
-        or bool(filter_device) or bool(filter_algorithm) or bool(filter_alarm_level) \
-        or bool(filter_order_status) or enable_time_filter or enable_geo_filter \
+    has_filter = (
+        bool(filter_event) or bool(filter_city) or bool(filter_county) or bool(filter_town)
+        or bool(filter_device) or bool(filter_device_code) or bool(filter_algorithm)
+        or bool(filter_algorithm_code) or bool(filter_alarm_level) or bool(filter_order_status)
+        or bool(filter_importance) or bool(filter_warning_source) or bool(filter_alarm_body)
+        or bool(filter_tenant) or bool(filter_channel)
+        or enable_time_filter or enable_geo_filter
         or filter_confidence[0] > 0.0 or filter_confidence[1] < 1.0
+    )
     can_search = has_query or has_filter
 
     if not can_search:
@@ -1498,11 +1612,18 @@ def render_multimodal_search():
             "county_name": filter_county or None,
             "city_name": filter_city or None,
             "device_name": filter_device or None,
+            "device_code": filter_device_code or None,
             "alarm_level": filter_alarm_level or None,
             "confidence_min": filter_confidence[0] if filter_confidence[0] > 0.0 else None,
             "confidence_max": filter_confidence[1] if filter_confidence[1] < 1.0 else None,
             "order_status": filter_order_status or None,
             "algorithm_name": filter_algorithm or None,
+            "algorithm_code": filter_algorithm_code or None,
+            "importance_level": filter_importance or None,
+            "warning_source_name": filter_warning_source or None,
+            "alarm_body": filter_alarm_body or None,
+            "tenant_name": filter_tenant or None,
+            "channel_name": filter_channel or None,
         }
 
         with st.spinner("🔍 检索中..."):
@@ -1615,6 +1736,27 @@ def render_multimodal_search():
                     if filters.get("algorithm_name"):
                         sql += " AND e.extra_json LIKE ?"
                         params.append(f'%{filters["algorithm_name"]}%')
+                    if filters.get("algorithm_code"):
+                        sql += " AND e.extra_json LIKE ?"
+                        params.append(f'%"algorithm_code": "{filters["algorithm_code"]}"%')
+                    if filters.get("device_code"):
+                        sql += " AND e.extra_json LIKE ?"
+                        params.append(f'%"device_code": "{filters["device_code"]}"%')
+                    if filters.get("importance_level"):
+                        sql += " AND e.extra_json LIKE ?"
+                        params.append(f'%"importance_level": "{filters["importance_level"]}"%')
+                    if filters.get("warning_source_name"):
+                        sql += " AND e.extra_json LIKE ?"
+                        params.append(f'%"warning_source_name": "{filters["warning_source_name"]}"%')
+                    if filters.get("alarm_body"):
+                        sql += " AND e.extra_json LIKE ?"
+                        params.append(f'%"alarm_body": "{filters["alarm_body"]}"%')
+                    if filters.get("tenant_name"):
+                        sql += " AND e.extra_json LIKE ?"
+                        params.append(f'%"tenant_name": "{filters["tenant_name"]}"%')
+                    if filters.get("channel_name"):
+                        sql += " AND e.extra_json LIKE ?"
+                        params.append(f'%"channel_name": "{filters["channel_name"]}"%')
                     if filters.get("confidence_min") is not None:
                         sql += " AND e.confidence_level >= ?"
                         params.append(filters["confidence_min"])
@@ -1684,17 +1826,28 @@ def render_multimodal_search():
                         county_name=filters.get("county_name"),
                         city_name=filters.get("city_name"),
                         device_name=filters.get("device_name"),
+                        device_code=filters.get("device_code"),
                         alarm_level=filters.get("alarm_level"),
                         confidence_min=filters.get("confidence_min"),
                         confidence_max=filters.get("confidence_max"),
                         order_status=filters.get("order_status"),
                         algorithm_name=filters.get("algorithm_name"),
+                        algorithm_code=filters.get("algorithm_code"),
+                        importance_level=filters.get("importance_level"),
+                        warning_source_name=filters.get("warning_source_name"),
+                        alarm_body=filters.get("alarm_body"),
+                        tenant_name=filters.get("tenant_name"),
+                        channel_name=filters.get("channel_name"),
                         table_columns=table_columns,
                     )
 
                     # 提示用户缺失字段
-                    _expected_filter_cols = {"city_name", "county_name", "town_name", "device_name",
-                                             "alarm_level", "confidence_level", "order_status", "algorithm_name"}
+                    _expected_filter_cols = {
+                        "city_name", "county_name", "town_name", "device_name", "device_code",
+                        "alarm_level", "confidence_level", "order_status", "algorithm_name",
+                        "algorithm_code", "importance_level", "warning_source_name",
+                        "alarm_body", "tenant_name", "channel_name",
+                    }
                     _missing = _expected_filter_cols - table_columns
                     if _missing:
                         st.warning(f"向量库缺少字段 {_missing}，相关过滤条件已自动跳过。请重新运行 embed 脚本更新向量库。")

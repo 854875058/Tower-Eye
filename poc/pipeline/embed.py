@@ -277,7 +277,10 @@ def main() -> None:
                e.address, e.device_name, e.confidence_level,
                e.province_name, e.city_name, e.county_name,
                e.town_name, e.device_code, e.algorithm_name,
-               e.order_status, e.video_path, e.img_src_path, e.img_icon_path
+               e.order_status, e.video_path, e.img_src_path, e.img_icon_path,
+               e.algorithm_code, e.channel_name, e.tenant_name,
+               e.alarm_body, e.importance_level, e.warning_order_id,
+               e.extra_json
         FROM assets a
         LEFT JOIN events e ON a.asset_id = e.asset_id
     """).fetchall():
@@ -313,6 +316,15 @@ def main() -> None:
 
         matched_count += 1
 
+        # 从 extra_json 提取不在直接列中的字段
+        _extra = {}
+        if asset_info.get("extra_json"):
+            try:
+                import json as _json
+                _extra = _json.loads(asset_info["extra_json"])
+            except Exception:
+                pass
+
         lance_data.append({
             "asset_id": asset_info["asset_id"],
             "file_path": str(path),
@@ -334,7 +346,13 @@ def main() -> None:
             "town_name": asset_info.get("town_name") or "",
             "device_code": asset_info.get("device_code") or "",
             "algorithm_name": asset_info.get("algorithm_name") or "",
+            "algorithm_code": asset_info.get("algorithm_code") or "",
             "order_status": asset_info.get("order_status") or "",
+            "importance_level": asset_info.get("importance_level") or "",
+            "alarm_body": asset_info.get("alarm_body") or "",
+            "tenant_name": asset_info.get("tenant_name") or "",
+            "channel_name": asset_info.get("channel_name") or "",
+            "warning_source_name": _extra.get("warning_source_name") or "",
             "video_path": asset_info.get("video_path") or "",
             "img_src_path": asset_info.get("img_src_path") or "",
             "img_icon_path": asset_info.get("img_icon_path") or "",
