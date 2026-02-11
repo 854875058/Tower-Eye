@@ -1205,23 +1205,18 @@ def render_multimodal_search():
     if not lancedb_dir.exists() or not (lancedb_dir / "embeddings.lance").exists():
         st.error("⚠️ 向量数据库未初始化")
         st.markdown("""
-        **请先运行向量化脚本生成 LanceDB 数据：**
+        **请在服务器上运行重新入库脚本：**
 
         ```bash
-        python -m poc.pipeline.embed --config poc/config/poc.yaml
+        bash 重新入库.sh
         ```
 
-        或者使用快速入库脚本：
-        ```bash
-        ./重新入库.sh
-        ```
+        该脚本会自动完成：
+        1. 创建数据库结构并导入告警数据
+        2. 调用 **Qwen3-VL** 对所有图片生成向量嵌入
+        3. 写入 LanceDB 向量库并创建索引
 
-        **说明：** 向量化过程会：
-        1. 加载 CLIP 模型（首次运行会下载模型）
-        2. 对所有图片生成向量嵌入
-        3. 创建 LanceDB 向量索引
-
-        完成后即可使用多模态检索功能。
+        完成后刷新页面即可使用多模态检索。
         """)
         return
 
