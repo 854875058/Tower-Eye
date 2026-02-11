@@ -351,24 +351,30 @@ def main() -> None:
 
     # 如果表已存在，删除重建（全量更新模式）
     table_name = "embeddings"
-    if table_name in db.table_names():
+    try:
+        existing_tables = db.list_tables()
+    except AttributeError:
+        existing_tables = db.table_names()
+    if table_name in existing_tables:
         db.drop_table(table_name)
 
     # 创建表并写入数据
     table = db.create_table(table_name, data=lance_data)
 
     # 创建向量索引（提升查询性能）
-    # 注意：数据量太少时不创建索引，或使用更小的分区数
-    if len(lance_data) >= 1000:
-        print("创建向量索引（256分区）...")
-        table.create_index(metric="cosine", num_partitions=256, num_sub_vectors=96)
-    elif len(lance_data) >= 256:
-        # 数据量较少时使用更小的分区数
-        num_partitions = max(len(lance_data) // 4, 16)
-        print(f"创建向量索引（{num_partitions}分区，数据量较少）...")
-        table.create_index(metric="cosine", num_partitions=num_partitions, num_sub_vectors=min(96, num_partitions))
+    # num_sub_vectors 必须能整除向量维度（如 4096 → 可用 64/128/256）
+    # num_partitions 不能超过数据行数
+    n = len(lance_data)
+    if n >= 1000:
+        np_ = min(256, n)
+        print(f"创建向量索引（{np_}分区）...")
+        table.create_index(metric="cosine", num_partitions=np_, num_sub_vectors=64)
+    elif n >= 256:
+        np_ = max(n // 4, 16)
+        print(f"创建向量索引（{np_}分区，数据量较少）...")
+        table.create_index(metric="cosine", num_partitions=np_, num_sub_vectors=64)
     else:
-        print(f"数据量较少（{len(lance_data)}条），跳过索引创建（建议至少256条）")
+        print(f"数据量较少（{n}条），跳过索引创建（建议至少256条）")
 
     print(f"✓ 完成！共处理 {len(lance_data)} 条记录")
     print(f"  - 模型: {model_name}")
