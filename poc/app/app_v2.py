@@ -1108,6 +1108,30 @@ def render_intelligent_qa():
 
         # 将结果存入 session_state，使其在 rerun 后仍可访问
         st.session_state.last_qa_result = result
+
+        # 保存查询追踪记录
+        try:
+            _tm = get_trace_manager()
+            if _tm:
+                from poc.qa.trace import QueryTrace
+                _trace = QueryTrace(question=question)
+                _trace.intent = result.get("intent")
+                _trace.sql = result.get("sql")
+                _trace.sql_params = result.get("sql_params")
+                _trace.status = result.get("status", "error")
+                _trace.error_message = result.get("error")
+                answer = result.get("answer")
+                if isinstance(answer, dict):
+                    _trace.result_count = len(answer.get("value", [])) if isinstance(answer.get("value"), list) else 1
+                # 从 execution_history 计算总耗时
+                _hist = result.get("execution_history", [])
+                if _hist:
+                    step = _trace.add_step("agent_query")
+                    step.finish("success" if result.get("status") == "success" else "error")
+                _trace.finish(status=_trace.status)
+                _tm.save_trace(_trace)
+        except Exception:
+            pass
         # 递增 SQL 编辑器版本号，强制 Streamlit 创建全新 widget（避免旧值缓存）
         st.session_state.sql_editor_version = st.session_state.get("sql_editor_version", 0) + 1
 
