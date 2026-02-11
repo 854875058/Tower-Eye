@@ -9,8 +9,9 @@
 
 import json
 import sys
+import requests
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 from datetime import datetime, time
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -203,6 +204,31 @@ def init_systems(config: Dict):
 
 def load_config() -> Dict:
     return load_yaml("poc/config/poc.yaml")
+
+
+@st.cache_data(ttl=3600)
+def geocode_address(address: str, api_key: str, geocode_url: str) -> Optional[Tuple[float, float, str]]:
+    """调用高德地理编码 API，将地址转为经纬度。
+
+    Returns:
+        (lat, lon, formatted_address) 或 None（失败时）
+    """
+    try:
+        resp = requests.get(geocode_url, params={
+            "key": api_key,
+            "address": address,
+            "output": "JSON",
+        }, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("status") != "1" or not data.get("geocodes"):
+            return None
+        geo = data["geocodes"][0]
+        location = geo["location"]  # "经度,纬度"
+        lon_str, lat_str = location.split(",")
+        return float(lat_str), float(lon_str), geo.get("formatted_address", address)
+    except Exception:
+        return None
 
 
 @st.cache_data(ttl=600)
@@ -1309,11 +1335,42 @@ def render_multimodal_search():
 
         # 第五行：地理位置
         st.markdown("**地理位置过滤**")
+
+        # 地址搜索行
+        addr_col, btn_col = st.columns([4, 1])
+        with addr_col:
+            geo_address = st.text_input("地址搜索（输入地名自动解析经纬度）", value="", placeholder="例如：天安门、深圳市南山区")
+        with btn_col:
+            st.markdown("<br>", unsafe_allow_html=True)  # 对齐按钮
+            geo_search_clicked = st.button("🔍 解析地址")
+
+        # 处理地址解析
+        if geo_search_clicked and geo_address:
+            cfg = load_config()
+            gaode_cfg = cfg.get("gaode", {})
+            api_key = gaode_cfg.get("api_key", "")
+            geocode_url = gaode_cfg.get("geocode_url", "https://restapi.amap.com/v3/geocode/geo")
+            if not api_key:
+                st.error("未配置高德地图 API Key，请在 poc/config/poc.yaml 中配置 gaode.api_key")
+            else:
+                result = geocode_address(geo_address, api_key, geocode_url)
+                if result:
+                    st.session_state["geo_lat"] = str(result[0])
+                    st.session_state["geo_lon"] = str(result[1])
+                    st.session_state["geo_formatted_addr"] = result[2]
+                else:
+                    st.warning(f"无法解析地址「{geo_address}」，请检查地名是否正确")
+
+        # 显示解析结果
+        if st.session_state.get("geo_formatted_addr"):
+            st.success(f"📍 解析结果：{st.session_state['geo_formatted_addr']}")
+
+        # 经纬度 + 半径输入（支持手动输入或自动填充）
         gc1, gc2, gc3 = st.columns(3)
         with gc1:
-            lat = st.text_input("纬度(lat)", value="")
+            lat = st.text_input("纬度(lat)", value=st.session_state.get("geo_lat", ""))
         with gc2:
-            lon = st.text_input("经度(lon)", value="")
+            lon = st.text_input("经度(lon)", value=st.session_state.get("geo_lon", ""))
         with gc3:
             radius_km = st.number_input("半径(公里)", min_value=1.0, max_value=50.0, value=5.0)
 

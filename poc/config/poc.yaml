@@ -89,3 +89,8 @@ train:
   yolo_model: "yolov8x-worldv2.pt"  # 默认使用 world v2 模型
   epochs: 10
   imgsz: 640
+
+# 高德地图配置
+gaode:
+  api_key: "5a4ded47a2c36b9158075d2518428785"
+  geocode_url: "https://restapi.amap.com/v3/geocode/geo"
