@@ -1186,17 +1186,16 @@ def _render_followup_suggestions(result, answer_data, raw_columns):
 
 
 def render_multimodal_search():
-    """渲染多模态检索页面"""
-    st.header("🔍 多模态检索")
+    """渲染多模态检索页面 — 图文视频统一入口"""
+    st.header("🔍 多模态检索 · 图文视频互搜")
 
     st.markdown("""
-    基于 **Qwen3-VL + LanceDB** 的向量检索，支持：
-    - 🖼️ 以图搜图（图像相似度搜索）
-    - 📝 文本语义搜索
-    - 🔍 图搜文（上传图片查询关联数据）
+    基于 **Qwen3-VL + LanceDB** 的向量检索，支持图片、文本、视频统一入口互搜：
+    - 📝 输入文本 → 语义搜索相关图片与视频
+    - 🖼️ 上传图片 → 以图搜图、搜视频
+    - 📹 上传视频 → 自动抽帧，搜索相似图片与视频
     - 🎯 多条件过滤（时间、地点、事件类型）
     - 🔄 Reranker 二阶段精排（提升准确率）
-    - ⚡ 向量与元数据一体化存储，查询更高效
     """)
 
     # 检查 LanceDB 是否已初始化
@@ -1229,44 +1228,60 @@ def render_multimodal_search():
     config = load_config()
     db_path = resolve_path(config.get("paths", {}).get("db_path", "poc/data/metadata.db"))
 
-    # 检索模式选择
-    search_mode = st.radio(
-        "检索模式",
-        ["📝 文本检索", "🖼️ 以图搜图", "🔍 图搜文（查询关联数据）"],
-        horizontal=True
-    )
-
+    # ---- 统一输入区：文本 + 图片/视频 ----
     query_text = None
-    query_image = None
+    query_image = None  # 最终用于编码的图像（PIL 或 UploadedFile）
+    _uploaded_video_frame = None  # 视频抽帧结果
 
-    if search_mode == "📝 文本检索":
-        col1, col2, col3 = st.columns([2, 1, 1])
-        with col1:
-            query_text = st.text_input("检索文本", value="车辆闯入监控告警")
-        with col2:
-            top_k = st.number_input("返回数量", min_value=1, max_value=50, value=10)
-        with col3:
-            enable_hybrid = st.checkbox("混合检索", value=True, help="启用向量+关键词混合检索")
+    input_col1, input_col2 = st.columns([3, 2])
+    with input_col1:
+        query_text = st.text_input("🔤 文本检索", value="", placeholder="输入关键词，如：车辆闯入监控告警")
+        uploaded_file = st.file_uploader(
+            "📎 上传图片或视频",
+            type=["jpg", "jpeg", "png", "bmp", "mp4"],
+            help="支持图片（JPG/PNG/BMP）和视频（MP4）。上传视频会自动抽取关键帧用于检索。"
+        )
+        if uploaded_file is not None:
+            if uploaded_file.type and uploaded_file.type.startswith("video"):
+                # 视频：抽取中间帧
+                import cv2, tempfile, numpy as _np
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as _tmp:
+                    _tmp.write(uploaded_file.read())
+                    _tmp_path = _tmp.name
+                try:
+                    cap = cv2.VideoCapture(_tmp_path)
+                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames // 2)
+                    ret, frame = cap.read()
+                    cap.release()
+                    if ret:
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        st.image(frame_rgb, caption=f"📹 视频关键帧（第 {total_frames//2}/{total_frames} 帧）", use_container_width=True)
+                        # 保存帧为临时图片供后续编码
+                        _frame_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+                        cv2.imwrite(_frame_tmp.name, frame)
+                        _frame_tmp.close()
+                        _uploaded_video_frame = _frame_tmp.name
+                    else:
+                        st.warning("视频抽帧失败，请检查视频文件")
+                finally:
+                    Path(_tmp_path).unlink(missing_ok=True)
+            else:
+                # 图片
+                st.image(uploaded_file, caption="🖼️ 上传的图片", use_container_width=True)
+                query_image = uploaded_file
 
-        if enable_hybrid:
+    with input_col2:
+        top_k = st.number_input("返回数量", min_value=1, max_value=50, value=10)
+        enable_hybrid = st.checkbox("混合检索", value=True, help="文本检索时启用向量+关键词混合")
+        vector_weight = 0.7
+        keyword_weight = 0.3
+        if enable_hybrid and query_text:
             vector_weight = st.slider("向量权重 / 关键词权重", 0.0, 1.0, 0.7, 0.1,
                                       help="向左拖动增加关键词权重，向右拖动增加向量权重")
             keyword_weight = round(1.0 - vector_weight, 1)
-            st.caption(f"向量权重: {vector_weight}　|　关键词权重: {keyword_weight}")
-    else:
-        # 以图搜图或图搜文
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            uploaded_file = st.file_uploader(
-                "上传图片",
-                type=["jpg", "jpeg", "png", "bmp"],
-                help="支持 JPG, PNG, BMP 格式"
-            )
-            if uploaded_file is not None:
-                st.image(uploaded_file, caption="上传的图片", use_container_width=True)
-                query_image = uploaded_file
-        with col2:
-            top_k = st.number_input("返回数量", min_value=1, max_value=50, value=10)
+            st.caption(f"向量: {vector_weight}　|　关键词: {keyword_weight}")
+        show_related_data = st.checkbox("显示关联数据", value=False, help="展示每条结果的完整资产/事件/检测/标注信息")
 
     # 过滤条件
     with st.expander("🎛️ 高级过滤", expanded=False):
@@ -1374,18 +1389,11 @@ def render_multimodal_search():
         with gc3:
             radius_km = st.number_input("半径(公里)", min_value=1.0, max_value=50.0, value=5.0)
 
-    # 检查是否可以执行检索
-    can_search = False
-    if search_mode == "📝 文本检索" and query_text:
-        can_search = True
-    elif search_mode in ["🖼️ 以图搜图", "🔍 图搜文（查询关联数据）"] and query_image:
-        can_search = True
+    # 检查是否可以执行检索（文本、图片、视频帧任一即可）
+    can_search = bool(query_text) or bool(query_image) or bool(_uploaded_video_frame)
 
     if not can_search:
-        if search_mode == "📝 文本检索":
-            st.info("请输入检索文本")
-        else:
-            st.info("请上传图片")
+        st.info("请输入检索文本、上传图片或视频")
 
     if st.button("🔍 开始检索", type="primary", use_container_width=True, disabled=not can_search):
         start_time_str = None
@@ -1431,8 +1439,9 @@ def render_multimodal_search():
                 table_columns = set(table.schema.names)
 
                 # 根据检索模式编码查询
-                if search_mode == "📝 文本检索":
-                    # 自动从查询文本提取结构化实体，合并到过滤条件
+                # ---- 根据输入类型编码查询向量 ----
+                if query_text:
+                    # 文本检索：自动提取结构化实体
                     from poc.qa.nl2sql import (
                         _parse_time_range, _parse_area_name, SCENE_KEYWORDS,
                     )
@@ -1444,7 +1453,6 @@ def render_multimodal_search():
                             auto_event = value
                             break
 
-                    # 只在用户未手动设置时自动填充
                     if auto_start and not filters.get("start_time"):
                         filters["start_time"] = auto_start
                     if auto_end and not filters.get("end_time"):
@@ -1456,7 +1464,6 @@ def render_multimodal_search():
                     if auto_event and not filters.get("event_type"):
                         filters["event_type"] = auto_event
 
-                    # 显示自动识别的实体
                     auto_parts = []
                     if auto_event:
                         auto_parts.append(f"事件类型: {auto_event}")
@@ -1470,18 +1477,28 @@ def render_multimodal_search():
                         st.info(f"🧠 智能识别实体: {' | '.join(auto_parts)}")
 
                     query_vec = manager.encode_text(query_text).astype("float32")
-                else:
-                    # 以图搜图或图搜文：保存上传的图片到临时文件
+
+                elif _uploaded_video_frame:
+                    # 视频帧检索
+                    try:
+                        query_vec = manager.encode_image(_uploaded_video_frame).astype("float32")
+                    finally:
+                        Path(_uploaded_video_frame).unlink(missing_ok=True)
+
+                elif query_image:
+                    # 图片检索
                     import tempfile
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
                         tmp_file.write(query_image.read())
                         tmp_path = Path(tmp_file.name)
-
                     try:
                         query_vec = manager.encode_image(tmp_path).astype("float32")
                     finally:
-                        # 清理临时文件
                         tmp_path.unlink(missing_ok=True)
+
+                else:
+                    st.warning("请提供检索输入")
+                    return
 
                 # 构建 LanceDB 过滤条件
                 filter_str = build_lance_filter(
@@ -1515,7 +1532,7 @@ def render_multimodal_search():
                 reranker_enabled = search_cfg.get("reranker_enabled", False)
                 fetch_k = top_k * 3 if reranker_enabled and query_text else top_k
 
-                if search_mode == "📝 文本检索" and enable_hybrid and query_text:
+                if query_text and enable_hybrid:
                     # 混合检索
                     results_df = hybrid_search(
                         table,
@@ -1577,209 +1594,117 @@ def render_multimodal_search():
                 st.success(f"✅ 找到 {len(results)} 条结果")
 
                 # 显示结果
-                if search_mode == "🔍 图搜文（查询关联数据）":
-                    # 图搜文模式：显示详细的关联数据
-                    for idx, item in enumerate(results):
-                        with st.container():
-                            st.markdown(f"### 结果 {idx + 1} - 相似度: {item['score']:.4f}")
+                for idx, item in enumerate(results):
+                    with st.container():
+                        st.markdown(f"### 结果 {idx + 1} — 相似度: {item['score']:.4f}")
 
-                            # 获取完整的关联数据
-                            asset_id = item.get("asset_id")
-                            conn = connect_db(db_path)
+                        col1, col2 = st.columns([1, 2])
 
-                            # 查询所有关联信息
-                            asset_info = conn.execute(
-                                """
-                                SELECT * FROM assets WHERE asset_id = ?
-                                """,
-                                (asset_id,)
-                            ).fetchone()
+                        with col1:
+                            st.write(f"**事件类型**: {item.get('event_type', 'N/A')}")
+                            if item.get('alarm_level'):
+                                st.write(f"**告警等级**: {item['alarm_level']}")
+                            st.write(f"**时间**: {item.get('alarm_time', 'N/A')}")
 
-                            events = conn.execute(
-                                """
-                                SELECT * FROM events WHERE asset_id = ?
-                                """,
-                                (asset_id,)
-                            ).fetchall()
+                            geo_parts = [
+                                item.get('province_name', ''),
+                                item.get('city_name', ''),
+                                item.get('county_name', ''),
+                                item.get('town_name', ''),
+                            ]
+                            geo_str = ' / '.join(p for p in geo_parts if p)
+                            if geo_str:
+                                st.write(f"**地区**: {geo_str}")
+                            st.write(f"**地址**: {item.get('address', 'N/A')}")
 
-                            detections = conn.execute(
-                                """
-                                SELECT * FROM detections WHERE asset_id = ?
-                                """,
-                                (asset_id,)
-                            ).fetchall()
+                            device_name = item.get('device_name', '')
+                            device_code = item.get('device_code', '')
+                            if device_name or device_code:
+                                device_str = device_name or ''
+                                if device_code:
+                                    device_str += f" ({device_code})"
+                                st.write(f"**设备**: {device_str.strip()}")
 
-                            annotations = conn.execute(
-                                """
-                                SELECT * FROM annotations WHERE asset_id = ?
-                                """,
-                                (asset_id,)
-                            ).fetchall()
+                            if item.get('algorithm_name'):
+                                st.write(f"**算法**: {item['algorithm_name']}")
+                            if item.get('order_status'):
+                                st.write(f"**工单状态**: {item['order_status']}")
+                            if item.get('confidence_level'):
+                                st.write(f"**置信度**: {item['confidence_level']:.2f}")
 
-                            conn.close()
+                            if item.get('summary'):
+                                st.markdown("**📝 图像理解：**")
+                                st.write(item['summary'])
 
-                            col1, col2 = st.columns([1, 1])
+                        with col2:
+                            # ---- 媒体展示：图片 / 视频 tab ----
+                            video_url = item.get("video_url", "")
+                            img_urls_src = parse_media_urls(item.get("file_img_url_src", ""))
+                            img_urls_icon = parse_media_urls(item.get("file_img_url_icon", ""))
+                            img_urls = img_urls_src if img_urls_src else img_urls_icon
 
-                            with col1:
-                                st.subheader("📋 资产信息")
-                                if asset_info:
-                                    asset_dict = dict(asset_info)
-                                    st.json({
-                                        "资产ID": asset_dict.get("asset_id"),
-                                        "文件名": asset_dict.get("file_name"),
-                                        "文件路径": asset_dict.get("file_path"),
-                                        "拍摄时间": asset_dict.get("captured_at"),
-                                        "纬度": asset_dict.get("lat"),
-                                        "经度": asset_dict.get("lon"),
-                                        "地址": asset_dict.get("location_name"),
-                                    })
+                            if not img_urls:
+                                file_path_val = item.get("file_path")
+                                file_name_val = item.get("file_name")
+                                if file_name_val:
+                                    img_urls = [file_name_val]
+                                elif file_path_val:
+                                    img_urls = [file_path_val]
 
-                                st.subheader("🚨 告警事件")
-                                if events:
-                                    events_data = []
-                                    for event in events:
-                                        event_dict = dict(event)
-                                        events_data.append({
-                                            "事件类型": event_dict.get("event_type"),
-                                            "告警时间": event_dict.get("alarm_time"),
-                                            "置信度": event_dict.get("confidence"),
-                                            "描述": event_dict.get("description"),
-                                        })
-                                    st.dataframe(pd.DataFrame(events_data), use_container_width=True)
+                            tab_img, tab_vid = st.tabs(["📷 图片", "📹 视频"])
+                            with tab_img:
+                                if img_urls:
+                                    display_media("", img_urls)
                                 else:
-                                    st.info("无告警事件")
-
-                                st.subheader("🔍 检测结果")
-                                if detections:
-                                    detections_data = []
-                                    for det in detections:
-                                        det_dict = dict(det)
-                                        detections_data.append({
-                                            "类别": det_dict.get("class_name"),
-                                            "置信度": det_dict.get("confidence"),
-                                            "边界框": det_dict.get("bbox"),
-                                        })
-                                    st.dataframe(pd.DataFrame(detections_data), use_container_width=True)
+                                    st.info("无关联图片")
+                            with tab_vid:
+                                if video_url and not pd.isna(video_url):
+                                    display_media(video_url, [])
                                 else:
-                                    st.info("无检测结果")
+                                    st.info("无关联视频")
 
-                                st.subheader("📝 标注信息")
-                                if annotations:
-                                    annotations_data = []
-                                    for ann in annotations:
-                                        ann_dict = dict(ann)
-                                        annotations_data.append({
-                                            "标注类型": ann_dict.get("annotation_type"),
-                                            "标注者": ann_dict.get("annotator"),
-                                            "标注时间": ann_dict.get("annotated_at"),
-                                            "内容": ann_dict.get("content"),
-                                        })
-                                    st.dataframe(pd.DataFrame(annotations_data), use_container_width=True)
-                                else:
-                                    st.info("无标注信息")
+                        # ---- 可选：关联数据展开 ----
+                        if show_related_data:
+                            with st.expander(f"📋 关联数据 — 结果 {idx + 1}", expanded=False):
+                                asset_id = item.get("asset_id")
+                                conn = connect_db(db_path)
+                                asset_info = conn.execute("SELECT * FROM assets WHERE asset_id = ?", (asset_id,)).fetchone()
+                                events = conn.execute("SELECT * FROM events WHERE asset_id = ?", (asset_id,)).fetchall()
+                                detections = conn.execute("SELECT * FROM detections WHERE asset_id = ?", (asset_id,)).fetchall()
+                                annotations = conn.execute("SELECT * FROM annotations WHERE asset_id = ?", (asset_id,)).fetchall()
+                                conn.close()
 
-                            with col2:
-                                st.subheader("🖼️ 媒体文件")
-                                # 显示媒体文件
-                                video_url = item.get("video_url", "")
-                                img_urls_src = parse_media_urls(item.get("file_img_url_src", ""))
-                                img_urls_icon = parse_media_urls(item.get("file_img_url_icon", ""))
+                                dc1, dc2 = st.columns(2)
+                                with dc1:
+                                    if asset_info:
+                                        ad = dict(asset_info)
+                                        st.json({"资产ID": ad.get("asset_id"), "文件名": ad.get("file_name"),
+                                                 "拍摄时间": ad.get("captured_at"), "纬度": ad.get("lat"),
+                                                 "经度": ad.get("lon"), "地址": ad.get("location_name")})
+                                    if events:
+                                        st.markdown("**🚨 告警事件**")
+                                        st.dataframe(pd.DataFrame([
+                                            {"事件类型": dict(e).get("event_type"), "告警时间": dict(e).get("alarm_time"),
+                                             "置信度": dict(e).get("confidence"), "描述": dict(e).get("description")}
+                                            for e in events
+                                        ]), use_container_width=True)
+                                with dc2:
+                                    if detections:
+                                        st.markdown("**🔍 检测结果**")
+                                        st.dataframe(pd.DataFrame([
+                                            {"类别": dict(d).get("class_name"), "置信度": dict(d).get("confidence"),
+                                             "边界框": dict(d).get("bbox")}
+                                            for d in detections
+                                        ]), use_container_width=True)
+                                    if annotations:
+                                        st.markdown("**📝 标注信息**")
+                                        st.dataframe(pd.DataFrame([
+                                            {"标注类型": dict(a).get("annotation_type"), "标注者": dict(a).get("annotator"),
+                                             "标注时间": dict(a).get("annotated_at"), "内容": dict(a).get("content")}
+                                            for a in annotations
+                                        ]), use_container_width=True)
 
-                                # 优先显示原图，如果没有则显示框图
-                                img_urls = img_urls_src if img_urls_src else img_urls_icon
-
-                                # 如果 extra_json 中没有媒体URL，使用 file_path 和 file_name
-                                if not video_url and not img_urls:
-                                    file_path = item.get("file_path")
-                                    file_name = item.get("file_name")
-
-                                    if file_name:
-                                        img_urls = [file_name]
-                                    elif file_path:
-                                        img_urls = [file_path]
-
-                                if video_url or img_urls:
-                                    display_media(video_url, img_urls)
-                                else:
-                                    st.info("无媒体文件")
-
-                            st.markdown("---")
-                else:
-                    # 文本检索或以图搜图模式：显示简洁结果
-                    for idx, item in enumerate(results):
-                        with st.container():
-                            st.markdown(f"### 结果 {idx + 1}")
-
-                            col1, col2 = st.columns([1, 2])
-
-                            with col1:
-                                st.markdown(f"**相似度**: {item['score']:.4f}")
-                                st.write(f"**事件类型**: {item.get('event_type', 'N/A')}")
-                                if item.get('alarm_level'):
-                                    st.write(f"**告警等级**: {item['alarm_level']}")
-                                st.write(f"**时间**: {item.get('alarm_time', 'N/A')}")
-
-                                # 完整地理信息
-                                geo_parts = [
-                                    item.get('province_name', ''),
-                                    item.get('city_name', ''),
-                                    item.get('county_name', ''),
-                                    item.get('town_name', ''),
-                                ]
-                                geo_str = ' / '.join(p for p in geo_parts if p)
-                                if geo_str:
-                                    st.write(f"**地区**: {geo_str}")
-                                st.write(f"**地址**: {item.get('address', 'N/A')}")
-
-                                # 设备信息
-                                device_name = item.get('device_name', '')
-                                device_code = item.get('device_code', '')
-                                if device_name or device_code:
-                                    device_str = device_name or ''
-                                    if device_code:
-                                        device_str += f" ({device_code})"
-                                    st.write(f"**设备**: {device_str.strip()}")
-
-                                # 算法 & 工单状态
-                                if item.get('algorithm_name'):
-                                    st.write(f"**算法**: {item['algorithm_name']}")
-                                if item.get('order_status'):
-                                    st.write(f"**工单状态**: {item['order_status']}")
-                                if item.get('confidence_level'):
-                                    st.write(f"**置信度**: {item['confidence_level']:.2f}")
-
-                                # 显示图像理解（默认展开）
-                                if item.get('summary'):
-                                    st.markdown("**📝 图像理解：**")
-                                    st.write(item['summary'])
-
-                            with col2:
-                                # 显示媒体文件
-                                video_url = item.get("video_url", "")
-                                img_urls_src = parse_media_urls(item.get("file_img_url_src", ""))
-                                img_urls_icon = parse_media_urls(item.get("file_img_url_icon", ""))
-
-                                # 优先显示原图，如果没有则显示框图
-                                img_urls = img_urls_src if img_urls_src else img_urls_icon
-
-                                # 如果 extra_json 中没有媒体URL，使用 file_path 和 file_name
-                                if not video_url and not img_urls:
-                                    file_path = item.get("file_path")
-                                    file_name = item.get("file_name")
-
-                                    if file_name:
-                                        # 使用 file_name 构建路径
-                                        img_urls = [file_name]
-                                    elif file_path:
-                                        # 使用 file_path
-                                        img_urls = [file_path]
-
-                                if video_url or img_urls:
-                                    display_media(video_url, img_urls)
-                                else:
-                                    st.info("无媒体文件")
-
-                            st.markdown("---")
+                        st.markdown("---")
 
             except Exception as e:
                 st.error(f"检索失败: {e}")
