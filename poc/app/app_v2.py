@@ -1772,48 +1772,42 @@ def render_multimodal_search():
                                     "SELECT * FROM events WHERE asset_id = ?", (asset_id,)
                                 ).fetchone()
 
-                                # 尝试获取 warning_order_id 以查找同一告警的所有数据
-                                warning_order_id = None
+                                # 提取 extra_json
                                 extra_data = {}
+                                video_key = ""
                                 if cur_event:
                                     ed = dict(cur_event)
-                                    # 优先从直接字段获取
-                                    warning_order_id = ed.get("warning_order_id")
-                                    # 回退到 extra_json
-                                    if not warning_order_id and ed.get("extra_json"):
+                                    if ed.get("extra_json"):
                                         try:
                                             extra_data = json.loads(ed["extra_json"])
-                                            warning_order_id = extra_data.get("warning_order_id")
                                         except Exception:
                                             pass
+                                    # 用 video_url 的文件名作为关联 key
+                                    # （warning_order_id 被 Excel 截断为科学计数法，不可靠）
+                                    raw_video = extra_data.get("video_url", "")
+                                    if raw_video:
+                                        video_key = Path(raw_video.split(",")[0].strip()).stem
 
-                                # 查找同一告警工单下的所有事件
+                                # 查找同一告警（同一视频）下的所有事件
                                 sibling_events = []
-                                if warning_order_id:
-                                    # 先尝试直接字段
+                                if video_key:
                                     try:
                                         sibling_events = conn.execute(
                                             "SELECT e.*, a.file_path, a.file_name "
                                             "FROM events e LEFT JOIN assets a ON e.asset_id = a.asset_id "
-                                            "WHERE e.warning_order_id = ?",
-                                            (warning_order_id,)
+                                            "WHERE e.extra_json LIKE ?",
+                                            (f'%{video_key}%',)
                                         ).fetchall()
                                     except Exception:
-                                        # 字段不存在时回退到 extra_json LIKE 查询
-                                        sibling_events = conn.execute(
-                                            "SELECT e.*, a.file_path, a.file_name "
-                                            "FROM events e LEFT JOIN assets a ON e.asset_id = a.asset_id "
-                                            "WHERE e.extra_json LIKE ?",
-                                            (f'%"warning_order_id": "{warning_order_id}"%',)
-                                        ).fetchall()
+                                        pass
 
                                 conn.close()
 
-                                if warning_order_id:
-                                    st.caption(f"工单号: {warning_order_id}  |  同一告警共 {len(sibling_events)} 条记录")
+                                if video_key:
+                                    st.caption(f"同一告警共 {len(sibling_events)} 条记录")
 
                                 # ---- 同一告警的所有图片 ----
-                                if sibling_events:
+                                if len(sibling_events) > 1:
                                     sibling_imgs = []
                                     for se in sibling_events:
                                         sd = dict(se)
@@ -1823,9 +1817,10 @@ def render_multimodal_search():
 
                                     if len(sibling_imgs) > 1:
                                         st.markdown("**📸 同一告警的所有图片**")
-                                        img_cols = st.columns(min(len(sibling_imgs), 4))
+                                        n_cols = min(len(sibling_imgs), 4)
+                                        img_cols = st.columns(n_cols)
                                         for si, simg in enumerate(sibling_imgs[:8]):
-                                            with img_cols[si % min(len(sibling_imgs), 4)]:
+                                            with img_cols[si % n_cols]:
                                                 for sp in [Path(simg),
                                                            Path("warning_img") / Path(simg).name,
                                                            ROOT / "warning_img" / Path(simg).name]:
