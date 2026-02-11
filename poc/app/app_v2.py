@@ -232,22 +232,72 @@ def geocode_address(address: str, api_key: str, geocode_url: str) -> Optional[Tu
 
 
 @st.cache_data(ttl=600)
-def get_area_options(db_path_str: str) -> Dict[str, List[str]]:
-    """从数据库查询省/市/区/街道的 DISTINCT 值，用于下拉选择框"""
+@st.cache_data(ttl=300)
+def get_area_hierarchy(db_path_str: str) -> Dict:
+    """从数据库查询省→市→区→街道的层级关系，用于级联下拉选择框
+
+    Returns:
+        {
+            "cities": ["北京市", "厦门市", ...],
+            "county_by_city": {"北京市": ["朝阳区", "海淀区"], ...},
+            "town_by_county": {"海沧区": ["东孚街道", ...], ...},
+        }
+    """
     from poc.pipeline.utils import connect_db
     db_path = Path(db_path_str)
+    empty = {"cities": [], "county_by_city": {}, "town_by_county": {}}
     if not db_path.exists():
-        return {"city": [], "county": [], "town": []}
+        return empty
     conn = connect_db(db_path)
-    result = {}
-    for col in ["city_name", "county_name", "town_name"]:
+
+    # 检测字段是否为直接列（新库）还是需要从 extra_json 提取（旧库）
+    existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(events)").fetchall()}
+    use_json = "city_name" not in existing_cols
+
+    if use_json:
         rows = conn.execute(
-            f"SELECT DISTINCT {col} FROM events WHERE {col} IS NOT NULL AND {col} != '' ORDER BY {col}"
+            "SELECT DISTINCT "
+            "json_extract(extra_json, '$.city_name') AS city, "
+            "json_extract(extra_json, '$.county_name') AS county, "
+            "json_extract(extra_json, '$.town_name') AS town "
+            "FROM events "
+            "WHERE json_extract(extra_json, '$.city_name') IS NOT NULL"
         ).fetchall()
-        key = col.replace("_name", "")
-        result[key] = [r[0] for r in rows]
+    else:
+        rows = conn.execute(
+            "SELECT DISTINCT city_name AS city, county_name AS county, town_name AS town "
+            "FROM events WHERE city_name IS NOT NULL AND city_name != ''"
+        ).fetchall()
     conn.close()
-    return result
+
+    cities = set()
+    county_by_city: Dict[str, set] = {}
+    town_by_county: Dict[str, set] = {}
+
+    for r in rows:
+        city = r["city"] or ""
+        county = r["county"] or ""
+        town = r["town"] or ""
+        if city:
+            cities.add(city)
+            if county:
+                county_by_city.setdefault(city, set()).add(county)
+                if town:
+                    town_by_county.setdefault(county, set()).add(town)
+
+    return {
+        "cities": sorted(cities),
+        "county_by_city": {k: sorted(v) for k, v in county_by_city.items()},
+        "town_by_county": {k: sorted(v) for k, v in town_by_county.items()},
+    }
+
+
+def get_area_options(db_path_str: str) -> Dict[str, List[str]]:
+    """兼容旧调用：返回扁平的 city/county/town 列表"""
+    h = get_area_hierarchy(db_path_str)
+    all_counties = sorted({c for cs in h["county_by_city"].values() for c in cs})
+    all_towns = sorted({t for ts in h["town_by_county"].values() for t in ts})
+    return {"city": h["cities"], "county": all_counties, "town": all_towns}
 
 
 def db_stats(db_path: Path) -> Dict[str, int]:
@@ -723,24 +773,33 @@ def render_intelligent_qa():
                 key="qa_order_status"
             )
 
-        qa_area_opts = get_area_options(str(db_path))
+        qa_area_h = get_area_hierarchy(str(db_path))
         qa_fc4, qa_fc5, qa_fc6 = st.columns(3)
         with qa_fc4:
-            qa_city_options = [""] + qa_area_opts.get("city", [])
+            qa_city_options = [""] + qa_area_h["cities"]
             qa_filter_city = st.selectbox(
                 "城市", qa_city_options,
                 format_func=lambda x: "全部" if x == "" else x,
                 key="qa_city_select"
             )
         with qa_fc5:
-            qa_county_options = [""] + qa_area_opts.get("county", [])
+            if qa_filter_city:
+                qa_county_options = [""] + qa_area_h["county_by_city"].get(qa_filter_city, [])
+            else:
+                qa_county_options = [""] + sorted({c for cs in qa_area_h["county_by_city"].values() for c in cs})
             qa_filter_county = st.selectbox(
                 "区/县", qa_county_options,
                 format_func=lambda x: "全部" if x == "" else x,
                 key="qa_county_select"
             )
         with qa_fc6:
-            qa_town_options = [""] + qa_area_opts.get("town", [])
+            if qa_filter_county:
+                qa_town_options = [""] + qa_area_h["town_by_county"].get(qa_filter_county, [])
+            elif qa_filter_city:
+                qa_related_counties = qa_area_h["county_by_city"].get(qa_filter_city, [])
+                qa_town_options = [""] + sorted({t for c in qa_related_counties for t in qa_area_h["town_by_county"].get(c, [])})
+            else:
+                qa_town_options = [""] + sorted({t for ts in qa_area_h["town_by_county"].values() for t in ts})
             qa_filter_town = st.selectbox(
                 "街道/乡镇", qa_town_options,
                 format_func=lambda x: "全部" if x == "" else x,
@@ -1299,25 +1358,35 @@ def render_multimodal_search():
                 format_func=lambda x: {"": "全部", "1": "待处理", "2": "处理中", "4": "已完成", "6": "已关闭"}.get(x, x)
             )
 
-        # 第二行：城市 + 区县 + 街道（下拉选择，可搜索）
-        area_opts = get_area_options(str(db_path))
+        # 第二行：城市 + 区县 + 街道（级联下拉）
+        area_h = get_area_hierarchy(str(db_path))
         fc4, fc5, fc6 = st.columns(3)
         with fc4:
-            city_options = [""] + area_opts.get("city", [])
+            city_options = [""] + area_h["cities"]
             filter_city = st.selectbox(
                 "城市", city_options,
                 format_func=lambda x: "全部" if x == "" else x,
                 key="filter_city_select"
             )
         with fc5:
-            county_options = [""] + area_opts.get("county", [])
+            if filter_city:
+                county_options = [""] + area_h["county_by_city"].get(filter_city, [])
+            else:
+                county_options = [""] + sorted({c for cs in area_h["county_by_city"].values() for c in cs})
             filter_county = st.selectbox(
                 "区/县", county_options,
                 format_func=lambda x: "全部" if x == "" else x,
                 key="filter_county_select"
             )
         with fc6:
-            town_options = [""] + area_opts.get("town", [])
+            if filter_county:
+                town_options = [""] + area_h["town_by_county"].get(filter_county, [])
+            elif filter_city:
+                # 选了城市没选区县：显示该城市下所有街道
+                related_counties = area_h["county_by_city"].get(filter_city, [])
+                town_options = [""] + sorted({t for c in related_counties for t in area_h["town_by_county"].get(c, [])})
+            else:
+                town_options = [""] + sorted({t for ts in area_h["town_by_county"].values() for t in ts})
             filter_town = st.selectbox(
                 "街道/乡镇", town_options,
                 format_func=lambda x: "全部" if x == "" else x,
