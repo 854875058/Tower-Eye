@@ -346,38 +346,44 @@ def _inject_sql_filters(sql: str, filters: Dict) -> str:
 
 
 def display_media(video_url: str, img_urls: List[str]):
-    """显示视频和图片（修复问题2）"""
+    """显示视频和图片"""
     # 显示视频
     if video_url and not pd.isna(video_url):
-        # 尝试多个可能的路径
-        possible_paths = [
-            Path(video_url),
-            Path("warning_file") / Path(video_url).name,
-            Path("warning_file") / video_url,
-            ROOT / video_url,
-            ROOT / "warning_file" / Path(video_url).name
-        ]
+        # 清理 video_url：去除尾部逗号等脏字符
+        clean_url = video_url.split(",")[0].strip()
+        if clean_url:
+            # 提取纯文件名（去掉路径前缀）
+            video_filename = Path(clean_url).name
 
-        video_found = False
-        for video_path in possible_paths:
-            if video_path.exists():
-                try:
-                    # 读取视频文件并显示
-                    with open(video_path, 'rb') as video_file:
-                        video_bytes = video_file.read()
-                        st.video(video_bytes)
-                    video_found = True
-                    break
-                except Exception as e:
-                    st.warning(f"视频加载失败: {e}")
-                    continue
+            # 尝试多个可能的路径
+            possible_paths = [
+                Path(clean_url),
+                Path("warning_file") / video_filename,
+                ROOT / clean_url,
+                ROOT / "warning_file" / video_filename,
+            ]
 
-        if not video_found:
-            if video_url.startswith('http'):
-                try:
-                    st.video(video_url)
-                except Exception as e:
-                    st.caption(f"视频不可用")
+            video_found = False
+            for video_path in possible_paths:
+                if video_path.exists():
+                    try:
+                        with open(video_path, 'rb') as video_file:
+                            video_bytes = video_file.read()
+                            st.video(video_bytes)
+                        video_found = True
+                        break
+                    except Exception as e:
+                        st.warning(f"视频加载失败: {e}")
+                        continue
+
+            if not video_found:
+                if clean_url.startswith('http'):
+                    try:
+                        st.video(clean_url)
+                    except Exception as e:
+                        st.caption("视频不可用")
+                else:
+                    st.caption(f"视频文件未找到: {video_filename}")
 
     # 显示图片
     if img_urls:
@@ -1106,10 +1112,11 @@ def render_intelligent_qa():
                                 if _video_col_idx is not None:
                                     vid_val = df.iloc[row_idx, _video_col_idx]
                                     if vid_val and not pd.isna(vid_val):
-                                        vid_str = str(vid_val)
+                                        vid_str = str(vid_val).split(",")[0].strip()
+                                        vid_name = Path(vid_str).name
                                         for vp in [Path(vid_str),
-                                                   Path("warning_file") / Path(vid_str).name,
-                                                   ROOT / "warning_file" / Path(vid_str).name,
+                                                   Path("warning_file") / vid_name,
+                                                   ROOT / "warning_file" / vid_name,
                                                    ROOT / vid_str]:
                                             if vp.exists():
                                                 try:
@@ -1646,6 +1653,29 @@ def render_multimodal_search():
                                 elif file_path_val:
                                     img_urls = [file_path_val]
 
+                            # 如果 video_url 为空，尝试从 SQLite extra_json 中获取
+                            if not video_url or (isinstance(video_url, float) and pd.isna(video_url)):
+                                try:
+                                    asset_id = item.get("asset_id")
+                                    if asset_id:
+                                        _conn = connect_db(db_path)
+                                        _row = _conn.execute(
+                                            "SELECT extra_json FROM events WHERE asset_id = ?",
+                                            (asset_id,)
+                                        ).fetchone()
+                                        _conn.close()
+                                        if _row and _row["extra_json"]:
+                                            _extra = json.loads(_row["extra_json"])
+                                            raw_video = _extra.get("video_url", "")
+                                            if raw_video:
+                                                # 清理并转换为本地路径
+                                                first_url = raw_video.split(",")[0].strip()
+                                                if first_url:
+                                                    from pathlib import Path as _P
+                                                    video_url = f"warning_file/{_P(first_url).name}"
+                                except Exception:
+                                    pass
+
                             tab_img, tab_vid = st.tabs(["📷 图片", "📹 视频"])
                             with tab_img:
                                 if img_urls:
@@ -1653,7 +1683,7 @@ def render_multimodal_search():
                                 else:
                                     st.info("无关联图片")
                             with tab_vid:
-                                if video_url and not pd.isna(video_url):
+                                if video_url and not (isinstance(video_url, float) and pd.isna(video_url)):
                                     display_media(video_url, [])
                                 else:
                                     st.info("无关联视频")

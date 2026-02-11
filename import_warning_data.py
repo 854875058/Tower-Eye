@@ -68,10 +68,16 @@ def url_to_local_path(url: str, media_type: str = "image") -> str:
     图片: /12000000034/ThirdAlarm/pic/xxx.jpg -> warning_img/xxx.jpg
           https://slw-base-video.obs...xxx.jpg -> warning_img/xxx.jpg
     视频: /12000000034/ThirdAlarm/video/xxx.mp4 -> warning_file/xxx.mp4
+
+    注意: CSV 中 video_url 字段可能含尾部逗号（如 xxx.mp4,,,），需先取第一段
     """
     if not url or not url.strip():
         return ""
-    filename = Path(url.strip()).name
+    # 处理逗号分隔的多值字段：取第一个非空部分
+    first_url = url.split(",")[0].strip()
+    if not first_url:
+        return ""
+    filename = Path(first_url).name
     if not filename:
         return ""
     if media_type == "video":
