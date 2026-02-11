@@ -244,6 +244,7 @@ def main() -> None:
 
         # 批量处理图像
         embeddings = []
+        processed = 0
         for i in range(0, len(images), batch_size):
             batch_paths = images[i:i + batch_size]
 
@@ -254,10 +255,13 @@ def main() -> None:
                 except Exception as e:
                     print(f"  警告: 无法处理图片 {path}: {e}")
                     continue
+                processed += 1
+                if processed % 10 == 0:
+                    elapsed = time.time() - start_time
+                    speed = processed / elapsed if elapsed > 0 else 0
+                    print(f"  处理进度: {processed}/{len(images)}  ({speed:.1f} 张/秒)")
 
-            # 显示进度
-            if (i + batch_size) % 100 == 0 or (i + batch_size) >= len(images):
-                print(f"  处理进度: {min(i + batch_size, len(images))}/{len(images)}")
+        print(f"  处理进度: {processed}/{len(images)} (完成)")
 
         elapsed_time = time.time() - start_time
         print(f"向量生成完成，耗时: {elapsed_time:.2f} 秒")
