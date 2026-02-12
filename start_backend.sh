@@ -1,26 +1,23 @@
 #!/bin/bash
 
 echo "========================================"
-echo "启动多模态检索系统 - 后端服务"
+echo "多模态检索系统 - NiceGUI 应用"
 echo "========================================"
 echo ""
+echo "注意: 新架构已合并前后端为单一 NiceGUI 应用。"
+echo "请使用 start_all.sh 或 start_poc.sh 启动。"
+echo ""
 
-cd backend
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
-echo "[1/2] 检查 Python 环境..."
-if ! command -v python3 &> /dev/null; then
-    echo "错误: 未找到 Python3，请先安装 Python 3.8+"
-    exit 1
-fi
-
-python3 --version
+echo "检查 Python 环境..."
+python --version 2>/dev/null || python3 --version 2>/dev/null
 
 echo ""
-echo "[2/2] 启动 FastAPI 服务..."
-echo "服务地址: http://localhost:8000"
-echo "API 文档: http://localhost:8000/docs"
+echo "启动 NiceGUI 应用..."
+echo "服务地址: http://localhost:8080"
 echo ""
 echo "按 Ctrl+C 停止服务"
 echo ""
 
-python3 main.py
+python poc/app/app_ui.py

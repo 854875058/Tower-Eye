@@ -41,7 +41,8 @@ if command -v conda &> /dev/null; then
 fi
 
 echo "当前 Python: $(which python)"
-python -m streamlit run poc/app/app_v2.py >>"$LOG_FILE" 2>&1 &
+python poc/app/app_ui.py >>"$LOG_FILE" 2>&1 &
 PID=$!
 echo "$PID" >"$PID_FILE"
-echo "已启动多模态视联 POC，PID=$PID，日志文件: $LOG_FILE"
+echo "已启动多模态视联 POC (NiceGUI)，PID=$PID，日志文件: $LOG_FILE"
+echo "访问地址: http://localhost:8080"
