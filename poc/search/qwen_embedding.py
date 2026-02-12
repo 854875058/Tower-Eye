@@ -148,7 +148,7 @@ class Qwen3VLEmbedding:
 
     def encode_batch(self, texts: List[str] = None, images: List[Union[str, Path]] = None) -> np.ndarray:
         """
-        批量向量化
+        批量向量化 — 优先使用服务端 batch API，失败时逐条 fallback
 
         Args:
             texts: 文本列表
@@ -157,6 +157,13 @@ class Qwen3VLEmbedding:
         Returns:
             向量矩阵 (numpy array)
         """
+        # 尝试服务端 batch API（仅图片）
+        if images and not texts:
+            try:
+                return self._encode_batch_remote(images)
+            except Exception as e:
+                log.warning("batch API 不可用，fallback 到逐条请求: %s", e)
+
         embeddings = []
 
         if texts:
@@ -170,6 +177,32 @@ class Qwen3VLEmbedding:
                 embeddings.append(emb)
 
         return np.array(embeddings)
+
+    def _encode_batch_remote(self, images: List[Union[str, Path]]) -> np.ndarray:
+        """调用服务端 /v1/tower/embed_batch 批量接口"""
+        items = []
+        for img_path in images:
+            p = str(img_path)
+            if not os.path.exists(p):
+                raise FileNotFoundError(f"图像文件不存在: {p}")
+            items.append({"text": "", "image_path": os.path.abspath(p)})
+
+        response = post_with_retry(
+            f"{self.api_url}/v1/tower/embed_batch",
+            json={"items": items},
+            timeout=self.timeout * len(items),  # batch 超时按数量放大
+            max_retries=self.max_retries,
+            logger=log,
+        )
+        result = response.json()
+        if "embeddings" not in result:
+            raise ValueError(f"batch API 返回格式错误: {result}")
+
+        embeddings = np.array(result["embeddings"], dtype=np.float32)
+        # 逐行归一化
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        norms[norms == 0] = 1
+        return embeddings / norms
 
     def get_embedding_dimension(self) -> int:
         """获取向量维度"""
