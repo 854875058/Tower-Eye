@@ -375,13 +375,17 @@ def search_page():
                 ui.label(f'加载关联数据失败: {e}').classes('text-red-500 text-xs')
 
         async def do_search():
-            q = state['query_text']
-            uploaded = state.get('uploaded_path') or (_upload_ref[0] if _upload_ref else None)
+            q = state.get('query_text', '')
+            # 优先从 state 获取，兼容 _upload_ref
+            uploaded = state.get('uploaded_path')
+            if not uploaded and _upload_ref:
+                uploaded = _upload_ref[0]
             filters = collect_search_filters()
-            has_query = bool(q) or bool(uploaded)
-            has_filter = bool(filters)
-            print(f"[do_search] query_text={q!r}, uploaded_path={uploaded!r}, _upload_ref={_upload_ref}, filters={filters}, has_query={has_query}, has_filter={has_filter}")
-            if not has_query and not has_filter:
+            has_query = bool(q and q.strip())
+            has_file = bool(uploaded and Path(uploaded).exists())
+            has_filter = any(v for v in filters.values() if v)
+            print(f"[do_search] q={has_query}, file={has_file}(path={uploaded!r}), filter={has_filter}, _upload_ref={_upload_ref}")
+            if not (has_query or has_file or has_filter):
                 ui.notify('请输入检索文本、上传图片/视频，或设置筛选条件', type='warning'); return
             ui.notify('检索中...', type='info')
             try:
