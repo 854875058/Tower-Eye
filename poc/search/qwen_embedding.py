@@ -98,28 +98,39 @@ class Qwen3VLEmbedding:
 
     def encode_image(self, image_path: Union[str, Path]) -> np.ndarray:
         """
-        图像向量化
+        图像向量化 — 读取本地文件后以 base64 发送给远程 API
 
         Args:
-            image_path: 图像路径（必须是服务器可访问的绝对路径）
+            image_path: 图像路径
+
+        Returns:
+            向量 (numpy array)
+        """
+        image_path = str(image_path)
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"图像文件不存在: {image_path}")
+        with open(image_path, "rb") as f:
+            image_bytes = f.read()
+        return self.encode_image_bytes(image_bytes)
+
+    def encode_image_bytes(self, image_bytes: bytes) -> np.ndarray:
+        """
+        图像向量化（bytes 输入，通过 base64 发送）
+
+        Args:
+            image_bytes: 图像二进制数据
 
         Returns:
             向量 (numpy array)
         """
         try:
-            image_path = str(image_path)
-
-            if not os.path.exists(image_path):
-                raise FileNotFoundError(f"图像文件不存在: {image_path}")
-
-            # 使用绝对路径
-            abs_image_path = os.path.abspath(image_path)
+            image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
             response = post_with_retry(
                 f"{self.api_url}/v1/tower/embed",
                 json={
-                    "text": "",  # 空文本
-                    "image_path": abs_image_path
+                    "text": "",
+                    "image_base64": image_b64
                 },
                 timeout=self.timeout,
                 max_retries=self.max_retries,

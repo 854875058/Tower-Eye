@@ -63,7 +63,9 @@ def search_page():
             'tenant': '', 'device': '', 'device_code': '',
             'channel': '', 'algorithm': '', 'algorithm_code': '',
             'confidence_min': 0.0, 'confidence_max': 1.0,
-            'enable_time': False, 'start_date': '', 'end_date': '',
+            'enable_time': False,
+            'start_date_val': '', 'start_time_val': '00:00',
+            'end_date_val': '', 'end_time_val': '23:59',
             'enable_geo': False, 'lat': '', 'lon': '', 'radius_km': 5.0,
         }
         results_container = ui.column().classes('w-full')
@@ -179,9 +181,32 @@ def search_page():
                 ui.number(min=0, max=1, step=0.05, value=1).bind_value(f_state, 'confidence_max').props('outlined dense').classes('w-24')
             with ui.column().classes('w-full px-4 gap-2'):
                 ui.switch('启用时间过滤').bind_value(f_state, 'enable_time')
-                with ui.row().classes('gap-4'):
-                    ui.input('开始时间', placeholder='YYYY-MM-DD HH:MM:SS').bind_value(f_state, 'start_date').props('outlined dense')
-                    ui.input('结束时间', placeholder='YYYY-MM-DD HH:MM:SS').bind_value(f_state, 'end_date').props('outlined dense')
+                with ui.row().classes('gap-4 items-center'):
+                    # 开始日期
+                    with ui.input('开始日期').bind_value(f_state, 'start_date_val').props('outlined dense').classes('w-40') as sd_input:
+                        with sd_input.add_slot('append'):
+                            ui.icon('event').classes('cursor-pointer')
+                        with ui.menu() as sd_menu:
+                            ui.date().bind_value(f_state, 'start_date_val').on('update:model-value', sd_menu.close)
+                    # 开始时间
+                    with ui.input('开始时间').bind_value(f_state, 'start_time_val').props('outlined dense').classes('w-32') as st_input:
+                        with st_input.add_slot('append'):
+                            ui.icon('access_time').classes('cursor-pointer')
+                        with ui.menu() as st_menu:
+                            ui.time().bind_value(f_state, 'start_time_val').on('update:model-value', st_menu.close)
+                    ui.label('~').classes('text-slate-400 self-center')
+                    # 结束日期
+                    with ui.input('结束日期').bind_value(f_state, 'end_date_val').props('outlined dense').classes('w-40') as ed_input:
+                        with ed_input.add_slot('append'):
+                            ui.icon('event').classes('cursor-pointer')
+                        with ui.menu() as ed_menu:
+                            ui.date().bind_value(f_state, 'end_date_val').on('update:model-value', ed_menu.close)
+                    # 结束时间
+                    with ui.input('结束时间').bind_value(f_state, 'end_time_val').props('outlined dense').classes('w-32') as et_input:
+                        with et_input.add_slot('append'):
+                            ui.icon('access_time').classes('cursor-pointer')
+                        with ui.menu() as et_menu:
+                            ui.time().bind_value(f_state, 'end_time_val').on('update:model-value', et_menu.close)
             with ui.column().classes('w-full px-4 pb-4 gap-2'):
                 ui.switch('启用地理位置过滤').bind_value(f_state, 'enable_geo')
                 with ui.row().classes('gap-4'):
@@ -213,8 +238,12 @@ def search_page():
             if f_state['confidence_min'] > 0: f['confidence_min'] = f_state['confidence_min']
             if f_state['confidence_max'] < 1: f['confidence_max'] = f_state['confidence_max']
             if f_state.get('enable_time'):
-                if f_state.get('start_date'): f['start_time'] = f_state['start_date']
-                if f_state.get('end_date'): f['end_time'] = f_state['end_date']
+                if f_state.get('start_date_val'):
+                    t = f_state.get('start_time_val', '00:00') or '00:00'
+                    f['start_time'] = f"{f_state['start_date_val']} {t}:00"
+                if f_state.get('end_date_val'):
+                    t = f_state.get('end_time_val', '23:59') or '23:59'
+                    f['end_time'] = f"{f_state['end_date_val']} {t}:59"
             return f
 
         def render_results():

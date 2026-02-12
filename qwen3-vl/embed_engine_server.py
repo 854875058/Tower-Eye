@@ -1,4 +1,6 @@
 import os
+import io
+import base64
 from fastapi import FastAPI, Body
 from pydantic import BaseModel
 from typing import List, Optional
@@ -22,16 +24,21 @@ e_args = EngineArgs(
 engine = LLM(**vars(e_args))
 
 
-def _build_request(text: str, image_path: str) -> dict:
+def _build_request(text: str, image_path: str = None, image_base64: str = None) -> dict:
     prompt = f"User: <|vision_start|><|image_pad|><|vision_end|>{text}\nAssistant: "
-    img = Image.open(image_path).convert("RGB")
+    if image_base64:
+        img = Image.open(io.BytesIO(base64.b64decode(image_base64))).convert("RGB")
+    elif image_path:
+        img = Image.open(image_path).convert("RGB")
+    else:
+        raise ValueError("必须提供 image_path 或 image_base64")
     return {"prompt": prompt, "multi_modal_data": {"image": img}}
 
 
 @app.post("/v1/tower/embed")
-async def get_embedding(text: str = Body(""), image_path: str = Body(...)):
+async def get_embedding(text: str = Body(""), image_path: str = Body(None), image_base64: str = Body(None)):
     try:
-        req = _build_request(text, image_path)
+        req = _build_request(text, image_path=image_path, image_base64=image_base64)
         outputs = engine.embed([req])
         return {"embedding": outputs[0].outputs.embedding}
     except Exception as e:
@@ -40,7 +47,8 @@ async def get_embedding(text: str = Body(""), image_path: str = Body(...)):
 
 class BatchItem(BaseModel):
     text: str = ""
-    image_path: str
+    image_path: Optional[str] = None
+    image_base64: Optional[str] = None
 
 
 class BatchRequest(BaseModel):
@@ -51,7 +59,7 @@ class BatchRequest(BaseModel):
 async def get_embedding_batch(req: BatchRequest):
     """批量向量化 — 一次调用处理多张图片，利用 vLLM 内部批处理加速"""
     try:
-        requests = [_build_request(item.text, item.image_path) for item in req.items]
+        requests = [_build_request(item.text, image_path=item.image_path, image_base64=item.image_base64) for item in req.items]
         outputs = engine.embed(requests)
         embeddings = [out.outputs.embedding for out in outputs]
         return {"embeddings": embeddings}
