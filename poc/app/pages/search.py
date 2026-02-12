@@ -68,7 +68,8 @@ def search_page():
             'end_date_val': '', 'end_time_val': '23:59',
             'enable_geo': False, 'lat': '', 'lon': '', 'radius_km': 5.0,
         }
-        results_container = ui.column().classes('w-full')
+        # 用列表包装上传路径，避免闭包引用问题
+        _upload_ref: List[str] = []
 
         # ── 输入区 ──
         with ui.grid(columns='3fr 2fr').classes('w-full gap-6 mb-4'):
@@ -99,6 +100,7 @@ def search_page():
                                 frame_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg", dir=str(resolve_path('poc/data')))
                                 cv2.imwrite(frame_tmp.name, frame); frame_tmp.close()
                                 state['uploaded_path'] = frame_tmp.name
+                                _upload_ref.clear(); _upload_ref.append(frame_tmp.name)
                                 print(f"[handle_upload] 视频关键帧已保存: {frame_tmp.name}")
                                 import base64
                                 _, buf = cv2.imencode('.jpg', cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
@@ -118,6 +120,7 @@ def search_page():
                     else:
                         state['uploaded_is_video'] = False
                         state['uploaded_path'] = tmp.name
+                        _upload_ref.clear(); _upload_ref.append(tmp.name)
                         print(f"[handle_upload] 图片已保存: {tmp.name}, size={Path(tmp.name).stat().st_size}")
                         import base64
                         with upload_preview:
@@ -131,11 +134,12 @@ def search_page():
                         .props('accept=".jpg,.jpeg,.png,.bmp,.mp4"').classes('flex-1')
 
                     def clear_upload():
-                        old = state.get('uploaded_path')
+                        old = state.get('uploaded_path') or (_upload_ref[0] if _upload_ref else None)
                         if old and Path(old).exists():
                             Path(old).unlink(missing_ok=True)
                         state['uploaded_path'] = None
                         state['uploaded_is_video'] = False
+                        _upload_ref.clear()
                         upload_preview.clear()
                         ui.notify('已清除上传', type='info')
 
@@ -369,11 +373,11 @@ def search_page():
 
         async def do_search():
             q = state['query_text']
-            uploaded = state.get('uploaded_path')
+            uploaded = state.get('uploaded_path') or (_upload_ref[0] if _upload_ref else None)
             filters = collect_search_filters()
             has_query = bool(q) or bool(uploaded)
             has_filter = bool(filters)
-            print(f"[do_search] query_text={q!r}, uploaded_path={uploaded!r}, filters={filters}, has_query={has_query}, has_filter={has_filter}")
+            print(f"[do_search] query_text={q!r}, uploaded_path={uploaded!r}, _upload_ref={_upload_ref}, filters={filters}, has_query={has_query}, has_filter={has_filter}")
             if not has_query and not has_filter:
                 ui.notify('请输入检索文本、上传图片/视频，或设置筛选条件', type='warning'); return
             ui.notify('检索中...', type='info')
@@ -487,5 +491,8 @@ def search_page():
         ui.button('开始检索', icon='search', on_click=do_search) \
             .props('unelevated color=blue-6 rounded no-caps').classes('w-full mb-6')
         search_input.on('keydown.enter', do_search)
+
+        # 结果容器 — 放在搜索按钮之后，确保结果出现在筛选条件下方
+        results_container = ui.column().classes('w-full')
 
         render_results()
