@@ -55,7 +55,6 @@ echo "  Python: $(python --version 2>&1) ($(which python))"
 echo ""
 echo "[2/4] 清理旧进程..."
 pkill -f "python poc/app/app_ui.py" 2>/dev/null || true
-pkill -f "python poc/app/app_v2.py" 2>/dev/null || true
 sleep 1
 
 if command -v lsof &>/dev/null && lsof -i :"$APP_PORT" &>/dev/null; then

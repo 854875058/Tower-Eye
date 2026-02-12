@@ -35,19 +35,6 @@ fi
 
 # 2. 兜底：按进程名查杀
 pkill -f "python poc/app/app_ui.py" 2>/dev/null && { echo "✓ 已清理 app_ui.py 残留进程"; STOPPED=true; } || true
-pkill -f "python poc/app/app_v2.py" 2>/dev/null && echo "✓ 已清理 app_v2.py 残留进程" || true
-
-# 3. 清理旧架构残留 PID
-for pidfile in "$ROOT/poc_app.pid" "$ROOT/logs/backend.pid" "$ROOT/logs/frontend.pid"; do
-    if [[ -f "$pidfile" ]]; then
-        OLD_PID="$(tr -d '\n' <"$pidfile")"
-        if [[ "$OLD_PID" =~ ^[0-9]+$ ]] && kill -0 "$OLD_PID" 2>/dev/null; then
-            kill "$OLD_PID" 2>/dev/null || true
-            echo "✓ 已停止旧服务 (PID: $OLD_PID, $pidfile)"
-        fi
-        rm -f "$pidfile"
-    fi
-done
 
 if ! $STOPPED; then
     echo "没有发现运行中的服务"
