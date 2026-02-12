@@ -72,6 +72,53 @@ def _detect_media_cols(cols_raw: List[str]):
     return img_cols, video_col
 
 
+def _render_detail_fields(row: dict, cols_raw: list, img_cols: list, video_col):
+    """渲染记录的完整字段信息（优先字段 + 剩余字段 + extra_json 展开）"""
+    PRIORITY = [
+        ('event_type', '事件类型'), ('alarm_level', '告警等级'),
+        ('alarm_time', '告警时间'), ('address', '地址'),
+        ('device_name', '设备名称'), ('device_code', '设备编码'),
+        ('algorithm_name', '算法名称'), ('algorithm_code', '算法编码'),
+        ('order_status', '工单状态'), ('confidence_level', '置信度'),
+        ('summary', '摘要'), ('description', '描述'),
+    ]
+    skip = {cols_raw[ic] for ic in img_cols}
+    if video_col is not None:
+        skip.add(cols_raw[video_col])
+    shown = set()
+    for key, label in PRIORITY:
+        v = row.get(key)
+        if v is not None and str(v).strip():
+            shown.add(key)
+            val_str = f'{v:.2f}' if isinstance(v, float) else str(v)
+            with ui.row().classes('gap-2'):
+                ui.label(f'{label}:').classes('text-xs text-slate-400 w-20 flex-shrink-0')
+                ui.label(val_str).classes('text-xs text-slate-700')
+    for key in cols_raw:
+        if key in shown or key in skip:
+            continue
+        v = row.get(key)
+        if v is None or not str(v).strip():
+            continue
+        if key == 'extra_json':
+            try:
+                extra = json.loads(v) if isinstance(v, str) else v
+                if isinstance(extra, dict):
+                    with ui.expansion('扩展字段', icon='data_object').classes('w-full').props('dense'):
+                        for ek, ev in sorted(extra.items()):
+                            if ev is not None and str(ev).strip():
+                                with ui.row().classes('gap-2'):
+                                    ui.label(f'{ek}:').classes('text-xs text-slate-400 w-28 flex-shrink-0')
+                                    ui.label(str(ev)).classes('text-xs text-slate-700 break-all')
+                    continue
+            except Exception:
+                pass
+        val_str = f'{v:.2f}' if isinstance(v, float) else str(v)
+        with ui.row().classes('gap-2'):
+            ui.label(f'{key}:').classes('text-xs text-slate-400 w-20 flex-shrink-0')
+            ui.label(val_str).classes('text-xs text-slate-700 break-all')
+
+
 # ── 页面 ──────────────────────────────────────────────────────────────────
 
 @ui.page('/qa')
@@ -295,34 +342,43 @@ def qa_page():
                                                 with ui.element('div').classes('w-32 h-24 bg-slate-100 rounded flex items-center justify-center'):
                                                     ui.icon('image_not_supported').classes('text-slate-300')
 
-                            # 详情展开：每条记录可展开查看完整 JSON
+                            # 详情展开：每条记录可展开查看完整字段 + 图片 + 视频
                             with ui.expansion('查看详情', icon='info').classes('w-full').props('dense'):
                                 for ri, row in enumerate(answer_data[:20]):
-                                    with ui.expansion(f'第 {ri+1} 条', icon='description').classes('w-full').props('dense'):
-                                        # 关键字段
-                                        for lbl, key in [('事件类型', 'event_type'), ('告警等级', 'alarm_level'),
-                                                         ('时间', 'alarm_time'), ('地址', 'address'),
-                                                         ('设备', 'device_name'), ('算法', 'algorithm_name'),
-                                                         ('工单状态', 'order_status'), ('置信度', 'confidence_level')]:
-                                            v = row.get(key)
-                                            if v:
-                                                val_str = f'{v:.2f}' if isinstance(v, float) else str(v)
-                                                with ui.row().classes('gap-2'):
-                                                    ui.label(f'{lbl}:').classes('text-xs text-slate-400 w-16')
-                                                    ui.label(val_str).classes('text-xs text-slate-700')
-                                        # 图片预览
-                                        for ic in img_cols:
-                                            iv = row.get(cols_raw[ic], "")
-                                            if iv:
-                                                ui.image(f'/warning_img/{_Path(str(iv)).name}') \
-                                                    .classes('w-full max-w-md rounded mt-1')
-                                                break
-                                        # 视频预览
-                                        if video_col is not None:
-                                            vv = row.get(cols_raw[video_col], "")
-                                            if vv:
-                                                vn = _Path(str(vv).split(",")[0].strip()).name
-                                                ui.video(f'/warning_file/{vn}').classes('w-full max-w-md rounded mt-1')
+                                    # 标题：取事件类型+时间做摘要
+                                    title_parts = []
+                                    if row.get('event_type'):
+                                        title_parts.append(str(row['event_type'])[:15])
+                                    if row.get('alarm_time'):
+                                        title_parts.append(str(row['alarm_time'])[:19])
+                                    title = ' | '.join(title_parts) if title_parts else f'记录 {ri+1}'
+                                    with ui.expansion(f'第 {ri+1} 条 — {title}', icon='description').classes('w-full').props('dense'):
+                                        with ui.row().classes('w-full gap-4 items-start'):
+                                            # 左侧：完整字段
+                                            with ui.column().classes('flex-1 gap-0.5 min-w-0'):
+                                                _render_detail_fields(row, cols_raw, img_cols, video_col)
+                                            # 右侧：图片+视频预览
+                                            has_media = False
+                                            for ic in img_cols:
+                                                iv = row.get(cols_raw[ic], "")
+                                                if iv:
+                                                    has_media = True
+                                                    break
+                                            if video_col is not None and row.get(cols_raw[video_col], ""):
+                                                has_media = True
+                                            if has_media:
+                                                with ui.column().classes('gap-2 flex-shrink-0').style('width:280px'):
+                                                    for ic in img_cols:
+                                                        iv = row.get(cols_raw[ic], "")
+                                                        if iv:
+                                                            ui.image(f'/warning_img/{_Path(str(iv)).name}') \
+                                                                .classes('w-full rounded cursor-pointer')
+                                                            break
+                                                    if video_col is not None:
+                                                        vv = row.get(cols_raw[video_col], "")
+                                                        if vv:
+                                                            vn = _Path(str(vv).split(",")[0].strip()).name
+                                                            ui.video(f'/warning_file/{vn}').classes('w-full rounded')
 
                             # count 类型 → 查看明细按钮
                             if result.get("intent") == "count":

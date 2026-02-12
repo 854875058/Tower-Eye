@@ -1,0 +1,2113 @@
+{
+  "metadata": {
+    "total_frames": 102,
+    "has_tracking": true
+  },
+  "frames": {
+    "0": {
+      "tracks": [
+        {
+          "track_id": 0,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1116,
+            454,
+            1448,
+            624
+          ],
+          "confidence": 0.5224255919456482,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "1": {
+      "tracks": [
+        {
+          "track_id": 1,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            454,
+            1447,
+            623
+          ],
+          "confidence": 0.5025272369384766,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "2": {
+      "tracks": [
+        {
+          "track_id": 2,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            455,
+            1446,
+            623
+          ],
+          "confidence": 0.497559130191803,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "3": {
+      "tracks": [
+        {
+          "track_id": 3,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            455,
+            1446,
+            623
+          ],
+          "confidence": 0.49521130323410034,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "4": {
+      "tracks": [
+        {
+          "track_id": 4,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            455,
+            1445,
+            622
+          ],
+          "confidence": 0.4862593710422516,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "5": {
+      "tracks": [
+        {
+          "track_id": 5,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            455,
+            1447,
+            623
+          ],
+          "confidence": 0.47555989027023315,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "6": {
+      "tracks": [
+        {
+          "track_id": 6,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1116,
+            454,
+            1449,
+            625
+          ],
+          "confidence": 0.4990103244781494,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "7": {
+      "tracks": [
+        {
+          "track_id": 7,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            454,
+            1450,
+            626
+          ],
+          "confidence": 0.511601984500885,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "8": {
+      "tracks": [
+        {
+          "track_id": 8,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            454,
+            1450,
+            626
+          ],
+          "confidence": 0.5200200080871582,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "9": {
+      "tracks": [
+        {
+          "track_id": 9,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            454,
+            1450,
+            626
+          ],
+          "confidence": 0.5187616348266602,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "10": {
+      "tracks": [
+        {
+          "track_id": 10,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            454,
+            1450,
+            626
+          ],
+          "confidence": 0.5113906264305115,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "11": {
+      "tracks": [
+        {
+          "track_id": 11,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1116,
+            454,
+            1450,
+            627
+          ],
+          "confidence": 0.5128824710845947,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "12": {
+      "tracks": [
+        {
+          "track_id": 12,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1116,
+            454,
+            1450,
+            626
+          ],
+          "confidence": 0.5069611668586731,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "13": {
+      "tracks": [
+        {
+          "track_id": 13,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1116,
+            454,
+            1450,
+            626
+          ],
+          "confidence": 0.517586350440979,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "14": {
+      "tracks": [
+        {
+          "track_id": 14,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1116,
+            454,
+            1449,
+            626
+          ],
+          "confidence": 0.5255043506622314,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "15": {
+      "tracks": [
+        {
+          "track_id": 15,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1116,
+            455,
+            1449,
+            625
+          ],
+          "confidence": 0.5088558197021484,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "16": {
+      "tracks": [
+        {
+          "track_id": 16,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1116,
+            455,
+            1449,
+            625
+          ],
+          "confidence": 0.5089013576507568,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "17": {
+      "tracks": [
+        {
+          "track_id": 17,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            455,
+            1449,
+            625
+          ],
+          "confidence": 0.48744460940361023,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "18": {
+      "tracks": [
+        {
+          "track_id": 18,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            455,
+            1448,
+            624
+          ],
+          "confidence": 0.5038570761680603,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "19": {
+      "tracks": [
+        {
+          "track_id": 19,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            455,
+            1447,
+            624
+          ],
+          "confidence": 0.4941740334033966,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "20": {
+      "tracks": [
+        {
+          "track_id": 20,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            455,
+            1445,
+            623
+          ],
+          "confidence": 0.49377167224884033,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "21": {
+      "tracks": [
+        {
+          "track_id": 21,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            455,
+            1443,
+            623
+          ],
+          "confidence": 0.5019216537475586,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "22": {
+      "tracks": [
+        {
+          "track_id": 22,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            455,
+            1441,
+            622
+          ],
+          "confidence": 0.492905855178833,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "23": {
+      "tracks": [
+        {
+          "track_id": 23,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            455,
+            1443,
+            623
+          ],
+          "confidence": 0.4929299056529999,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "24": {
+      "tracks": [
+        {
+          "track_id": 24,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            455,
+            1441,
+            622
+          ],
+          "confidence": 0.5071752071380615,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "25": {
+      "tracks": [
+        {
+          "track_id": 25,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            455,
+            1443,
+            622
+          ],
+          "confidence": 0.509547233581543,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "26": {
+      "tracks": [
+        {
+          "track_id": 26,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            455,
+            1439,
+            622
+          ],
+          "confidence": 0.5149548649787903,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "27": {
+      "tracks": [
+        {
+          "track_id": 27,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            455,
+            1440,
+            622
+          ],
+          "confidence": 0.5370880961418152,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "28": {
+      "tracks": [
+        {
+          "track_id": 28,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            455,
+            1440,
+            622
+          ],
+          "confidence": 0.5310754179954529,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "29": {
+      "tracks": [
+        {
+          "track_id": 29,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1118,
+            455,
+            1436,
+            622
+          ],
+          "confidence": 0.5147992968559265,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "30": {
+      "tracks": [
+        {
+          "track_id": 30,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            455,
+            1438,
+            622
+          ],
+          "confidence": 0.5305054187774658,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "31": {
+      "tracks": [
+        {
+          "track_id": 31,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            454,
+            1445,
+            623
+          ],
+          "confidence": 0.5304833054542542,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "32": {
+      "tracks": [
+        {
+          "track_id": 32,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            454,
+            1447,
+            625
+          ],
+          "confidence": 0.523605227470398,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "33": {
+      "tracks": [
+        {
+          "track_id": 33,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            454,
+            1447,
+            625
+          ],
+          "confidence": 0.5192513465881348,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "34": {
+      "tracks": [
+        {
+          "track_id": 34,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            454,
+            1447,
+            625
+          ],
+          "confidence": 0.5100873112678528,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "35": {
+      "tracks": [
+        {
+          "track_id": 35,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1119,
+            454,
+            1448,
+            626
+          ],
+          "confidence": 0.5047441720962524,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "36": {
+      "tracks": [
+        {
+          "track_id": 36,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1119,
+            454,
+            1449,
+            627
+          ],
+          "confidence": 0.5167331099510193,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "37": {
+      "tracks": [
+        {
+          "track_id": 37,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1120,
+            454,
+            1449,
+            627
+          ],
+          "confidence": 0.503358781337738,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "38": {
+      "tracks": [
+        {
+          "track_id": 38,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1120,
+            454,
+            1448,
+            626
+          ],
+          "confidence": 0.5229495167732239,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "39": {
+      "tracks": [
+        {
+          "track_id": 39,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1120,
+            454,
+            1448,
+            626
+          ],
+          "confidence": 0.5225101113319397,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "40": {
+      "tracks": [
+        {
+          "track_id": 40,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1120,
+            454,
+            1449,
+            626
+          ],
+          "confidence": 0.5304861664772034,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "41": {
+      "tracks": [
+        {
+          "track_id": 41,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1120,
+            454,
+            1448,
+            627
+          ],
+          "confidence": 0.5205015540122986,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "42": {
+      "tracks": [
+        {
+          "track_id": 42,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1120,
+            454,
+            1448,
+            626
+          ],
+          "confidence": 0.5183842778205872,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "43": {
+      "tracks": [
+        {
+          "track_id": 43,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1128,
+            452,
+            1449,
+            633
+          ],
+          "confidence": 0.5854796171188354,
+          "age": 0,
+          "hits": 1
+        },
+        {
+          "track_id": 44,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            575,
+            284,
+            832,
+            382
+          ],
+          "confidence": 0.2923643887042999,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 2
+    },
+    "44": {
+      "tracks": [
+        {
+          "track_id": 45,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1124,
+            453,
+            1450,
+            634
+          ],
+          "confidence": 0.6143539547920227,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "45": {
+      "tracks": [
+        {
+          "track_id": 46,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1124,
+            453,
+            1450,
+            634
+          ],
+          "confidence": 0.6134281158447266,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "46": {
+      "tracks": [
+        {
+          "track_id": 47,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1124,
+            453,
+            1450,
+            634
+          ],
+          "confidence": 0.613529622554779,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "47": {
+      "tracks": [
+        {
+          "track_id": 48,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1124,
+            453,
+            1450,
+            634
+          ],
+          "confidence": 0.5990254878997803,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "48": {
+      "tracks": [
+        {
+          "track_id": 49,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1124,
+            453,
+            1450,
+            634
+          ],
+          "confidence": 0.5984827280044556,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "49": {
+      "tracks": [
+        {
+          "track_id": 50,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1124,
+            453,
+            1450,
+            634
+          ],
+          "confidence": 0.5923097133636475,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "50": {
+      "tracks": [
+        {
+          "track_id": 51,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1123,
+            453,
+            1450,
+            634
+          ],
+          "confidence": 0.5931960344314575,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "51": {
+      "tracks": [
+        {
+          "track_id": 52,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1123,
+            453,
+            1450,
+            634
+          ],
+          "confidence": 0.5983163118362427,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "52": {
+      "tracks": [
+        {
+          "track_id": 53,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1123,
+            453,
+            1450,
+            634
+          ],
+          "confidence": 0.5992520451545715,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "53": {
+      "tracks": [
+        {
+          "track_id": 54,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1124,
+            453,
+            1450,
+            634
+          ],
+          "confidence": 0.6050121188163757,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "54": {
+      "tracks": [
+        {
+          "track_id": 55,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1124,
+            453,
+            1450,
+            634
+          ],
+          "confidence": 0.6039936542510986,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "55": {
+      "tracks": [
+        {
+          "track_id": 56,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1123,
+            453,
+            1450,
+            633
+          ],
+          "confidence": 0.5894484519958496,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "56": {
+      "tracks": [
+        {
+          "track_id": 57,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1124,
+            453,
+            1449,
+            632
+          ],
+          "confidence": 0.5847468972206116,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "57": {
+      "tracks": [
+        {
+          "track_id": 58,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1125,
+            453,
+            1450,
+            632
+          ],
+          "confidence": 0.5857661366462708,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "58": {
+      "tracks": [
+        {
+          "track_id": 59,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1125,
+            453,
+            1450,
+            632
+          ],
+          "confidence": 0.5828671455383301,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "59": {
+      "tracks": [
+        {
+          "track_id": 60,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1124,
+            453,
+            1449,
+            632
+          ],
+          "confidence": 0.5868518948554993,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "60": {
+      "tracks": [
+        {
+          "track_id": 61,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1124,
+            453,
+            1449,
+            632
+          ],
+          "confidence": 0.6000871658325195,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "61": {
+      "tracks": [
+        {
+          "track_id": 62,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1125,
+            453,
+            1449,
+            631
+          ],
+          "confidence": 0.6018394231796265,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "62": {
+      "tracks": [
+        {
+          "track_id": 63,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1127,
+            453,
+            1448,
+            630
+          ],
+          "confidence": 0.580298662185669,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "63": {
+      "tracks": [
+        {
+          "track_id": 64,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1127,
+            454,
+            1448,
+            629
+          ],
+          "confidence": 0.573296308517456,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "64": {
+      "tracks": [
+        {
+          "track_id": 65,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1127,
+            453,
+            1447,
+            628
+          ],
+          "confidence": 0.5815911293029785,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "65": {
+      "tracks": [
+        {
+          "track_id": 66,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1127,
+            453,
+            1447,
+            628
+          ],
+          "confidence": 0.5775575041770935,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "66": {
+      "tracks": [
+        {
+          "track_id": 67,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1127,
+            453,
+            1447,
+            629
+          ],
+          "confidence": 0.5861698985099792,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "67": {
+      "tracks": [
+        {
+          "track_id": 68,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1127,
+            454,
+            1448,
+            628
+          ],
+          "confidence": 0.5837510228157043,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "68": {
+      "tracks": [
+        {
+          "track_id": 69,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1120,
+            454,
+            1446,
+            626
+          ],
+          "confidence": 0.5752394795417786,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "69": {
+      "tracks": [
+        {
+          "track_id": 70,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1119,
+            454,
+            1446,
+            626
+          ],
+          "confidence": 0.573209285736084,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "70": {
+      "tracks": [
+        {
+          "track_id": 71,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1119,
+            454,
+            1446,
+            626
+          ],
+          "confidence": 0.5711390376091003,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "71": {
+      "tracks": [
+        {
+          "track_id": 72,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1119,
+            454,
+            1447,
+            627
+          ],
+          "confidence": 0.5460931062698364,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "72": {
+      "tracks": [
+        {
+          "track_id": 73,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1119,
+            454,
+            1447,
+            627
+          ],
+          "confidence": 0.5468603372573853,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "73": {
+      "tracks": [
+        {
+          "track_id": 74,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1119,
+            454,
+            1447,
+            627
+          ],
+          "confidence": 0.5432769656181335,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "74": {
+      "tracks": [
+        {
+          "track_id": 75,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1119,
+            454,
+            1447,
+            626
+          ],
+          "confidence": 0.541232168674469,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "75": {
+      "tracks": [
+        {
+          "track_id": 76,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1119,
+            454,
+            1447,
+            627
+          ],
+          "confidence": 0.5563275218009949,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "76": {
+      "tracks": [
+        {
+          "track_id": 77,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1119,
+            454,
+            1448,
+            628
+          ],
+          "confidence": 0.5567775964736938,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "77": {
+      "tracks": [
+        {
+          "track_id": 78,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1119,
+            454,
+            1447,
+            627
+          ],
+          "confidence": 0.5328812003135681,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "78": {
+      "tracks": [
+        {
+          "track_id": 79,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1119,
+            454,
+            1448,
+            630
+          ],
+          "confidence": 0.4706971347332001,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "79": {
+      "tracks": [
+        {
+          "track_id": 80,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1119,
+            454,
+            1448,
+            630
+          ],
+          "confidence": 0.4681713581085205,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "80": {
+      "tracks": [
+        {
+          "track_id": 81,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1119,
+            454,
+            1448,
+            629
+          ],
+          "confidence": 0.4582923650741577,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "81": {
+      "tracks": [
+        {
+          "track_id": 82,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1119,
+            454,
+            1447,
+            629
+          ],
+          "confidence": 0.46577945351600647,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "82": {
+      "tracks": [
+        {
+          "track_id": 83,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1119,
+            454,
+            1448,
+            629
+          ],
+          "confidence": 0.4738326966762543,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "83": {
+      "tracks": [
+        {
+          "track_id": 84,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1120,
+            454,
+            1447,
+            628
+          ],
+          "confidence": 0.47022557258605957,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "84": {
+      "tracks": [
+        {
+          "track_id": 85,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1121,
+            454,
+            1447,
+            628
+          ],
+          "confidence": 0.48181504011154175,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "85": {
+      "tracks": [
+        {
+          "track_id": 86,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1122,
+            454,
+            1448,
+            628
+          ],
+          "confidence": 0.5162965655326843,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "86": {
+      "tracks": [
+        {
+          "track_id": 87,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1122,
+            454,
+            1448,
+            628
+          ],
+          "confidence": 0.5156530141830444,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "87": {
+      "tracks": [
+        {
+          "track_id": 88,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1932,
+            630,
+            2172,
+            787
+          ],
+          "confidence": 0.46515092253685,
+          "age": 0,
+          "hits": 1
+        },
+        {
+          "track_id": 89,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1124,
+            458,
+            1435,
+            623
+          ],
+          "confidence": 0.4064638912677765,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 2
+    },
+    "88": {
+      "tracks": [
+        {
+          "track_id": 90,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            572,
+            284,
+            828,
+            384
+          ],
+          "confidence": 0.39250195026397705,
+          "age": 0,
+          "hits": 1
+        },
+        {
+          "track_id": 91,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1111,
+            457,
+            1419,
+            611
+          ],
+          "confidence": 0.38944992423057556,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 2
+    },
+    "89": {
+      "tracks": [
+        {
+          "track_id": 92,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1108,
+            455,
+            1441,
+            623
+          ],
+          "confidence": 0.43942147493362427,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "90": {
+      "tracks": [
+        {
+          "track_id": 93,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1105,
+            457,
+            1428,
+            623
+          ],
+          "confidence": 0.38057297468185425,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "91": {
+      "tracks": [
+        {
+          "track_id": 94,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1113,
+            457,
+            1434,
+            625
+          ],
+          "confidence": 0.4346391558647156,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "92": {
+      "tracks": [
+        {
+          "track_id": 95,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1114,
+            463,
+            1435,
+            635
+          ],
+          "confidence": 0.5062927007675171,
+          "age": 0,
+          "hits": 1
+        },
+        {
+          "track_id": 96,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            564,
+            297,
+            823,
+            396
+          ],
+          "confidence": 0.294908344745636,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 2
+    },
+    "93": {
+      "tracks": [
+        {
+          "track_id": 97,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1113,
+            494,
+            1431,
+            655
+          ],
+          "confidence": 0.5562684535980225,
+          "age": 0,
+          "hits": 1
+        },
+        {
+          "track_id": 98,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            2379,
+            867,
+            2558,
+            966
+          ],
+          "confidence": 0.49454379081726074,
+          "age": 0,
+          "hits": 1
+        },
+        {
+          "track_id": 99,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            2169,
+            829,
+            2353,
+            938
+          ],
+          "confidence": 0.3217146694660187,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 3
+    },
+    "94": {
+      "tracks": [
+        {
+          "track_id": 100,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1119,
+            533,
+            1434,
+            684
+          ],
+          "confidence": 0.40171000361442566,
+          "age": 0,
+          "hits": 1
+        },
+        {
+          "track_id": 101,
+          "class": "car",
+          "class_id": 2,
+          "bbox": [
+            2380,
+            909,
+            2559,
+            1011
+          ],
+          "confidence": 0.35891395807266235,
+          "age": 0,
+          "hits": 1
+        },
+        {
+          "track_id": 102,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            567,
+            364,
+            824,
+            463
+          ],
+          "confidence": 0.3528739809989929,
+          "age": 0,
+          "hits": 1
+        },
+        {
+          "track_id": 103,
+          "class": "car",
+          "class_id": 2,
+          "bbox": [
+            2212,
+            871,
+            2352,
+            946
+          ],
+          "confidence": 0.3460756242275238,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 4
+    },
+    "95": {
+      "tracks": [
+        {
+          "track_id": 104,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1112,
+            563,
+            1437,
+            742
+          ],
+          "confidence": 0.5466918349266052,
+          "age": 0,
+          "hits": 1
+        },
+        {
+          "track_id": 105,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            2380,
+            941,
+            2559,
+            1042
+          ],
+          "confidence": 0.2879650592803955,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 2
+    },
+    "96": {
+      "tracks": [
+        {
+          "track_id": 106,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            599,
+            1427,
+            731
+          ],
+          "confidence": 0.6220843195915222,
+          "age": 0,
+          "hits": 1
+        },
+        {
+          "track_id": 107,
+          "class": "van",
+          "class_id": 8,
+          "bbox": [
+            1511,
+            611,
+            2049,
+            913
+          ],
+          "confidence": 0.3623773455619812,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 2
+    },
+    "97": {
+      "tracks": [
+        {
+          "track_id": 108,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            616,
+            1426,
+            754
+          ],
+          "confidence": 0.3901170790195465,
+          "age": 0,
+          "hits": 1
+        },
+        {
+          "track_id": 109,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            2382,
+            997,
+            2559,
+            1088
+          ],
+          "confidence": 0.2591021955013275,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 2
+    },
+    "98": {
+      "tracks": [],
+      "total_tracks": 0
+    },
+    "99": {
+      "tracks": [
+        {
+          "track_id": 110,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1116,
+            616,
+            1424,
+            760
+          ],
+          "confidence": 0.37522077560424805,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    },
+    "100": {
+      "tracks": [
+        {
+          "track_id": 111,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1117,
+            617,
+            1429,
+            771
+          ],
+          "confidence": 0.42299172282218933,
+          "age": 0,
+          "hits": 1
+        },
+        {
+          "track_id": 112,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            2382,
+            991,
+            2558,
+            1094
+          ],
+          "confidence": 0.2927011251449585,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 2
+    },
+    "101": {
+      "tracks": [
+        {
+          "track_id": 113,
+          "class": "truck",
+          "class_id": 7,
+          "bbox": [
+            1115,
+            616,
+            1418,
+            768
+          ],
+          "confidence": 0.3434150516986847,
+          "age": 0,
+          "hits": 1
+        }
+      ],
+      "total_tracks": 1
+    }
+  }
+}

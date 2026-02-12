@@ -89,7 +89,9 @@
       "Bash(git rm bin/start.sh bin/stop.sh bin/restart.sh bin/status.sh bin/start_win.bat bin/stop_win.bat bin/restart_win.bat \"bin/重新入库.sh\")",
       "Bash(\".venv/Scripts/pip.exe\" install -q nicegui pyyaml requests numpy pillow lancedb langgraph opencv-python)",
       "Bash(\".venv/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\(''poc/app/pages/shared.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''shared OK''\\)\")",
-      "Bash(\".venv/Scripts/python.exe\" -c \"from poc.app.pages.shared import ensure_systems; print\\(''import OK''\\)\")"
+      "Bash(\".venv/Scripts/python.exe\" -c \"from poc.app.pages.shared import ensure_systems; print\\(''import OK''\\)\")",
+      "Bash(\".venv/Scripts/python.exe\" bin/clean_orphan_records.py --dry-run)",
+      "Bash(\".venv/Scripts/python.exe\" bin/clean_orphan_records.py)"
     ]
   },
   "hooks": {
