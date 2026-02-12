@@ -7,6 +7,10 @@ from typing import List, Dict
 import base64
 import os
 
+from poc.infra.http_utils import post_with_retry, get_logger
+
+log = get_logger("qwen_reranker")
+
 
 class Qwen3VLReranker:
     """Qwen3-VL Reranker HTTP 客户端"""
@@ -21,8 +25,9 @@ class Qwen3VLReranker:
         """
         self.api_url = api_url.rstrip('/')
         self.timeout = timeout
+        self.max_retries = 3
 
-        print(f"[OK] Qwen3-VL Reranker 客户端初始化: {self.api_url}")
+        log.info("Qwen3-VL Reranker 客户端初始化: %s", self.api_url)
 
     def compute_relevance_score(
         self,
@@ -43,7 +48,7 @@ class Qwen3VLReranker:
         """
         try:
             if not os.path.exists(image_path):
-                print(f"⚠ 图像文件不存在: {image_path}")
+                log.warning("图像文件不存在: %s", image_path)
                 return 0.5
 
             # 使用绝对路径
@@ -54,12 +59,13 @@ class Qwen3VLReranker:
                 "image_path": abs_image_path
             }
 
-            response = requests.post(
+            response = post_with_retry(
                 f"{self.api_url}/v1/tower/rerank",
                 json=payload,
-                timeout=self.timeout
+                timeout=self.timeout,
+                max_retries=self.max_retries,
+                logger=log,
             )
-            response.raise_for_status()
 
             result = response.json()
 
@@ -67,14 +73,14 @@ class Qwen3VLReranker:
                 score = float(result["score"])
                 return min(max(score, 0.0), 1.0)  # 限制在 0-1 之间
             else:
-                print(f"⚠ API 返回格式错误: {result}")
+                log.warning("API 返回格式错误: %s", result)
                 return 0.5
 
         except requests.exceptions.RequestException as e:
-            print(f"⚠ Rerank 请求失败: {e}")
+            log.warning("Rerank 请求失败: %s", e)
             return 0.5  # 默认中等得分
         except Exception as e:
-            print(f"⚠ 计算相关性得分失败: {e}")
+            log.warning("计算相关性得分失败: %s", e)
             return 0.5
 
     def rerank(

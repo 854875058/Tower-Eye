@@ -9,6 +9,10 @@ import numpy as np
 import base64
 import os
 
+from poc.infra.http_utils import post_with_retry, get_logger
+
+log = get_logger("qwen_embedding")
+
 
 class Qwen3VLEmbedding:
     """Qwen3-VL Embedding HTTP 客户端"""
@@ -26,8 +30,9 @@ class Qwen3VLEmbedding:
         self.timeout = timeout
         self._embedding_dim = None
         self.dummy_image = dummy_image  # 占位图像路径
+        self.max_retries = 3
 
-        print(f"[OK] Qwen3-VL Embedding 客户端初始化: {self.api_url}")
+        log.info("Qwen3-VL Embedding 客户端初始化: %s", self.api_url)
 
     def encode_text(self, text: str, dummy_image_path: str = None) -> np.ndarray:
         """
@@ -63,12 +68,13 @@ class Qwen3VLEmbedding:
                 "image_path": os.path.abspath(image_path) if os.path.exists(image_path) else image_path
             }
 
-            response = requests.post(
+            response = post_with_retry(
                 f"{self.api_url}/v1/tower/embed",
                 json=payload,
-                timeout=self.timeout
+                timeout=self.timeout,
+                max_retries=self.max_retries,
+                logger=log,
             )
-            response.raise_for_status()
 
             result = response.json()
             if "embedding" not in result:
@@ -84,10 +90,10 @@ class Qwen3VLEmbedding:
             return embedding
 
         except requests.exceptions.RequestException as e:
-            print(f"文本向量化请求失败: {e}")
+            log.error("文本向量化请求失败: %s", e)
             raise
         except Exception as e:
-            print(f"文本向量化失败: {e}")
+            log.error("文本向量化失败: %s", e)
             raise
 
     def encode_image(self, image_path: Union[str, Path]) -> np.ndarray:
@@ -109,15 +115,16 @@ class Qwen3VLEmbedding:
             # 使用绝对路径
             abs_image_path = os.path.abspath(image_path)
 
-            response = requests.post(
+            response = post_with_retry(
                 f"{self.api_url}/v1/tower/embed",
                 json={
                     "text": "",  # 空文本
                     "image_path": abs_image_path
                 },
-                timeout=self.timeout
+                timeout=self.timeout,
+                max_retries=self.max_retries,
+                logger=log,
             )
-            response.raise_for_status()
 
             result = response.json()
             if "embedding" not in result:
@@ -133,10 +140,10 @@ class Qwen3VLEmbedding:
             return embedding
 
         except requests.exceptions.RequestException as e:
-            print(f"图像向量化请求失败: {e}")
+            log.error("图像向量化请求失败: %s", e)
             raise
         except Exception as e:
-            print(f"图像向量化失败: {e}")
+            log.error("图像向量化失败: %s", e)
             raise
 
     def encode_batch(self, texts: List[str] = None, images: List[Union[str, Path]] = None) -> np.ndarray:

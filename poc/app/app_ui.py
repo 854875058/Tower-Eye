@@ -1523,6 +1523,36 @@ def monitor_page():
         else:
             ui.label('Tool 注册中心未初始化').classes('text-slate-400')
 
+        # 外部服务健康检查
+        ui.label('外部服务状态').classes('font-bold text-lg text-slate-800 mb-3 mt-8')
+        try:
+            from poc.infra.http_utils import check_all_services
+            health = check_all_services(config)
+            svc_names = {
+                "qwen_embedding": "Qwen3-VL Embedding (8010)",
+                "qwen_reranker": "Qwen3-VL Reranker (8011)",
+                "vllm": "VLLM VL 检测 (50100)",
+                "deepseek": "DeepSeek LLM",
+            }
+            health_rows = []
+            for key, info in health.items():
+                status = "可用" if info["available"] else "不可用"
+                latency = f'{info["latency_ms"]:.0f}ms' if info["available"] else "-"
+                error = info.get("error") or ""
+                health_rows.append({
+                    "服务": svc_names.get(key, key),
+                    "状态": status,
+                    "延迟": latency,
+                    "错误": error,
+                })
+            if health_rows:
+                ui.table(
+                    columns=[{"name": c, "label": c, "field": c} for c in ["服务", "状态", "延迟", "错误"]],
+                    rows=health_rows,
+                ).classes('w-full mb-4')
+        except Exception as e:
+            ui.label(f'健康检查失败: {e}').classes('text-slate-400')
+
         # Ray 集群状态
         ui.label('Ray 集群状态').classes('font-bold text-lg text-slate-800 mb-3 mt-8')
         try:
