@@ -57,7 +57,7 @@ def dashboard_page():
                     ui.label(desc).classes('text-xs text-slate-500 leading-relaxed')
 
         # ── 系统架构图（大图，详细） ──
-        with ui.element('div').classes('kpi-card mb-6'):
+        with ui.element('div').classes('kpi-card mb-6 w-full'):
             with ui.row().classes('items-center gap-2 mb-4'):
                 ui.icon('account_tree').classes('text-blue-500 text-xl')
                 ui.label('系统架构图').classes('font-bold text-lg text-slate-800')
@@ -125,8 +125,8 @@ def dashboard_page():
     Search_Layer --> Qwen_Rerank
     Search_Layer --> LDB
     Rerank --> LDB
-    LDB --> FS''').classes('w-full overflow-x-auto').style(
-                'min-height:420px'
+    LDB --> FS''').classes('w-full').style(
+                'min-height:420px; width:100%;'
             )
 
         # ── 四大核心能力 ──

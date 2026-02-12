@@ -305,6 +305,7 @@ body { font-family: 'Inter','PingFang SC','Microsoft YaHei',sans-serif; backgrou
 .result-card { background:white; border-radius:16px; border:1px solid #e2e8f0; overflow:hidden;
                box-shadow:0 1px 3px rgba(0,0,0,0.04); transition:all 0.3s; }
 .result-card:hover { box-shadow:0 8px 24px rgba(0,0,0,0.1); transform:translateY(-4px); }
+.mermaid svg { width: 100% !important; max-width: none !important; }
 '''
 
 
