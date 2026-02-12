@@ -84,7 +84,7 @@ def search_page():
                     name = e.name
                     suffix = Path(name).suffix.lower()
                     print(f"[handle_upload] name={name}, suffix={suffix}, content_len={len(content)}")
-                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=str(resolve_path('poc/data')))
                     tmp.write(content); tmp.close()
                     upload_preview.clear()
                     if suffix == '.mp4':
@@ -96,33 +96,51 @@ def search_page():
                             cap.set(cv2.CAP_PROP_POS_FRAMES, total // 2)
                             ret, frame = cap.read(); cap.release()
                             if ret:
-                                frame_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+                                frame_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg", dir=str(resolve_path('poc/data')))
                                 cv2.imwrite(frame_tmp.name, frame); frame_tmp.close()
                                 state['uploaded_path'] = frame_tmp.name
+                                print(f"[handle_upload] 视频关键帧已保存: {frame_tmp.name}")
                                 import base64
                                 _, buf = cv2.imencode('.jpg', cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
                                 with upload_preview:
                                     ui.image(f'data:image/jpeg;base64,{base64.b64encode(buf).decode()}') \
                                         .classes('w-full max-h-48 object-contain rounded-lg')
                                     ui.label(f'视频关键帧（第 {total//2}/{total} 帧）').classes('text-xs text-slate-400')
+                            else:
+                                with upload_preview:
+                                    ui.label('视频抽帧失败：无法读取帧').classes('text-red-500 text-sm')
                         except Exception as ex:
                             with upload_preview:
                                 ui.label(f'视频抽帧失败: {ex}').classes('text-red-500 text-sm')
+                            traceback.print_exc()
                         finally:
                             Path(tmp.name).unlink(missing_ok=True)
                     else:
                         state['uploaded_is_video'] = False
                         state['uploaded_path'] = tmp.name
-                        print(f"[handle_upload] 图片已保存, uploaded_path={tmp.name}")
+                        print(f"[handle_upload] 图片已保存: {tmp.name}, size={Path(tmp.name).stat().st_size}")
                         import base64
                         with upload_preview:
                             ui.image(f'data:image/{suffix[1:]};base64,{base64.b64encode(content).decode()}') \
                                 .classes('w-full max-h-48 object-contain rounded-lg')
                             ui.label('上传的图片').classes('text-xs text-slate-400')
 
-                ui.upload(label='上传图片或视频', auto_upload=True, on_upload=handle_upload,
-                          max_file_size=50_000_000) \
-                    .props('accept=".jpg,.jpeg,.png,.bmp,.mp4"').classes('w-full')
+                with ui.row().classes('w-full gap-2 items-end'):
+                    ui.upload(label='上传图片或视频', auto_upload=True, on_upload=handle_upload,
+                              max_file_size=50_000_000) \
+                        .props('accept=".jpg,.jpeg,.png,.bmp,.mp4"').classes('flex-1')
+
+                    def clear_upload():
+                        old = state.get('uploaded_path')
+                        if old and Path(old).exists():
+                            Path(old).unlink(missing_ok=True)
+                        state['uploaded_path'] = None
+                        state['uploaded_is_video'] = False
+                        upload_preview.clear()
+                        ui.notify('已清除上传', type='info')
+
+                    ui.button(icon='clear', on_click=clear_upload) \
+                        .props('flat round color=grey-6').tooltip('清除上传')
 
             with ui.column().classes('gap-3'):
                 ui.number('返回数量', min=1, max=50, value=10, step=1).bind_value(state, 'top_k').props('outlined dense')
@@ -387,8 +405,13 @@ def search_page():
                     query_vec = await asyncio.get_event_loop().run_in_executor(
                         None, lambda: mgr.encode_text(q).astype("float32"))
                 elif uploaded:
+                    print(f"[do_search] 图片检索: uploaded_path={uploaded}, exists={Path(uploaded).exists()}")
+                    if not Path(uploaded).exists():
+                        ui.notify(f'上传文件已失效，请重新上传', type='warning')
+                        return
                     query_vec = await asyncio.get_event_loop().run_in_executor(
                         None, lambda: mgr.encode_image(uploaded).astype("float32"))
+                    print(f"[do_search] 图片编码完成, vec shape={query_vec.shape}")
 
                 if query_vec is None:
                     conn = connect_db(_db_path)
