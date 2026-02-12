@@ -142,11 +142,41 @@ def health_check(port, timeout=15):
 
 # ── commands ─────────────────────────────────────────────
 
+REQUIRED_PACKAGES = {
+    "nicegui": "nicegui",
+    "yaml": "pyyaml",
+    "requests": "requests",
+    "numpy": "numpy",
+    "PIL": "pillow",
+    "lancedb": "lancedb",
+    "langgraph": "langgraph",
+    "cv2": "opencv-python",
+}
+
+
+def ensure_deps():
+    """检查并自动安装缺失依赖"""
+    missing = []
+    for mod, pkg in REQUIRED_PACKAGES.items():
+        try:
+            __import__(mod)
+        except ImportError:
+            missing.append(pkg)
+    if not missing:
+        return
+    info(f"安装缺失依赖: {', '.join(missing)}")
+    python = get_python()
+    subprocess.run(
+        [python, "-m", "pip", "install", "-q"] + missing,
+        cwd=str(ROOT),
+    )
+
 def cmd_start(args):
     """启动 NiceGUI Web 应用"""
     banner("启动")
     os.chdir(ROOT)
     (ROOT / "logs").mkdir(exist_ok=True)
+    ensure_deps()
 
     # 检查是否已在运行
     if PID_FILE.exists():

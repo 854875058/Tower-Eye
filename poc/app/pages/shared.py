@@ -33,6 +33,7 @@ try:
     config = load_yaml("poc/config/poc.yaml")
 except ImportError as _ie:
     config = {}
+    ModelManager = None  # type: ignore
     print(f"Warning: backend import failed: {_ie}")
 
 # ── 静态文件服务 ──────────────────────────────────────────────────────────
