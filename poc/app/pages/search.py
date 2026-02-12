@@ -127,6 +127,9 @@ def search_page():
                             ui.image(f'data:image/{suffix[1:]};base64,{base64.b64encode(content).decode()}') \
                                 .classes('w-full max-h-48 object-contain rounded-lg')
                             ui.label('上传的图片').classes('text-xs text-slate-400')
+                    # 上传完成后自动触发检索
+                    if state.get('uploaded_path'):
+                        await do_search()
 
                 with ui.row().classes('w-full gap-2 items-end'):
                     ui.upload(label='上传图片或视频', auto_upload=True, on_upload=handle_upload,
