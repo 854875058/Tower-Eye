@@ -209,34 +209,39 @@ def cmd_start(args):
     print()
 
     if IS_WIN:
-        # Windows: 前台运行，Ctrl+C 停止
-        info("启动中... 浏览器将自动打开")
-        info("按 Ctrl+C 停止服务")
-        print()
-
-        proc = subprocess.Popen(
-            [python, str(APP_ENTRY)],
-            cwd=str(ROOT),
-        )
+        # Windows: 后台运行，日志写入 logs/app.log
+        info("后台启动中...")
+        with open(LOG_FILE, "a", encoding="utf-8") as log:
+            proc = subprocess.Popen(
+                [python, str(APP_ENTRY)],
+                cwd=str(ROOT),
+                stdout=log, stderr=log,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
         PID_FILE.write_text(str(proc.pid))
 
-        # 后台等待健康检查后打开浏览器
-        def open_browser():
-            if health_check(APP_PORT, timeout=10):
-                webbrowser.open(f"http://localhost:{APP_PORT}")
-
-        import threading
-        threading.Thread(target=open_browser, daemon=True).start()
-
-        try:
-            proc.wait()
-        except KeyboardInterrupt:
-            info("正在停止...")
-            proc.terminate()
-            proc.wait(timeout=5)
-        finally:
+        # 健康检查
+        info("等待启动...")
+        if not pid_alive(proc.pid):
+            fail("进程退出，启动失败！")
+            info(f"查看日志: type {LOG_FILE}")
             PID_FILE.unlink(missing_ok=True)
-            info("服务已停止")
+            sys.exit(1)
+
+        if health_check(APP_PORT):
+            ok("启动成功")
+            webbrowser.open(f"http://localhost:{APP_PORT}")
+        else:
+            warn("暂未响应，可能还在加载...")
+
+        print()
+        info(f"PID:  {proc.pid}")
+        info(f"端口: {APP_PORT}")
+        info(f"日志: {LOG_FILE}")
+        info(f"地址: http://localhost:{APP_PORT}")
+        print()
+        info("停止: python bin/manage.py stop")
+        info("状态: python bin/manage.py status")
     else:
         # Linux: 后台运行
         info("后台启动中...")
