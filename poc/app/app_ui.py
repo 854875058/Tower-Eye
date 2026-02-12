@@ -78,6 +78,15 @@ def ensure_systems():
             init_tool_registry(db_path)
     except Exception as e:
         print(f"init systems error: {e}")
+
+    # 初始化 Ray（如果配置启用）
+    try:
+        from poc.infra.ray_init import init_ray, create_actors
+        if init_ray(config):
+            create_actors(config)
+    except Exception as e:
+        print(f"[Ray] 初始化跳过: {e}")
+
     _systems_inited = True
 
 

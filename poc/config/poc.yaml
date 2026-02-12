@@ -94,3 +94,11 @@ train:
 gaode:
   api_key: "5a4ded47a2c36b9158075d2518428785"
   geocode_url: "https://restapi.amap.com/v3/geocode/geo"
+
+# Ray 分布式计算配置
+ray:
+  enabled: true
+  address: "auto"          # "auto" = 本地单机, "ray://ip:port" = 远程集群
+  num_gpus: 1              # 本机 GPU 数量
+  dashboard_port: 8265     # Ray Dashboard 端口
+  namespace: "multimodal"

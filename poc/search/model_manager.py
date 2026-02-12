@@ -7,6 +7,17 @@ from pathlib import Path
 import numpy as np
 
 
+def _get_embedding_actor():
+    """获取 Embedding Ray Actor（如果 Ray 可用）"""
+    try:
+        import ray
+        if ray.is_initialized():
+            return ray.get_actor("embedding")
+    except Exception:
+        pass
+    return None
+
+
 class ModelManager:
     """统一的模型管理器"""
 
@@ -76,6 +87,15 @@ class ModelManager:
 
     def encode_text(self, text: str) -> np.ndarray:
         """文本向量化"""
+        # 优先走 Ray Actor
+        actor = _get_embedding_actor()
+        if actor is not None:
+            import ray
+            try:
+                return ray.get(actor.encode_text.remote(text))
+            except Exception as e:
+                print(f"[ModelManager] Ray Actor 调用失败，fallback 到本地: {e}")
+
         if self.model_type == "clip":
             return self.embedding_model.encode(
                 text,
@@ -89,6 +109,15 @@ class ModelManager:
 
     def encode_image(self, image_path: Union[str, Path]) -> np.ndarray:
         """图像向量化"""
+        # 优先走 Ray Actor
+        actor = _get_embedding_actor()
+        if actor is not None:
+            import ray
+            try:
+                return ray.get(actor.encode_image.remote(str(image_path)))
+            except Exception as e:
+                print(f"[ModelManager] Ray Actor 调用失败，fallback 到本地: {e}")
+
         if self.model_type == "clip":
             from PIL import Image
             image = Image.open(image_path).convert("RGB")

@@ -349,6 +349,30 @@ def image_to_base64(image_path: str) -> str:
         return base64.b64encode(buffer.getvalue()).decode('utf-8')
 
 
+# ── Ray Actor 辅助函数 ────────────────────────────────────────────────────
+
+def _get_yolo_actor():
+    """获取 YOLO Ray Actor（如果 Ray 可用）"""
+    try:
+        import ray
+        if ray.is_initialized():
+            return ray.get_actor("yolo_detector")
+    except Exception:
+        pass
+    return None
+
+
+def _get_vl_actor():
+    """获取 VL Ray Actor（如果 Ray 可用）"""
+    try:
+        import ray
+        if ray.is_initialized():
+            return ray.get_actor("vl_analyzer")
+    except Exception:
+        pass
+    return None
+
+
 class AutoLabelEngine:
     """自动标注引擎 - 支持 VLLM API 图片检测 + YOLOv26x 视频检测"""
 
@@ -417,6 +441,15 @@ class AutoLabelEngine:
 
     def detect_image(self, image_path: str) -> List[Dict]:
         """检测单张图片 - 使用 VLLM API"""
+        # 优先走 Ray VL Actor
+        actor = _get_vl_actor()
+        if actor is not None:
+            import ray
+            try:
+                return ray.get(actor.detect_image.remote(image_path))
+            except Exception as e:
+                print(f"[AutoLabel] Ray VL Actor 调用失败，fallback 到本地: {e}")
+
         if self.client is None:
             print("[AutoLabel] VLLM API 不可用，无法检测")
             return []
@@ -610,6 +643,15 @@ excavator, bulldozer, dump truck, tractor, trailer
 
     def detect_image_with_yolo(self, image_path: str) -> List[Dict]:
         """检测单张图片 - 使用 YOLOv26x 本地模型（用于视频检测）"""
+        # 优先走 Ray YOLO Actor
+        actor = _get_yolo_actor()
+        if actor is not None:
+            import ray
+            try:
+                return ray.get(actor.detect_image.remote(image_path))
+            except Exception as e:
+                print(f"[AutoLabel] Ray YOLO Actor 调用失败，fallback 到本地: {e}")
+
         if self.yolo_model is None:
             print("[AutoLabel] YOLO 模型未加载，无法检测")
             return []
@@ -669,6 +711,20 @@ excavator, bulldozer, dump truck, tractor, trailer
         if preview_dir and desc_path and desc_path.exists():
             with open(desc_path, 'r', encoding='utf-8') as f:
                 return f.read().strip()
+
+        # 优先走 Ray VL Actor
+        actor = _get_vl_actor()
+        if actor is not None:
+            import ray
+            try:
+                description = ray.get(actor.describe_image.remote(image_path))
+                if description and preview_dir:
+                    Path(preview_dir).mkdir(parents=True, exist_ok=True)
+                    with open(desc_path, 'w', encoding='utf-8') as f:
+                        f.write(description)
+                return description
+            except Exception as e:
+                print(f"[AutoLabel] Ray VL Actor 调用失败，fallback 到本地: {e}")
 
         if self.client is None:
             print("[AutoLabel] VLLM API 不可用，无法描述图片")
