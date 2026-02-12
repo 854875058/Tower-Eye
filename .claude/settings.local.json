@@ -82,7 +82,11 @@
       "Bash(git rm start_poc.py stop_poc.py restart_poc.py)",
       "Bash(powershell -Command \"Get-Process python* | Select-Object Id, ProcessName, StartTime, CPU | Format-Table -AutoSize\")",
       "Bash(powershell -Command \"Get-Process -Id 40936 -ErrorAction SilentlyContinue | Select-Object Id, CPU, WorkingSet64\")",
-      "Bash(powershell -Command \"Get-NetTCPConnection -OwningProcess 40936 -ErrorAction SilentlyContinue | Select-Object RemoteAddress, RemotePort, State | Format-Table -AutoSize\")"
+      "Bash(powershell -Command \"Get-NetTCPConnection -OwningProcess 40936 -ErrorAction SilentlyContinue | Select-Object RemoteAddress, RemotePort, State | Format-Table -AutoSize\")",
+      "Bash(\".venv/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\(''bin/manage.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(\".venv/Scripts/python.exe\" bin/manage.py check)",
+      "Bash(\".venv/Scripts/python.exe\" bin/manage.py status)",
+      "Bash(git rm bin/start.sh bin/stop.sh bin/restart.sh bin/status.sh bin/start_win.bat bin/stop_win.bat bin/restart_win.bat \"bin/重新入库.sh\")"
     ]
   },
   "hooks": {
