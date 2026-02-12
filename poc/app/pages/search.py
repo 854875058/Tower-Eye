@@ -26,16 +26,29 @@ def search_page():
 
         # 检查 LanceDB
         _lancedb_ready = False
+        _lance_err = ""
         try:
             import lancedb as _ldb
             _lance_db = _ldb.connect(str(lancedb_dir))
-            _lance_tables = _lance_db.list_tables() if hasattr(_lance_db, 'list_tables') else _lance_db.table_names()
-            _lancedb_ready = "embeddings" in _lance_tables
-        except Exception:
+            if hasattr(_lance_db, 'table_names'):
+                _lance_tables = _lance_db.table_names()
+            elif hasattr(_lance_db, 'list_tables'):
+                _lance_tables = _lance_db.list_tables()
+            else:
+                _lance_tables = []
+            # table_names() 返回 List[str]，list_tables() 可能返回对象列表
+            _table_names = [str(t) for t in _lance_tables]
+            _lancedb_ready = "embeddings" in _table_names
+            if not _lancedb_ready:
+                _lance_err = f"表列表: {_table_names}，不含 'embeddings'"
+        except Exception as e:
             _lancedb_ready = False
+            _lance_err = str(e)
 
         if not _lancedb_ready:
             ui.label('向量数据库未初始化，请在服务器上运行 bash 重新入库.sh').classes('text-red-600 font-semibold')
+            if _lance_err:
+                ui.label(f'诊断信息: {_lance_err}').classes('text-slate-400 text-xs mt-1')
             return
 
         state: Dict[str, Any] = {
