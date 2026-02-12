@@ -335,9 +335,12 @@ def qa_page():
                         if isinstance(answer_data, list) and len(answer_data) > 0 and isinstance(answer_data[0], dict):
                             ui.label(f'共 {len(answer_data)} 条记录').classes('text-sm text-blue-600')
                             cols_raw = list(answer_data[0].keys())
-                            tbl_cols = [{"name": c, "label": c.replace('_', ' ').title(), "field": c, "sortable": True} for c in cols_raw]
+                            # 表格隐藏 extra_json（太长影响阅读）
+                            tbl_cols_filtered = [c for c in cols_raw if c != 'extra_json']
+                            tbl_cols = [{"name": c, "label": c.replace('_', ' ').title(), "field": c, "sortable": True} for c in tbl_cols_filtered]
+                            tbl_rows = [{k: v for k, v in row.items() if k != 'extra_json'} for row in answer_data[:50]]
                             with ui.element('div').classes('w-full overflow-x-auto'):
-                                ui.table(columns=tbl_cols, rows=answer_data[:50],
+                                ui.table(columns=tbl_cols, rows=tbl_rows,
                                          pagination={"rowsPerPage": 5}).classes('w-full text-xs').props('dense wrap-cells')
 
                             # 媒体预览
@@ -476,14 +479,56 @@ def qa_page():
                 color = 'text-slate-300'
             ui.label(line).classes(f'{color} whitespace-pre-wrap break-all')
 
+        def _render_welcome():
+            """渲染欢迎页"""
+            with ui.row().classes('w-full justify-start items-start gap-2'):
+                ui.icon('smart_toy').classes('text-blue-500 text-2xl mt-1 flex-shrink-0')
+                with ui.column().classes(
+                    'bg-white rounded-2xl rounded-tl-sm px-5 py-4 shadow-sm gap-3 min-w-0'
+                ).style('max-width:calc(100% - 48px)'):
+                    ui.label('你好！我是多模态检索 Agent 助手 👋').classes('text-base font-semibold text-slate-800')
+                    ui.label(
+                        '我可以帮你用自然语言查询告警数据，支持统计分析、条件筛选、图片视频预览。'
+                        '直接输入问题即可，我会自动生成 SQL 并执行。'
+                    ).classes('text-sm text-slate-500 leading-relaxed')
+
+                    # 用法示例
+                    ui.separator().classes('my-1 opacity-30')
+                    ui.label('💡 我能做什么').classes('text-xs font-semibold text-slate-600')
+                    examples = [
+                        ('📊 统计分析', '按街道统计告警数量、按设备统计TOP10、按类型分布...'),
+                        ('🔍 条件查询', '查询某设备/某时间段/某类型的告警详情'),
+                        ('🖼️ 媒体预览', '查询结果自动展示对应的图片和视频'),
+                        ('🔄 自动纠错', '如果 SQL 执行失败，我会自动修正重试'),
+                    ]
+                    with ui.column().classes('gap-1.5'):
+                        for icon_label, desc in examples:
+                            with ui.row().classes('items-start gap-2'):
+                                ui.label(icon_label).classes('text-xs font-medium text-slate-700 flex-shrink-0 w-20')
+                                ui.label(desc).classes('text-xs text-slate-500')
+
+                    # 猜你想问
+                    ui.separator().classes('my-1 opacity-30')
+                    ui.label('🎯 猜你想问').classes('text-xs font-semibold text-slate-600')
+                    guesses = [
+                        "按街道统计最近30天各类告警数量",
+                        "查询最近20条车辆闯入告警的详细信息",
+                        "统计各设备触发告警次数最多的TOP10",
+                        "查询置信度大于0.9的高置信告警",
+                        "按告警类型统计本月告警分布",
+                        "查询最近10条有视频的告警记录",
+                    ]
+                    with ui.row().classes('flex-wrap gap-2'):
+                        for g in guesses:
+                            ui.button(g, on_click=lambda g=g: do_ask(g)) \
+                                .props('outline size=sm color=blue-6 rounded-lg no-caps')
+
         def _refresh_chat():
             """重新渲染整个聊天区"""
             chat_container.clear()
             with chat_container:
                 if not chat_history:
-                    with ui.column().classes('w-full items-center py-12'):
-                        ui.icon('chat').classes('text-6xl text-slate-200')
-                        ui.label('输入问题开始对话').classes('text-slate-400 mt-2')
+                    _render_welcome()
                     return
                 for msg in chat_history:
                     if msg['role'] == 'user':
