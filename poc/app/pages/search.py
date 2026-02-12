@@ -83,6 +83,7 @@ def search_page():
                     content = e.content.read()
                     name = e.name
                     suffix = Path(name).suffix.lower()
+                    print(f"[handle_upload] name={name}, suffix={suffix}, content_len={len(content)}")
                     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
                     tmp.write(content); tmp.close()
                     upload_preview.clear()
@@ -112,6 +113,7 @@ def search_page():
                     else:
                         state['uploaded_is_video'] = False
                         state['uploaded_path'] = tmp.name
+                        print(f"[handle_upload] 图片已保存, uploaded_path={tmp.name}")
                         import base64
                         with upload_preview:
                             ui.image(f'data:image/{suffix[1:]};base64,{base64.b64encode(content).decode()}') \
@@ -353,6 +355,7 @@ def search_page():
             filters = collect_search_filters()
             has_query = bool(q) or bool(uploaded)
             has_filter = bool(filters)
+            print(f"[do_search] query_text={q!r}, uploaded_path={uploaded!r}, filters={filters}, has_query={has_query}, has_filter={has_filter}")
             if not has_query and not has_filter:
                 ui.notify('请输入检索文本、上传图片/视频，或设置筛选条件', type='warning'); return
             ui.notify('检索中...', type='info')
