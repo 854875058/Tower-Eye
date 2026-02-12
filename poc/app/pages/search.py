@@ -3,8 +3,16 @@ import json
 import asyncio
 import tempfile
 import traceback
+import logging
 from pathlib import Path
 from typing import Any, Dict, List
+
+# 写到文件的日志，方便排查
+_log = logging.getLogger("search_page")
+_log.setLevel(logging.DEBUG)
+_fh = logging.FileHandler(str(Path(__file__).resolve().parents[2] / "data" / "search_debug.log"), encoding="utf-8")
+_fh.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+_log.addHandler(_fh)
 
 from nicegui import ui, events
 from poc.app.pages.shared import (
@@ -81,56 +89,65 @@ def search_page():
                 upload_preview = ui.column().classes('w-full')
 
                 async def handle_upload(e: events.UploadEventArguments):
-                    content = e.content.read()
-                    name = e.name
-                    suffix = Path(name).suffix.lower()
-                    print(f"[handle_upload] name={name}, suffix={suffix}, content_len={len(content)}")
-                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=str(resolve_path('poc/data')))
-                    tmp.write(content); tmp.close()
-                    upload_preview.clear()
-                    if suffix == '.mp4':
-                        state['uploaded_is_video'] = True
-                        try:
-                            import cv2
-                            cap = cv2.VideoCapture(tmp.name)
-                            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                            cap.set(cv2.CAP_PROP_POS_FRAMES, total // 2)
-                            ret, frame = cap.read(); cap.release()
-                            if ret:
-                                frame_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg", dir=str(resolve_path('poc/data')))
-                                cv2.imwrite(frame_tmp.name, frame); frame_tmp.close()
-                                state['uploaded_path'] = frame_tmp.name
-                                _upload_ref.clear(); _upload_ref.append(frame_tmp.name)
-                                print(f"[handle_upload] 视频关键帧已保存: {frame_tmp.name}")
-                                import base64
-                                _, buf = cv2.imencode('.jpg', cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                    try:
+                        # NiceGUI 3.7+ API: e.file.name / await e.file.read()
+                        name = e.file.name
+                        content = await e.file.read()
+                        suffix = Path(name).suffix.lower()
+                        _log.info(f"[handle_upload] START name={name}, suffix={suffix}, content_len={len(content)}")
+                        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=str(resolve_path('poc/data')))
+                        tmp.write(content); tmp.close()
+                        upload_preview.clear()
+                        if suffix == '.mp4':
+                            state['uploaded_is_video'] = True
+                            try:
+                                import cv2
+                                cap = cv2.VideoCapture(tmp.name)
+                                total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                                cap.set(cv2.CAP_PROP_POS_FRAMES, total // 2)
+                                ret, frame = cap.read(); cap.release()
+                                if ret:
+                                    frame_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg", dir=str(resolve_path('poc/data')))
+                                    cv2.imwrite(frame_tmp.name, frame); frame_tmp.close()
+                                    state['uploaded_path'] = frame_tmp.name
+                                    _upload_ref.clear(); _upload_ref.append(frame_tmp.name)
+                                    _log.info(f"[handle_upload] video frame saved: {frame_tmp.name}")
+                                    import base64
+                                    _, buf = cv2.imencode('.jpg', cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                                    with upload_preview:
+                                        ui.image(f'data:image/jpeg;base64,{base64.b64encode(buf).decode()}') \
+                                            .classes('w-full max-h-48 object-contain rounded-lg')
+                                        ui.label(f'视频关键帧（第 {total//2}/{total} 帧）').classes('text-xs text-slate-400')
+                                else:
+                                    with upload_preview:
+                                        ui.label('视频抽帧失败：无法读取帧').classes('text-red-500 text-sm')
+                            except Exception as ex:
                                 with upload_preview:
-                                    ui.image(f'data:image/jpeg;base64,{base64.b64encode(buf).decode()}') \
-                                        .classes('w-full max-h-48 object-contain rounded-lg')
-                                    ui.label(f'视频关键帧（第 {total//2}/{total} 帧）').classes('text-xs text-slate-400')
-                            else:
-                                with upload_preview:
-                                    ui.label('视频抽帧失败：无法读取帧').classes('text-red-500 text-sm')
-                        except Exception as ex:
+                                    ui.label(f'视频抽帧失败: {ex}').classes('text-red-500 text-sm')
+                                _log.error(f"[handle_upload] video error: {ex}")
+                                traceback.print_exc()
+                            finally:
+                                Path(tmp.name).unlink(missing_ok=True)
+                        else:
+                            state['uploaded_is_video'] = False
+                            state['uploaded_path'] = tmp.name
+                            _upload_ref.clear(); _upload_ref.append(tmp.name)
+                            _log.info(f"[handle_upload] image saved: {tmp.name}")
+                            import base64
                             with upload_preview:
-                                ui.label(f'视频抽帧失败: {ex}').classes('text-red-500 text-sm')
-                            traceback.print_exc()
-                        finally:
-                            Path(tmp.name).unlink(missing_ok=True)
-                    else:
-                        state['uploaded_is_video'] = False
-                        state['uploaded_path'] = tmp.name
-                        _upload_ref.clear(); _upload_ref.append(tmp.name)
-                        print(f"[handle_upload] 图片已保存: {tmp.name}, size={Path(tmp.name).stat().st_size}")
-                        import base64
-                        with upload_preview:
-                            ui.image(f'data:image/{suffix[1:]};base64,{base64.b64encode(content).decode()}') \
-                                .classes('w-full max-h-48 object-contain rounded-lg')
-                            ui.label('上传的图片').classes('text-xs text-slate-400')
-                    # 上传完成后自动触发检索（强制文件模式）
-                    if state.get('uploaded_path'):
-                        await asyncio.sleep(0.2)  # 等待磁盘IO和状态同步
-                        await do_search(force_file=True)
+                                ui.image(f'data:image/{suffix[1:]};base64,{base64.b64encode(content).decode()}') \
+                                    .classes('w-full max-h-48 object-contain rounded-lg')
+                                ui.label('上传的图片').classes('text-xs text-slate-400')
+                        # 上传完成后自动触发检索（强制文件模式）
+                        _log.info(f"[handle_upload] END uploaded_path={state.get('uploaded_path')!r}, _upload_ref={_upload_ref}")
+                        if state.get('uploaded_path'):
+                            await asyncio.sleep(0.2)
+                            _log.info("[handle_upload] calling do_search(force_file=True)")
+                            await do_search(force_file=True)
+                    except Exception as ex:
+                        _log.error(f"[handle_upload] EXCEPTION: {ex}")
+                        traceback.print_exc()
+                        ui.notify(f'上传处理失败: {ex}', type='negative')
 
                 with ui.row().classes('w-full gap-2 items-end'):
                     ui.upload(label='上传图片或视频', auto_upload=True, on_upload=handle_upload,
@@ -386,15 +403,21 @@ def search_page():
             has_file = bool(uploaded and Path(uploaded).exists())
             # 只要有文件就走图片检索（force_file 时更是如此）
             use_file_search = has_file
+            _log.info(f"[do_search] text={has_text}({q!r}), file={has_file}(path={uploaded!r}), force_file={force_file}, use_file_search={use_file_search}, _upload_ref={_upload_ref}")
+            _log.info(f"[do_search] state keys: uploaded_path={state.get('uploaded_path')!r}")
             print(f"[do_search] text={has_text}({q!r}), file={has_file}(path={uploaded!r}), force_file={force_file}, use_file_search={use_file_search}, _upload_ref={_upload_ref}")
             if not (has_text or has_file or f_state.get('enable_time') or f_state.get('enable_geo') or any(v for v in filters.values() if v)):
+                _log.info("[do_search] BLOCKED: no text, no file, no filter -> showing warning")
                 ui.notify('请输入检索文本、上传图片/视频，或设置筛选条件', type='warning'); return
             ui.notify('检索中...', type='info')
             try:
                 import lancedb
+                _log.info("[do_search] connecting lancedb...")
                 db = lancedb.connect(str(lancedb_dir))
                 table = db.open_table("embeddings")
+                _log.info("[do_search] lancedb connected, getting model manager...")
                 mgr = get_model_manager()
+                _log.info(f"[do_search] model manager ready: {type(mgr)}")
                 top_k = int(state['top_k'])
                 search_cfg = config.get("search", {})
                 reranker_enabled = search_cfg.get("reranker_enabled", False)
@@ -403,10 +426,10 @@ def search_page():
                 query_vec = None
                 if use_file_search:
                     # 图片/视频帧检索（最高优先级）
-                    print(f"[do_search] 图片检索: uploaded_path={uploaded}")
+                    _log.info(f"[do_search] encoding image: {uploaded}")
                     query_vec = await asyncio.get_event_loop().run_in_executor(
                         None, lambda: mgr.encode_image(uploaded).astype("float32"))
-                    print(f"[do_search] 图片编码完成, vec shape={query_vec.shape}")
+                    _log.info(f"[do_search] image encoded, vec shape={query_vec.shape}")
                 elif has_text:
                     # 文本检索
                     try:
@@ -480,6 +503,9 @@ def search_page():
                     for _, row in results_df.iterrows():
                         aid = row["asset_id"]
                         score = float(row.get("hybrid_score", row.get("_distance", 0)))
+                        # L2 距离转相似度: 1 / (1 + distance)，越大越相似
+                        if score < 1.0:
+                            score = 1.0 / (1.0 + score)
                         rd = details.get(aid, {"_extra": {}})
                         formatted.append(build_result_item(rd, score))
 

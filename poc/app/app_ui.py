@@ -29,8 +29,9 @@ if __name__ in {"__main__", "__mp_main__"}:
     ui.run(
         host="0.0.0.0",
         port=8080,
-        title="多模态数据底座",
+        title="铁塔之眼-多模态数据底座",
         favicon="🏗️",
         storage_secret="Tower-Eye",
         reload=False,
     )
+

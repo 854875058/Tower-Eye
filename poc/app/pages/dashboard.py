@@ -8,7 +8,7 @@ from poc.app.pages.shared import (
 @ui.page('/')
 def dashboard_page():
     with create_layout('/'):
-        page_header('架构概览', '生产级 RAG + Agent + 多模态检索系统全景')
+        page_header('Tower-Eye 铁塔之眼 · 架构概览', '生产级 RAG + Agent + 多模态检索系统全景')
 
         # ── 实时数据统计 KPI ──
         try:
@@ -62,69 +62,103 @@ def dashboard_page():
                 ui.icon('account_tree').classes('text-blue-500 text-xl')
                 ui.label('系统架构图').classes('font-bold text-lg text-slate-800')
             ui.mermaid('''graph LR
-    subgraph UI["前端交互层"]
+    subgraph UI["前端交互层 · NiceGUI"]
         direction TB
-        NUI["NiceGUI Web UI"]
-        QA_Page["智能问答"]
-        Search_Page["多模态检索"]
-        Label_Page["自动标注"]
-        Monitor_Page["系统监控"]
-        NUI --- QA_Page
-        NUI --- Search_Page
-        NUI --- Label_Page
-        NUI --- Monitor_Page
+        QA_Page["智能问答<br/>自然语言提问"]
+        Search_Page["多模态检索<br/>文本/图片/视频"]
+        Label_Page["自动标注<br/>图片/视频批量"]
+        Monitor_Page["系统监控<br/>全链路追踪"]
     end
 
-    subgraph Agent_Layer["Agent 编排层"]
+    subgraph QA_Flow["智能问答 · LangGraph Agent"]
         direction TB
-        Parse["问题解析 NL2SQL"]
-        Validate["SQL 验证 安全护栏"]
-        Execute["SQL 执行"]
-        Format["结果格式化"]
-        Fix["自我修正 LLM重写"]
-        Parse --> Validate --> Execute --> Format
-        Execute -.->|失败| Fix -.->|重试| Validate
+        NL["自然语言输入"]
+        NL2SQL["NL2SQL 意图解析<br/>DeepSeek Chat"]
+        TimeArea["时间/地区/场景<br/>实体自动提取"]
+        SQLGen["SQL 生成<br/>注入当前时间"]
+        Guard["安全护栏<br/>表白名单/注入防护"]
+        Exec["SQL 执行"]
+        Fix["自我修正<br/>LLM 分析错误重写"]
+        Fmt["结果格式化<br/>表格/图表/摘要"]
+        NL --> NL2SQL --> TimeArea --> SQLGen --> Guard --> Exec
+        Exec -->|成功| Fmt
+        Exec -.->|失败 max 3次| Fix -.-> SQLGen
     end
 
-    subgraph Search_Layer["检索引擎层"]
+    subgraph Search_Flow["多模态检索 · 二阶段"]
         direction TB
-        Text_Enc["文本编码"]
-        Img_Enc["图像编码"]
-        Video_Enc["视频抽帧"]
-        Hybrid["混合检索"]
-        Rerank["Reranker精排"]
-        Text_Enc --> Hybrid
-        Img_Enc --> Hybrid
-        Video_Enc --> Img_Enc
-        Hybrid --> Rerank
+        Input["输入分流"]
+        TxtEnc["文本向量编码<br/>Qwen3-VL Embed"]
+        ImgEnc["图像向量编码<br/>Qwen3-VL Embed"]
+        VidProc["视频抽帧<br/>OpenCV 中间帧"]
+        Filter["结构化预过滤<br/>SQLite 条件筛选"]
+        VecSearch["向量检索<br/>LanceDB ANN"]
+        Hybrid["混合检索<br/>向量+关键词加权"]
+        PostFilter["后置过滤<br/>asset_id 交集"]
+        Rerank["Reranker 精排<br/>Qwen3-VL Rerank"]
+        Input -->|文本| TxtEnc --> Hybrid
+        Input -->|图片| ImgEnc --> VecSearch
+        Input -->|视频| VidProc --> ImgEnc
+        Input -->|筛选条件| Filter --> PostFilter
+        Hybrid --> PostFilter --> Rerank
+        VecSearch --> PostFilter
     end
 
-    subgraph Model_Layer["AI 模型层"]
+    subgraph Label_Flow["自动标注 · 双引擎"]
         direction TB
-        Qwen_Embed["Qwen3-VL Embedding :8010"]
-        Qwen_Rerank["Qwen3-VL Reranker :8011"]
-        DeepSeek["DeepSeek NL2SQL"]
-        YOLO["YOLOv26x 检测"]
-        VLLM["VLLM 语义分析"]
+        ImgIn["图片/视频输入"]
+        YOLO["YOLOv26x 检测<br/>18类工程车辆"]
+        Track["卡尔曼跟踪<br/>多目标轨迹关联"]
+        VLLM["VLLM 语义分析<br/>场景理解/描述"]
+        Export["标注导出<br/>YOLO格式/可编辑"]
+        ImgIn --> YOLO --> Track --> Export
+        ImgIn --> VLLM --> Export
+    end
+
+    subgraph Models["AI 模型服务"]
+        direction TB
+        QwenEmbed["Qwen3-VL Embedding<br/>:8010 图文跨模态"]
+        QwenRerank["Qwen3-VL Reranker<br/>:8011 精排重排序"]
+        DS["DeepSeek Chat<br/>NL2SQL/自我修正"]
+        YOLOModel["YOLOv26x<br/>目标检测"]
+        VLLMModel["VLLM API<br/>语义分析"]
     end
 
     subgraph Storage["数据存储层"]
         direction TB
-        LDB[("LanceDB 向量库")]
-        SQLite[("SQLite 结构化")]
-        FS["文件系统 图片/视频"]
+        LDB[("LanceDB<br/>向量索引")]
+        SQLite[("SQLite<br/>结构化数据")]
+        FS["文件系统<br/>图片/视频/告警"]
     end
 
-    QA_Page --> Agent_Layer
-    Search_Page --> Search_Layer
-    Label_Page --> YOLO
-    Label_Page --> VLLM
-    Agent_Layer --> DeepSeek
-    Agent_Layer --> SQLite
-    Search_Layer --> Qwen_Embed
-    Search_Layer --> Qwen_Rerank
-    Search_Layer --> LDB
-    Rerank --> LDB
+    subgraph Pipeline["数据入库管线"]
+        direction TB
+        Ingest["数据采集<br/>告警/资产/图片"]
+        Embed["批量向量化<br/>Qwen3-VL Embed"]
+        Summarize["图像理解<br/>VLLM 摘要生成"]
+        Index["索引构建<br/>LanceDB 入库"]
+        Ingest --> Embed --> Index
+        Ingest --> Summarize --> Index
+    end
+
+    QA_Page --> QA_Flow
+    Search_Page --> Search_Flow
+    Label_Page --> Label_Flow
+    Monitor_Page -.-> Storage
+
+    QA_Flow --> DS
+    QA_Flow --> SQLite
+    Search_Flow --> QwenEmbed
+    Search_Flow --> QwenRerank
+    Search_Flow --> LDB
+    Search_Flow --> SQLite
+    Label_Flow --> YOLOModel
+    Label_Flow --> VLLMModel
+    Pipeline --> QwenEmbed
+    Pipeline --> VLLMModel
+    Pipeline --> LDB
+    Pipeline --> SQLite
+    Pipeline --> FS
     LDB --> FS''').classes('w-full').style(
                 'min-height:420px; width:100%;'
             )
@@ -132,23 +166,28 @@ def dashboard_page():
         # ── 四大核心能力 ──
         with ui.grid(columns=2).classes('w-full gap-5 mb-6'):
             capabilities = [
-                ('智能问答', 'chat', 'blue', 'Agent 驱动的对话式数据分析', [
-                    '自然语言转 SQL（NL2SQL）— DeepSeek Chat 驱动',
-                    'LangGraph 状态机编排 — 解析→验证→执行→格式化',
-                    'SQL 执行失败自动修正重试（最多 3 次）',
+                ('智能问答', 'chat', 'blue', 'LangGraph Agent 驱动的对话式数据分析', [
+                    'NL2SQL — DeepSeek Chat 自然语言转 SQL',
+                    'LangGraph 状态机 — 解析→验证→执行→格式化',
+                    '自我修正 — SQL 失败自动分析错误，LLM 重写重试（max 3次）',
                     '安全护栏 — SQL 注入防护 / 表白名单 / 危险操作拦截',
+                    '实体提取 — 时间/地区/场景关键词自动识别',
+                    '当前时间注入 — 解决 LLM 不知道"现在"的问题',
                     '完整链路追踪 — 每步耗时、SQL、结果可回溯',
                 ]),
-                ('多模态检索', 'search', 'purple', '图文视频统一入口互搜', [
+                ('多模态检索', 'search', 'purple', '图文视频统一入口 · 二阶段检索', [
                     'Qwen3-VL Embedding — 图文跨模态向量编码',
+                    '三种输入 — 文本/图片/视频统一检索入口',
+                    '视频自动抽帧 — OpenCV 提取中间帧→向量检索',
                     '混合检索 — 向量相似度 + 关键词匹配，权重可调',
-                    'Qwen3-VL Reranker — 二阶段精排重排序',
-                    '视频上传自动抽帧 → 关键帧向量检索',
-                    '多维过滤 — 时间/地点/类型/设备/置信度',
+                    'Reranker 精排 — Qwen3-VL 二阶段重排序',
+                    '结构化预过滤 — SQLite 条件筛选→向量子集检索',
+                    '多维过滤 — 时间/地点/类型/设备/算法/置信度',
+                    '上传即检索 — 图片/视频上传后自动触发',
                 ]),
                 ('自动标注', 'label', 'amber', '双引擎批量检测与语义分析', [
-                    'YOLOv26x 快速目标检测 — 18 类工程车辆识别',
-                    'VLLM API 语义分析 — 场景理解与描述生成',
+                    'YOLOv26x — 18 类工程车辆快速目标检测',
+                    'VLLM API — 场景理解与描述生成',
                     '卡尔曼多目标跟踪 — 视频轨迹关联 & ID 分配',
                     '标注结果可编辑 / YOLO 格式导出',
                     '视频逐帧标注 & 智能切片',

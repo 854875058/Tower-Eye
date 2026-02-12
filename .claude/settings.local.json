@@ -91,7 +91,21 @@
       "Bash(\".venv/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\(''poc/app/pages/shared.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''shared OK''\\)\")",
       "Bash(\".venv/Scripts/python.exe\" -c \"from poc.app.pages.shared import ensure_systems; print\\(''import OK''\\)\")",
       "Bash(\".venv/Scripts/python.exe\" bin/clean_orphan_records.py --dry-run)",
-      "Bash(\".venv/Scripts/python.exe\" bin/clean_orphan_records.py)"
+      "Bash(\".venv/Scripts/python.exe\" bin/clean_orphan_records.py)",
+      "Bash(dir /b pocdata*.jpg pocdata*.png)",
+      "Bash(netstat -ano)",
+      "Bash(findstr :8080)",
+      "Bash(wmic process where \"ProcessId=16844\" get CommandLine /format:list)",
+      "Bash(tasklist /FI \"PID eq 16844\" /V /FO LIST)",
+      "Bash(taskkill /PID 16844 /F)",
+      "Bash(cmd.exe /c \"taskkill /PID 16844 /F\")",
+      "Bash(powershell -Command \"Stop-Process -Id 16844 -Force; Write-Host ''Killed''\")",
+      "Bash(findstr \":8080.*LISTENING\")",
+      "Bash(powershell -Command \"Get-Process -Id 34152 | Select-Object Id, StartTime, CommandLine | Format-List\")",
+      "Bash(powershell -Command \"Stop-Process -Id 34152 -Force; Write-Host ''Killed old process''\")",
+      "Bash(powershell -Command \"Start-Sleep -Seconds 2; Start-Process -FilePath python -ArgumentList ''poc/app/app_ui.py'' -WorkingDirectory ''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔'' -NoNewWindow; Start-Sleep -Seconds 10; netstat -ano | Select-String '':8080.*LISTENING''\")",
+      "Bash(powershell -Command \"Stop-Process -Id 3584 -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; Start-Process -FilePath python -ArgumentList ''poc/app/app_ui.py'' -WorkingDirectory ''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔'' -NoNewWindow; Start-Sleep -Seconds 12; netstat -ano | Select-String '':8080.*LISTENING''\")",
+      "Bash(powershell -Command \"Test-NetConnection -ComputerName 10.132.19.82 -Port 8010 -WarningAction SilentlyContinue | Select-Object TcpTestSucceeded\")"
     ]
   },
   "hooks": {

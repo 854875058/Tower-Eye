@@ -329,7 +329,8 @@ def create_layout(active_path: str):
         with ui.column().classes('h-full bg-white border-r border-slate-200 flex flex-col').style('width:256px;min-width:256px'):
             with ui.row().classes('items-center gap-2 px-6 py-6 mb-2'):
                 ui.icon('smart_toy').classes('text-3xl text-blue-600')
-                ui.label('Multimodal AI').classes('text-xl font-bold text-slate-800')
+                ui.label('Tower-Eye'
+                         '').classes('text-xl font-bold text-slate-800')
             with ui.column().classes('flex-1 w-full gap-1 px-3'):
                 sidebar_item('架构概览', 'dashboard', '/', active_path)
                 sidebar_item('智能问答', 'chat', '/qa', active_path)
