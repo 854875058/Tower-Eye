@@ -46,8 +46,13 @@ def init_ray(config: dict) -> bool:
         if address == "auto":
             # 本地单机模式
             init_kwargs["num_gpus"] = num_gpus
-            init_kwargs["dashboard_port"] = dashboard_port
-            init_kwargs["include_dashboard"] = True
+            # dashboard 需要额外依赖，缺失时自动跳过
+            try:
+                import ray.dashboard  # noqa: F401
+                init_kwargs["dashboard_port"] = dashboard_port
+                init_kwargs["include_dashboard"] = True
+            except (ImportError, ModuleNotFoundError):
+                init_kwargs["include_dashboard"] = False
         else:
             # 连接远程集群
             init_kwargs["address"] = address

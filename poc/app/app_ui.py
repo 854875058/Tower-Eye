@@ -3,6 +3,13 @@
 多模态数据底座 - NiceGUI 前端入口
 页面实现已拆分到 poc/app/pages/ 下各模块
 """
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from nicegui import ui, app
 from poc.app.pages.shared import ensure_systems
 
