@@ -16,7 +16,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # 获取脚本所在目录
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 # 解析命令行参数
@@ -257,7 +257,7 @@ echo "  1. 测试检索:"
 echo "     python -m poc.search.query --config poc/config/poc.yaml --text '铁塔生锈' --top-k 5"
 echo ""
 echo "  2. 启动 Web 应用:"
-echo "     bash start_all.sh"
+echo "     bash bin/start.sh"
 echo ""
 echo "  3. 查看帮助:"
 echo "     bash 重新入库.sh --help"

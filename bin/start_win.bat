@@ -7,11 +7,11 @@ setlocal enabledelayedexpansion
 :: 模型服务在远程 GPU 服务器，本地只跑 NiceGUI Web
 :: ========================================
 
-set ROOT=%~dp0
+set ROOT=%~dp0..
 cd /d "%ROOT%"
 
 set APP_PORT=8080
-set VENV=%ROOT%.venv\Scripts
+set VENV=%ROOT%\.venv\Scripts
 
 echo ========================================
 echo   多模态检索系统 - Windows 本地启动
@@ -89,14 +89,14 @@ echo.
 
 :: [4/5] 检查远程服务连通性
 echo [4/5] 检查远程模型服务...
-"%VENV%\python.exe" -c "import requests; r=requests.get('http://10.132.19.82:8010/docs', timeout=5); print('  [OK] Embedding 服务 (8010) 可达')" 2>nul
+"%VENV%\python.exe" -c "import requests; r=requests.get('http://10.132.19.82:8010/docs', timeout=5); print('  [OK] Embedding 服务 8010 可达')" 2>nul
 if errorlevel 1 (
-    echo   [!] Embedding 服务 (10.132.19.82:8010) 不可达
+    echo   [!] Embedding 服务 10.132.19.82:8010 不可达
     echo       请确认 GPU 服务器上已启动: bash start_tower_services.sh
 )
-"%VENV%\python.exe" -c "import requests; r=requests.get('http://10.132.19.82:8011/docs', timeout=5); print('  [OK] Reranker 服务 (8011) 可达')" 2>nul
+"%VENV%\python.exe" -c "import requests; r=requests.get('http://10.132.19.82:8011/docs', timeout=5); print('  [OK] Reranker 服务 8011 可达')" 2>nul
 if errorlevel 1 (
-    echo   [!] Reranker 服务 (10.132.19.82:8011) 不可达
+    echo   [!] Reranker 服务 10.132.19.82:8011 不可达
 )
 echo.
 
@@ -112,7 +112,7 @@ if not errorlevel 1 (
     echo   [!] 端口 %APP_PORT% 已被占用
     echo   请先关闭占用该端口的程序，或修改脚本中的 APP_PORT
     echo.
-    choice /c YN /m "是否仍然尝试启动(Y/N)"
+    choice /c YN /m "是否仍然尝试启动 Y/N"
     if errorlevel 2 (
         pause
         exit /b 1
