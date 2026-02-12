@@ -1,7 +1,11 @@
 """Page 2: 智能问答 — Agent 聊天助手"""
+import io
 import re
+import sys
 import json
+import queue
 import asyncio
+import threading
 import traceback
 from pathlib import Path as _Path
 from typing import Any, Dict, List
@@ -12,6 +16,22 @@ from poc.app.pages.shared import (
     ensure_systems, get_agent, get_trace_manager, QueryTrace,
     get_area_hierarchy, _inject_sql_filters,
 )
+
+
+class _StdoutCapture:
+    """线程安全的 stdout 捕获器，同时写入原始 stdout 和 queue"""
+
+    def __init__(self, original, q: queue.Queue):
+        self._orig = original
+        self._q = q
+
+    def write(self, s):
+        if s and s.strip():
+            self._q.put(s.rstrip('\n'))
+        self._orig.write(s)
+
+    def flush(self):
+        self._orig.flush()
 
 
 # ── 工具函数 ──────────────────────────────────────────────────────────────
@@ -219,11 +239,11 @@ def qa_page():
 
         def _render_agent_bubble(result: dict, question: str):
             """渲染 Agent 回复气泡（左对齐），包含思考过程、SQL、表格、媒体、追问"""
-            with ui.row().classes('w-full justify-start items-start gap-2'):
+            with ui.row().classes('w-full justify-start items-start gap-2').style('max-width:100%;overflow:hidden'):
                 ui.icon('smart_toy').classes('text-blue-500 text-2xl mt-1 flex-shrink-0')
                 with ui.column().classes(
-                    'bg-white rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm gap-2 flex-1 min-w-0'
-                ):
+                    'bg-white rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm gap-2 min-w-0'
+                ).style('max-width:calc(100% - 48px);overflow-x:auto'):
                     # 状态指标行
                     status_ok = result.get("status") == "success"
                     with ui.row().classes('gap-3 items-center'):
@@ -240,34 +260,37 @@ def qa_page():
                     if not status_ok and result.get("error"):
                         ui.label(result["error"]).classes('text-sm text-red-500')
 
-                    # 思考过程时间线
+                    # 思考过程（实时日志回放）
+                    thinking_lines = result.get('_thinking_lines') or []
                     exec_hist = result.get("execution_history") or []
-                    if exec_hist or result.get("intent"):
-                        with ui.expansion('思考过程', icon='psychology').classes('w-full').props('dense default-opened'):
-                            with ui.element('div').classes('pl-3 border-l-2 border-blue-200 space-y-1'):
-                                # Step 1: 意图识别
-                                intent = result.get("intent", "未知")
-                                with ui.row().classes('items-center gap-1'):
-                                    ui.icon('search').classes('text-blue-400 text-sm')
-                                    ui.label(f'意图识别 → {intent}').classes('text-xs text-slate-600')
-                                # Step 2+: 执行历史
-                                for i, rec in enumerate(exec_hist):
-                                    ok = rec.get("status") == "success"
-                                    icon_name = 'check_circle' if ok else 'error'
-                                    icon_color = 'text-green-500' if ok else 'text-red-400'
-                                    with ui.row().classes('items-start gap-1'):
-                                        ui.icon(icon_name).classes(f'{icon_color} text-sm mt-0.5')
-                                        with ui.column().classes('gap-0'):
-                                            if ok:
-                                                ui.label(f'执行成功 → 返回 {rec.get("result_count", 0)} 条').classes('text-xs text-green-600')
-                                            else:
-                                                err_msg = str(rec.get("error", ""))[:60]
-                                                ui.label(f'执行失败 → {err_msg}').classes('text-xs text-red-500')
-                                            # 可展开的完整 SQL
-                                            sql_short = str(rec.get("sql", ""))
-                                            if sql_short:
-                                                with ui.expansion(sql_short[:50] + ('...' if len(sql_short) > 50 else '')).classes('w-full').props('dense'):
-                                                    ui.code(sql_short, language='sql').classes('w-full text-xs')
+                    if thinking_lines or exec_hist or result.get("intent"):
+                        with ui.expansion('思考过程', icon='psychology').classes('w-full').props('dense'):
+                            if thinking_lines:
+                                with ui.element('div').classes(
+                                    'w-full bg-slate-900 rounded-lg p-3 font-mono text-xs '
+                                    'leading-relaxed max-h-48 overflow-y-auto'
+                                ).style('scrollbar-width:thin'):
+                                    for line in thinking_lines:
+                                        _render_log_line(line)
+                            elif exec_hist:
+                                # fallback: 没有实时日志时用 execution_history
+                                with ui.element('div').classes('pl-3 border-l-2 border-blue-200 space-y-1'):
+                                    intent = result.get("intent", "未知")
+                                    with ui.row().classes('items-center gap-1'):
+                                        ui.icon('search').classes('text-blue-400 text-sm')
+                                        ui.label(f'意图识别 → {intent}').classes('text-xs text-slate-600')
+                                    for i, rec in enumerate(exec_hist):
+                                        ok = rec.get("status") == "success"
+                                        icon_name = 'check_circle' if ok else 'error'
+                                        icon_color = 'text-green-500' if ok else 'text-red-400'
+                                        with ui.row().classes('items-start gap-1'):
+                                            ui.icon(icon_name).classes(f'{icon_color} text-sm mt-0.5')
+                                            with ui.column().classes('gap-0'):
+                                                if ok:
+                                                    ui.label(f'执行成功 → 返回 {rec.get("result_count", 0)} 条').classes('text-xs text-green-600')
+                                                else:
+                                                    err_msg = str(rec.get("error", ""))[:60]
+                                                    ui.label(f'执行失败 → {err_msg}').classes('text-xs text-red-500')
 
                     # SQL 折叠（最终 SQL，可编辑）
                     sql_text = _expand_sql_params(result.get("sql", ""), result.get("sql_params"))
@@ -313,8 +336,9 @@ def qa_page():
                             ui.label(f'共 {len(answer_data)} 条记录').classes('text-sm text-blue-600')
                             cols_raw = list(answer_data[0].keys())
                             tbl_cols = [{"name": c, "label": c.replace('_', ' ').title(), "field": c, "sortable": True} for c in cols_raw]
-                            ui.table(columns=tbl_cols, rows=answer_data[:50],
-                                     pagination={"rowsPerPage": 5}).classes('w-full text-xs').props('dense wrap-cells')
+                            with ui.element('div').classes('w-full overflow-x-auto'):
+                                ui.table(columns=tbl_cols, rows=answer_data[:50],
+                                         pagination={"rowsPerPage": 5}).classes('w-full text-xs').props('dense wrap-cells')
 
                             # 媒体预览
                             img_cols, video_col = _detect_media_cols(cols_raw)
@@ -418,15 +442,39 @@ def qa_page():
                                           on_click=lambda s=s: do_ask(s)) \
                                     .props('outline size=xs color=teal-6 rounded-lg no-caps')
 
-        def _render_thinking_bubble():
-            """渲染 Agent 思考中的占位气泡"""
-            with ui.row().classes('w-full justify-start'):
-                ui.icon('smart_toy').classes('text-blue-500 text-2xl mt-1')
-                with ui.element('div').classes(
-                    'bg-white rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm'
+        def _render_thinking_bubble(thinking_lines: List[str] = None):
+            """渲染 Agent 思考中的气泡，带实时日志"""
+            with ui.row().classes('w-full justify-start items-start gap-2'):
+                ui.icon('smart_toy').classes('text-blue-500 text-2xl mt-1 flex-shrink-0')
+                with ui.column().classes(
+                    'bg-white rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm gap-2 flex-1 min-w-0'
                 ):
-                    ui.spinner('dots', size='sm', color='blue')
-                    ui.label('Agent 正在思考...').classes('text-sm text-slate-400 ml-2')
+                    with ui.row().classes('items-center gap-2'):
+                        ui.spinner('dots', size='sm', color='blue')
+                        ui.label('Agent 正在思考...').classes('text-sm text-slate-400')
+                    # 实时日志区
+                    lines = thinking_lines or []
+                    if lines:
+                        with ui.element('div').classes(
+                            'w-full bg-slate-900 rounded-lg p-3 font-mono text-xs '
+                            'leading-relaxed max-h-64 overflow-y-auto'
+                        ).style('scrollbar-width:thin'):
+                            for line in lines:
+                                _render_log_line(line)
+
+        def _render_log_line(line: str):
+            """根据日志内容着色"""
+            if '成功' in line or 'success' in line.lower():
+                color = 'text-green-400'
+            elif '失败' in line or 'error' in line.lower() or 'Error' in line:
+                color = 'text-red-400'
+            elif line.startswith('[') and ']' in line:
+                color = 'text-blue-300'
+            elif line.startswith('==='):
+                color = 'text-slate-500'
+            else:
+                color = 'text-slate-300'
+            ui.label(line).classes(f'{color} whitespace-pre-wrap break-all')
 
         def _refresh_chat():
             """重新渲染整个聊天区"""
@@ -441,7 +489,7 @@ def qa_page():
                     if msg['role'] == 'user':
                         _render_user_bubble(msg['content'])
                     elif msg['role'] == 'thinking':
-                        _render_thinking_bubble()
+                        _render_thinking_bubble(msg.get('lines'))
                     else:
                         _render_agent_bubble(msg['result'], msg.get('question', ''))
             # 滚动到底部
@@ -454,15 +502,16 @@ def qa_page():
                 return
             question_input.value = ''
 
-            # 添加用户消息 + 思考占位
+            # 添加用户消息 + 思考占位（带 lines 列表）
             chat_history.append({'role': 'user', 'content': q})
-            chat_history.append({'role': 'thinking', 'content': ''})
+            thinking_msg = {'role': 'thinking', 'content': '', 'lines': []}
+            chat_history.append(thinking_msg)
             _refresh_chat()
 
             try:
                 agent = get_agent()
                 if not agent:
-                    chat_history.pop()  # 移除 thinking
+                    chat_history.pop()
                     chat_history.append({
                         'role': 'agent', 'question': q,
                         'result': {'status': 'error', 'error': 'Agent 未初始化'}
@@ -470,8 +519,52 @@ def qa_page():
                     _refresh_chat()
                     return
 
-                result = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: agent.query(q, user_id="nicegui_user"))
+                # 用 queue 捕获 agent 线程的 print 输出
+                log_q: queue.Queue = queue.Queue()
+                result_holder: List = []
+                error_holder: List = []
+
+                def _run_agent():
+                    old_stdout = sys.stdout
+                    sys.stdout = _StdoutCapture(old_stdout, log_q)
+                    try:
+                        r = agent.query(q, user_id="nicegui_user")
+                        result_holder.append(r)
+                    except Exception as e:
+                        error_holder.append(e)
+                    finally:
+                        sys.stdout = old_stdout
+                    log_q.put(None)  # sentinel
+
+                t = threading.Thread(target=_run_agent, daemon=True)
+                t.start()
+
+                # 轮询 queue，实时刷新思考气泡
+                while True:
+                    try:
+                        line = log_q.get_nowait()
+                        if line is None:
+                            break
+                        thinking_msg['lines'].append(line)
+                        _refresh_chat()
+                    except queue.Empty:
+                        pass
+                    if not t.is_alive() and log_q.empty():
+                        break
+                    await asyncio.sleep(0.15)
+
+                # 排空剩余
+                while not log_q.empty():
+                    line = log_q.get_nowait()
+                    if line is not None:
+                        thinking_msg['lines'].append(line)
+
+                t.join(timeout=2)
+
+                if error_holder:
+                    raise error_holder[0]
+
+                result = result_holder[0]
 
                 # 高级筛选注入
                 qa_f = collect_qa_filters()
@@ -504,31 +597,34 @@ def qa_page():
                 try:
                     tm = get_trace_manager()
                     if tm:
-                        t = QueryTrace(question=q)
-                        t.intent = result.get("intent")
-                        t.sql = result.get("sql")
-                        t.sql_params = result.get("sql_params")
-                        t.status = result.get("status", "error")
-                        t.error_message = result.get("error")
+                        t2 = QueryTrace(question=q)
+                        t2.intent = result.get("intent")
+                        t2.sql = result.get("sql")
+                        t2.sql_params = result.get("sql_params")
+                        t2.status = result.get("status", "error")
+                        t2.error_message = result.get("error")
                         ans = result.get("answer")
                         if isinstance(ans, dict) and isinstance(ans.get("value"), list):
-                            t.result_count = len(ans["value"])
-                        step = t.add_step("agent_query")
+                            t2.result_count = len(ans["value"])
+                        step = t2.add_step("agent_query")
                         step.finish("success" if result.get("status") == "success" else "error")
-                        t.finish(status=t.status)
-                        tm.save_trace(t)
+                        t2.finish(status=t2.status)
+                        tm.save_trace(t2)
                 except Exception:
                     pass
 
+                # 保留思考日志到 result 中，完成后也能查看
+                result['_thinking_lines'] = thinking_msg['lines']
+
                 # 替换 thinking → agent 回复
-                chat_history.pop()  # 移除 thinking
+                chat_history.pop()
                 chat_history.append({
                     'role': 'agent', 'question': q, 'result': result
                 })
                 _refresh_chat()
 
             except Exception as e:
-                chat_history.pop()  # 移除 thinking
+                chat_history.pop()
                 chat_history.append({
                     'role': 'agent', 'question': q,
                     'result': {'status': 'error', 'error': str(e)}
