@@ -129,6 +129,7 @@ def search_page():
                             ui.label('上传的图片').classes('text-xs text-slate-400')
                     # 上传完成后自动触发检索（强制文件模式）
                     if state.get('uploaded_path'):
+                        await asyncio.sleep(0.2)  # 等待磁盘IO和状态同步
                         await do_search(force_file=True)
 
                 with ui.row().classes('w-full gap-2 items-end'):
@@ -375,19 +376,18 @@ def search_page():
                 ui.label(f'加载关联数据失败: {e}').classes('text-red-500 text-xs')
 
         async def do_search(force_file=False):
-            q = state.get('query_text', '')
+            q = (state.get('query_text') or '').strip()
             # 优先从 state 获取，兼容 _upload_ref
             uploaded = state.get('uploaded_path')
             if not uploaded and _upload_ref:
                 uploaded = _upload_ref[0]
             filters = collect_search_filters()
-            has_query = bool(q and q.strip())
+            has_text = bool(q)
             has_file = bool(uploaded and Path(uploaded).exists())
-            has_filter = any(v for v in filters.values() if v)
-            # 如果强制文件模式，或者有文件且没文字，则走文件检索
-            use_file_search = has_file and (force_file or not has_query)
-            print(f"[do_search] q={has_query}, file={has_file}(path={uploaded!r}), filter={has_filter}, force_file={force_file}, use_file_search={use_file_search}")
-            if not (has_query or has_file or has_filter):
+            # 只要有文件就走图片检索（force_file 时更是如此）
+            use_file_search = has_file
+            print(f"[do_search] text={has_text}({q!r}), file={has_file}(path={uploaded!r}), force_file={force_file}, use_file_search={use_file_search}, _upload_ref={_upload_ref}")
+            if not (has_text or has_file or f_state.get('enable_time') or f_state.get('enable_geo') or any(v for v in filters.values() if v)):
                 ui.notify('请输入检索文本、上传图片/视频，或设置筛选条件', type='warning'); return
             ui.notify('检索中...', type='info')
             try:
@@ -398,19 +398,16 @@ def search_page():
                 top_k = int(state['top_k'])
                 search_cfg = config.get("search", {})
                 reranker_enabled = search_cfg.get("reranker_enabled", False)
-                fetch_k = top_k * 3 if reranker_enabled and has_query else top_k
+                fetch_k = top_k * 3 if reranker_enabled and has_text else top_k
 
                 query_vec = None
                 if use_file_search:
-                    # 图片/视频帧检索（优先）
-                    print(f"[do_search] 图片检索: uploaded_path={uploaded}, exists={Path(uploaded).exists()}")
-                    if not Path(uploaded).exists():
-                        ui.notify(f'上传文件已失效，请重新上传', type='warning')
-                        return
+                    # 图片/视频帧检索（最高优先级）
+                    print(f"[do_search] 图片检索: uploaded_path={uploaded}")
                     query_vec = await asyncio.get_event_loop().run_in_executor(
                         None, lambda: mgr.encode_image(uploaded).astype("float32"))
                     print(f"[do_search] 图片编码完成, vec shape={query_vec.shape}")
-                elif has_query:
+                elif has_text:
                     # 文本检索
                     try:
                         from poc.qa.nl2sql import _parse_time_range, _parse_area_name, SCENE_KEYWORDS

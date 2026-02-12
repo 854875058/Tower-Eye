@@ -31,6 +31,6 @@ if __name__ in {"__main__", "__mp_main__"}:
         port=8080,
         title="多模态数据底座",
         favicon="🏗️",
-        storage_secret="multimodal-ai-secret",
+        storage_secret="Tower-Eye",
         reload=False,
     )
