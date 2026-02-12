@@ -347,7 +347,7 @@ def main() -> None:
     else:
         print(f"数据量较少（{n}条），跳过索引创建（建议至少256条）")
 
-    print(f"✓ 完成！共处理 {len(lance_data)} 条记录")
+    print(f"[OK] 完成！共处理 {len(lance_data)} 条记录")
     print(f"  - 模型: {model_name}")
     print(f"  - 维度: {dims}")
     print(f"  - 存储路径: {lancedb_dir}")

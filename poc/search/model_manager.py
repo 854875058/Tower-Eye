@@ -62,7 +62,7 @@ class ModelManager:
         hf_mirror = self.search_config.get("hf_mirror")
 
         self.embedding_model = load_model(model_name, cache_dir=cache_dir, hf_mirror=hf_mirror)
-        print(f"✓ CLIP 模型加载成功: {model_name}")
+        print(f"[OK] CLIP 模型加载成功: {model_name}")
 
     def _load_qwen_model(self):
         """加载 Qwen3-VL 模型（HTTP 客户端模式）"""
@@ -73,7 +73,7 @@ class ModelManager:
         dummy_image = self.search_config.get("qwen_dummy_image", None)
 
         self.embedding_model = Qwen3VLEmbedding(api_url=api_url, timeout=timeout, dummy_image=dummy_image)
-        print(f"✓ Qwen3-VL 客户端初始化成功: {api_url}")
+        print(f"[OK] Qwen3-VL 客户端初始化成功: {api_url}")
 
     def _load_reranker(self):
         """加载 Reranker（HTTP 客户端模式）"""
@@ -83,7 +83,7 @@ class ModelManager:
         timeout = self.search_config.get("reranker_timeout", 60)
 
         self.reranker_model = Qwen3VLReranker(api_url=api_url, timeout=timeout)
-        print(f"✓ Reranker 客户端初始化成功: {api_url}")
+        print(f"[OK] Reranker 客户端初始化成功: {api_url}")
 
     def encode_text(self, text: str) -> np.ndarray:
         """文本向量化"""

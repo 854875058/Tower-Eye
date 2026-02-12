@@ -37,7 +37,7 @@ def main():
             enable_file_log=True,
             log_dir=Path("poc/logs/traces")
         )
-        print(f"✓ 追踪系统已启用，数据库: {trace_db_path}")
+        print(f"[OK] 追踪系统已启用，数据库: {trace_db_path}")
 
     # 创建 Agent
     agent = create_agent(config, max_retries=args.max_retries)
@@ -46,7 +46,7 @@ def main():
     if args.visualize:
         try:
             agent.visualize()
-            print("✓ 状态图已生成")
+            print("[OK] 状态图已生成")
         except Exception as e:
             print(f"⚠ 状态图生成失败: {e}")
 
@@ -72,7 +72,7 @@ def main():
     print(f"\n{'='*80}")
     print("执行摘要:")
     print(f"{'='*80}")
-    print(f"状态: {'✓ 成功' if result['status'] == 'success' else '✗ 失败'}")
+    print(f"状态: {'[OK] 成功' if result['status'] == 'success' else '✗ 失败'}")
     print(f"意图: {result['intent']}")
     print(f"SQL: {result['sql']}")
     print(f"重试次数: {result['retry_count']}")

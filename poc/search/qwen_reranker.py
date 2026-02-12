@@ -22,7 +22,7 @@ class Qwen3VLReranker:
         self.api_url = api_url.rstrip('/')
         self.timeout = timeout
 
-        print(f"✓ Qwen3-VL Reranker 客户端初始化: {self.api_url}")
+        print(f"[OK] Qwen3-VL Reranker 客户端初始化: {self.api_url}")
 
     def compute_relevance_score(
         self,

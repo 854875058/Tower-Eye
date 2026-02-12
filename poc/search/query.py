@@ -340,7 +340,7 @@ def main() -> None:
         from poc.search.model_manager import ModelManager
         manager = ModelManager(config)
         results = manager.rerank(args.text, results, top_k=args.top_k)
-        print(f"✓ Reranker 完成，返回 {len(results)} 条结果", file=__import__('sys').stderr)
+        print(f"[OK] Reranker 完成，返回 {len(results)} 条结果", file=__import__('sys').stderr)
     else:
         results = results[:args.top_k]
 

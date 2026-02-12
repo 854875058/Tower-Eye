@@ -27,7 +27,7 @@ class Qwen3VLEmbedding:
         self._embedding_dim = None
         self.dummy_image = dummy_image  # 占位图像路径
 
-        print(f"✓ Qwen3-VL Embedding 客户端初始化: {self.api_url}")
+        print(f"[OK] Qwen3-VL Embedding 客户端初始化: {self.api_url}")
 
     def encode_text(self, text: str, dummy_image_path: str = None) -> np.ndarray:
         """

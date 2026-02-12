@@ -374,8 +374,9 @@ def dashboard_page():
         kpis = [('Agent 引擎', 'LangGraph', '状态机编排', 'psychology', 'blue'),
                 ('向量数据库', 'LanceDB', 'GPU 加速检索', 'storage', 'purple'),
                 ('多模态模型', 'Qwen3-VL', 'Embedding + Rerank', 'image', 'amber'),
-                ('目标检测', 'YOLOv26x', 'VL 语义双引擎', 'videocam', 'emerald')]
-        with ui.grid(columns=4).classes('w-full gap-6 mb-8'):
+                ('目标检测', 'YOLOv26x', 'VL 语义双引擎', 'videocam', 'emerald'),
+                ('分布式计算', 'Ray + Daft', 'TB 级批量管线', 'cloud', 'rose')]
+        with ui.grid(columns=5).classes('w-full gap-6 mb-8'):
             for title, value, sub, icon, color in kpis:
                 with ui.element('div').classes('kpi-card flex items-center justify-between'):
                     with ui.column().classes('gap-1'):
@@ -400,9 +401,11 @@ def dashboard_page():
 - SQLite — 告警事件存储 / 资产元数据管理
 - 本地文件系统 — 图片/视频存储 / 路径统一管理''')
                 ui.markdown('''**框架工具层**
-- LangGraph — 状态机 Agent 编排 / 自我修正机制 / 完整链路追踪
-- NiceGUI — 现代化交互界面 / 多页面应用
-- ModelManager — 统一模型管理 / Qwen3-VL Embedding + Reranker''')
+- LangGraph -- 状态机 Agent 编排 / 自我修正机制 / 完整链路追踪
+- NiceGUI -- 现代化交互界面 / 多页面应用
+- ModelManager -- 统一模型管理 / Qwen3-VL Embedding + Reranker
+- Ray -- 分布式 Actor 调度 / GPU 模型推理 / 单机多机透明切换
+- Daft -- TB 级批量数据管线 / 图片批量入库''')
 
         # 架构图
         with ui.element('div').classes('kpi-card mb-8'):
@@ -417,6 +420,12 @@ def dashboard_page():
         State[Parse - Validate - Execute - Format - Retry]
         Agent --> State
     end
+    subgraph Ray_Cluster[Ray 分布式计算]
+        YOLO_Actor[YOLODetectorActor GPU]
+        Embed_Actor[EmbeddingActor GPU/HTTP]
+        VL_Actor[VLAnalyzerActor HTTP]
+        Daft[Daft 批量管线]
+    end
     subgraph Model_Layer[模型层]
         Qwen[Qwen3-VL Embedding]
         Rerank[Qwen3-VL Reranker]
@@ -428,7 +437,10 @@ def dashboard_page():
     end
     State --> LDB
     State --> SQL
-    LDB <--> Qwen''').classes('w-full flex justify-center bg-slate-50 rounded-2xl p-4')
+    LDB <--> Qwen
+    Ray_Cluster --> Model_Layer
+    Daft --> LDB
+    Daft --> SQL''').classes('w-full flex justify-center bg-slate-50 rounded-2xl p-4')
 
         # 核心能力
         with ui.element('div').classes('kpi-card mb-8'):
@@ -469,19 +481,21 @@ def dashboard_page():
         # 技术亮点
         with ui.element('div').classes('kpi-card mb-8'):
             ui.label('技术亮点').classes('font-bold text-lg text-slate-800 mb-4')
-            ui.markdown('''1. **二阶段检索架构** — Qwen3-VL Embedding 向量召回 + Qwen3-VL Reranker 精排重排序
-2. **混合检索算法** — 向量相似度 + 关键词匹配，可调节权重
-3. **Agent自我修正** — SQL执行失败自动分析错误，智能修正并重试
-4. **双引擎自动标注** — YOLOv26x 快速检测 + VLLM API 语义验证
-5. **一键入库脚本** — 自动清理、入库、向量化，路径统一转换
-6. **生产级安全防护** — SQL注入防护、表访问白名单、危险操作拦截''')
+            ui.markdown('''1. **二阶段检索架构** -- Qwen3-VL Embedding 向量召回 + Qwen3-VL Reranker 精排重排序
+2. **混合检索算法** -- 向量相似度 + 关键词匹配，可调节权重
+3. **Agent自我修正** -- SQL执行失败自动分析错误，智能修正并重试
+4. **双引擎自动标注** -- YOLOv26x 快速检测 + VLLM API 语义验证
+5. **Ray 分布式调度** -- GPU Actor 持有模型实例，单机/多机透明切换，Daft TB 级批量管线
+6. **一键入库脚本** -- 自动清理、入库、向量化，路径统一转换
+7. **生产级安全防护** -- SQL注入防护、表访问白名单、危险操作拦截''')
 
         # 性能指标
-        with ui.grid(columns=4).classes('w-full gap-6'):
+        with ui.grid(columns=5).classes('w-full gap-6'):
             for lbl, val, sub in [("向量化速度", "~80 张/秒", "API推理"),
                                    ("检索延迟", "< 100ms", "亚秒级"),
                                    ("问答准确率", "> 95%", "自我修正"),
-                                   ("数据规模", "可扩展", "百万级")]:
+                                   ("数据规模", "可扩展", "百万级"),
+                                   ("分布式调度", "Ray+Daft", "TB级管线")]:
                 with ui.element('div').classes('kpi-card text-center'):
                     ui.label(val).classes('text-xl font-bold text-slate-800')
                     ui.label(lbl).classes('text-sm text-slate-500')
@@ -876,9 +890,18 @@ def search_page():
         _db_path = resolve_path(config.get("paths", {}).get("db_path", "poc/data/metadata.db"))
         lancedb_dir = resolve_path(config.get("paths", {}).get("lancedb_dir", "poc/data/lancedb"))
 
-        # 检查 LanceDB
-        if not lancedb_dir.exists() or not (lancedb_dir / "embeddings.lance").exists():
-            ui.label('向量数据库未初始化，请运行 bash 重新入库.sh').classes('text-red-600 font-semibold')
+        # 检查 LanceDB（通过 API 检查表是否存在，兼容不同 LanceDB 版本的目录结构）
+        _lancedb_ready = False
+        try:
+            import lancedb as _ldb
+            _lance_db = _ldb.connect(str(lancedb_dir))
+            _lance_tables = _lance_db.list_tables() if hasattr(_lance_db, 'list_tables') else _lance_db.table_names()
+            _lancedb_ready = "embeddings" in _lance_tables
+        except Exception:
+            _lancedb_ready = False
+
+        if not _lancedb_ready:
+            ui.label('向量数据库未初始化，请在服务器上运行 bash 重新入库.sh').classes('text-red-600 font-semibold')
             return
 
         state: Dict[str, Any] = {
@@ -1499,6 +1522,46 @@ def monitor_page():
                 ui.label('无已注册 Tool').classes('text-slate-400')
         else:
             ui.label('Tool 注册中心未初始化').classes('text-slate-400')
+
+        # Ray 集群状态
+        ui.label('Ray 集群状态').classes('font-bold text-lg text-slate-800 mb-3 mt-8')
+        try:
+            from poc.infra.ray_init import get_ray_status
+            ray_status = get_ray_status()
+            if ray_status.get("initialized"):
+                with ui.grid(columns=4).classes('w-full gap-4 mb-4'):
+                    for lbl, val in [("节点数", ray_status.get("num_nodes", 0)),
+                                      ("CPU 核数", ray_status.get("total_cpus", 0)),
+                                      ("GPU 数", ray_status.get("total_gpus", 0)),
+                                      ("Actor 数", len(ray_status.get("actors", [])))]:
+                        with ui.element('div').classes('kpi-card text-center'):
+                            ui.label(str(val)).classes('text-xl font-bold text-slate-800')
+                            ui.label(lbl).classes('text-sm text-slate-500')
+
+                actors = ray_status.get("actors", [])
+                if actors:
+                    ui.label('活跃 Actor').classes('font-semibold text-slate-700 mb-2')
+                    actor_rows = [{"Actor 名称": a, "状态": "运行中"} for a in actors]
+                    ui.table(columns=[{"name": c, "label": c, "field": c} for c in ["Actor 名称", "状态"]],
+                             rows=actor_rows).classes('w-full mb-4')
+
+                nodes = ray_status.get("nodes", [])
+                if nodes:
+                    ui.label('集群节点').classes('font-semibold text-slate-700 mb-2')
+                    node_rows = [{"节点ID": n["node_id"], "地址": n["address"],
+                                  "CPU": n["cpu"], "GPU": n["gpu"]} for n in nodes]
+                    ui.table(columns=[{"name": c, "label": c, "field": c} for c in ["节点ID", "地址", "CPU", "GPU"]],
+                             rows=node_rows).classes('w-full')
+
+                if ray_status.get("error"):
+                    ui.label(f'查询异常: {ray_status["error"]}').classes('text-amber-600 text-sm')
+            else:
+                err = ray_status.get("error", "Ray 未启用或未初始化")
+                ui.label(err).classes('text-slate-400')
+        except ImportError:
+            ui.label('Ray 模块未安装').classes('text-slate-400')
+        except Exception as e:
+            ui.label(f'Ray 状态查询失败: {e}').classes('text-slate-400')
 
 
 # ══════════════════════════════════════════════════════════════════════════

@@ -627,7 +627,7 @@ excavator, bulldozer, dump truck, tractor, trailer
                         'bbox': [x1, y1, x2, y2],
                         'manual': False
                     })
-                    print(f"[Debug VLLM] ✓ 添加检测: {cls} at [{x1},{y1},{x2},{y2}]")
+                    print(f"[Debug VLLM] [OK] 添加检测: {cls} at [{x1},{y1},{x2},{y2}]")
                 else:
                     print(f"[Debug VLLM] 跳过: 无效的bbox尺寸 ({x1},{y1},{x2},{y2})")
 
@@ -1120,7 +1120,7 @@ excavator, bulldozer, dump truck, tractor, trailer
                         'bbox': det['bbox_norm'],
                         'manual': False
                     })
-                    print(f"[AutoLabel] ✓ #{i}: {cls}")
+                    print(f"[AutoLabel] [OK] #{i}: {cls}")
                 else:
                     print(f"[AutoLabel] ✗ #{i}: {cls} (无效类别)")
 
