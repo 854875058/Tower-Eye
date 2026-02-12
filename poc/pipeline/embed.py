@@ -189,6 +189,8 @@ def main() -> None:
     parser.add_argument("--config", default="poc/config/poc.yaml")
     parser.add_argument("--mock", action="store_true")
     parser.add_argument("--batch-size", type=int, help="批量处理大小（覆盖配置文件，GPU时可设置更大，如64或128）")
+    parser.add_argument("--incremental", action="store_true",
+                        help="增量模式：只处理 LanceDB 中尚未存在的图片，不清空已有数据")
     args = parser.parse_args()
 
     if np is None:
@@ -223,6 +225,28 @@ def main() -> None:
     # 发现图片
     images = discover_images(raw_images_dir)
     print(f"发现 {len(images)} 张图片")
+
+    # 增量模式：过滤掉 LanceDB 中已存在的图片
+    existing_paths = set()
+    if args.incremental:
+        try:
+            db = lancedb.connect(str(lancedb_dir))
+            _tables = db.list_tables() if hasattr(db, 'list_tables') else db.table_names()
+            if "embeddings" in _tables:
+                table = db.open_table("embeddings")
+                existing_df = table.to_pandas()
+                existing_paths = set(existing_df["file_path"].tolist())
+                print(f"增量模式：LanceDB 已有 {len(existing_paths)} 条记录")
+        except Exception as e:
+            print(f"增量模式：读取已有数据失败（将全量处理）: {e}")
+
+        if existing_paths:
+            before = len(images)
+            images = [p for p in images if str(p) not in existing_paths]
+            print(f"增量模式：跳过 {before - len(images)} 张已处理图片，剩余 {len(images)} 张待处理")
+            if not images:
+                print("所有图片已向量化，无需处理")
+                return
 
     # 生成向量
     if args.mock:
@@ -320,17 +344,25 @@ def main() -> None:
     print(f"写入 LanceDB: {len(lance_data)} 条记录")
     db = lancedb.connect(str(lancedb_dir))
 
-    # 如果表已存在，删除重建（全量更新模式）
     table_name = "embeddings"
     try:
-        existing_tables = db.list_tables()
+        existing_tables = db.list_tables() if hasattr(db, 'list_tables') else db.table_names()
     except AttributeError:
-        existing_tables = db.table_names()
-    if table_name in existing_tables:
-        db.drop_table(table_name)
+        existing_tables = []
 
-    # 创建表并写入数据
-    table = db.create_table(table_name, data=lance_data)
+    if args.incremental and table_name in existing_tables:
+        # 增量模式：追加到已有表
+        table = db.open_table(table_name)
+        if lance_data:
+            table.add(lance_data)
+            print(f"增量追加 {len(lance_data)} 条记录")
+        n = table.count_rows()
+    else:
+        # 全量模式：删除重建
+        if table_name in existing_tables:
+            db.drop_table(table_name)
+        table = db.create_table(table_name, data=lance_data)
+        n = len(lance_data)
 
     # 创建向量索引（提升查询性能）
     # num_sub_vectors 必须能整除向量维度（如 4096 → 可用 64/128/256）

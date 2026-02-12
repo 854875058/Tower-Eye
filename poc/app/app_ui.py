@@ -1569,6 +1569,11 @@ def monitor_page():
 # ══════════════════════════════════════════════════════════════════════════
 
 if __name__ in {"__main__", "__mp_main__"}:
+    # 应用启动时初始化 Ray（不阻塞，失败不影响其他功能）
+    @app.on_startup
+    async def _startup_init():
+        ensure_systems()
+
     ui.run(
         host="0.0.0.0",
         port=8080,

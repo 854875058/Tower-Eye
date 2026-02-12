@@ -4,6 +4,7 @@
 #   bash 重新入库.sh              # 完整重新入库
 #   bash 重新入库.sh --skip-ingest  # 跳过数据导入，只重新生成向量
 #   bash 重新入库.sh --quick        # 快速模式（跳过数据导入）
+#   bash 重新入库.sh --incremental  # 增量模式（只处理新增图片，不清空已有向量）
 
 set -e
 
@@ -21,6 +22,7 @@ cd "$ROOT"
 # 解析命令行参数
 SKIP_INGEST=false
 QUICK_MODE=false
+INCREMENTAL=false
 
 for arg in "$@"; do
     case $arg in
@@ -30,6 +32,11 @@ for arg in "$@"; do
             ;;
         --quick)
             QUICK_MODE=true
+            SKIP_INGEST=true
+            shift
+            ;;
+        --incremental)
+            INCREMENTAL=true
             SKIP_INGEST=true
             shift
             ;;
@@ -44,10 +51,12 @@ for arg in "$@"; do
             echo "  bash 重新入库.sh              # 完整重新入库（清理+导入+向量化）"
             echo "  bash 重新入库.sh --skip-ingest  # 跳过数据导入，只重新生成向量"
             echo "  bash 重新入库.sh --quick        # 快速模式（同 --skip-ingest）"
+            echo "  bash 重新入库.sh --incremental  # 增量模式（只处理新增图片，不清空已有向量）"
             echo ""
             echo "说明:"
             echo "  - 完整模式：清理所有数据，重新导入，重新生成向量（耗时较长）"
             echo "  - 快速模式：保留数据库，只重新生成向量（适合切换模型后使用）"
+            echo "  - 增量模式：保留已有向量，只处理新增图片（最快，适合日常更新）"
             exit 0
             ;;
     esac
@@ -83,7 +92,9 @@ echo -e "${GREEN}✓ Python 路径: $(which python)${NC}"
 echo ""
 
 # 显示模式
-if [ "$QUICK_MODE" = true ]; then
+if [ "$INCREMENTAL" = true ]; then
+    echo -e "${BLUE}=== 增量入库模式（只处理新增图片）===${NC}"
+elif [ "$QUICK_MODE" = true ]; then
     echo -e "${BLUE}=== 快速重新入库模式（仅重新生成向量）===${NC}"
 elif [ "$SKIP_INGEST" = true ]; then
     echo -e "${BLUE}=== 跳过数据导入模式 ===${NC}"
@@ -143,12 +154,18 @@ if [ "$SKIP_INGEST" = false ]; then
     echo ""
 fi
 
-# 4. 清理旧向量数据
-CURRENT_STEP=$((CURRENT_STEP + 1))
-echo -e "${YELLOW}步骤 $CURRENT_STEP/$TOTAL_STEPS: 清理旧向量数据...${NC}"
-rm -rf poc/data/lancedb/*
-echo -e "${GREEN}✓ 向量数据清理完成${NC}"
-echo ""
+# 4. 清理旧向量数据（增量模式跳过）
+if [ "$INCREMENTAL" = true ]; then
+    CURRENT_STEP=$((CURRENT_STEP + 1))
+    echo -e "${YELLOW}步骤 $CURRENT_STEP/$TOTAL_STEPS: 保留已有向量数据（增量模式）${NC}"
+    echo ""
+else
+    CURRENT_STEP=$((CURRENT_STEP + 1))
+    echo -e "${YELLOW}步骤 $CURRENT_STEP/$TOTAL_STEPS: 清理旧向量数据...${NC}"
+    rm -rf poc/data/lancedb/*
+    echo -e "${GREEN}✓ 向量数据清理完成${NC}"
+    echo ""
+fi
 
 # 5. 生成向量嵌入并写入 LanceDB
 CURRENT_STEP=$((CURRENT_STEP + 1))
@@ -175,7 +192,11 @@ echo ""
 
 # 执行向量化
 EMBED_START=$(date +%s)
-python -m poc.pipeline.embed --config poc/config/poc.yaml
+if [ "$INCREMENTAL" = true ]; then
+    python -m poc.pipeline.embed --config poc/config/poc.yaml --incremental
+else
+    python -m poc.pipeline.embed --config poc/config/poc.yaml
+fi
 EMBED_END=$(date +%s)
 EMBED_TIME=$((EMBED_END - EMBED_START))
 
