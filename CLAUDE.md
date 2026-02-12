@@ -137,6 +137,30 @@ st.text_area("SQL", value=new_sql, key=f"sql_editor_v{version}")
 - 不能假设 LLM 知道"现在"是什么时候——它的训练数据有截止日期
 - 格式示例：`# 当前时间\n2026-02-11 16:30:00\n`
 
+### Windows GBK 终端 Unicode 编码错误（Bug 记录）
+
+**Bug 现象**：`python -m poc.pipeline.embed` 在 Windows 终端下运行时，`Qwen3VLEmbedding.__init__` 中的 `print(f"✓ ...")` 抛出 `UnicodeEncodeError: 'gbk' codec can't encode character '\u2713'`，导致 `ModelManager` 初始化失败，embed 流程中断，LanceDB 为空。
+
+**根因**：Windows 默认终端编码为 GBK，无法编码 Unicode 特殊字符（如 `✓`、`✗`、emoji 等）。`print()` 在写入 stdout 时触发编码错误。
+
+**修复方案**：将所有 Python 文件中 `print()` 里的 Unicode 特殊字符替换为 ASCII 等价物（如 `✓` → `[OK]`）。
+
+**规则总结**：
+- **Python 代码中的 `print()` 语句禁止使用非 ASCII 特殊字符**（如 `✓`、`✗`、emoji）
+- 使用 ASCII 替代：`[OK]`、`[FAIL]`、`[WARN]` 等
+- Shell 脚本（`.sh`）不受此限制（Linux 终端默认 UTF-8）
+- 如果必须使用 Unicode 字符，需要用 `try/except UnicodeEncodeError` 包裹或设置 `PYTHONIOENCODING=utf-8`
+
+### LanceDB 检查方式（Bug 记录）
+
+**Bug 现象**：搜索页面检查 `(lancedb_dir / "embeddings.lance").exists()` 在不同 LanceDB 版本下可能失败（目录结构不同）。
+
+**修复方案**：改用 LanceDB API 检查：`lancedb.connect(dir).list_tables()` 判断 `"embeddings"` 表是否存在。
+
+**规则总结**：
+- **检查 LanceDB 表是否存在时，使用 API 而非文件系统路径**
+- 不同版本的 LanceDB 内部目录结构可能不同（`.lance` vs 其他格式）
+
 ---
 
 *最后更新: 2026-02-12*
