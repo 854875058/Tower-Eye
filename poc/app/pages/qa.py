@@ -171,11 +171,11 @@ def qa_page():
                     ui.label(text).classes('text-sm')
 
         def _render_agent_bubble(result: dict, question: str):
-            """渲染 Agent 回复气泡（左对齐），包含状态、SQL、表格、媒体、追问"""
-            with ui.row().classes('w-full justify-start'):
-                ui.icon('smart_toy').classes('text-blue-500 text-2xl mt-1')
+            """渲染 Agent 回复气泡（左对齐），包含思考过程、SQL、表格、媒体、追问"""
+            with ui.row().classes('w-full justify-start items-start gap-2'):
+                ui.icon('smart_toy').classes('text-blue-500 text-2xl mt-1 flex-shrink-0')
                 with ui.column().classes(
-                    'bg-white rounded-2xl rounded-tl-sm px-4 py-3 max-w-[85%] shadow-sm gap-2'
+                    'bg-white rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm gap-2 flex-1 min-w-0'
                 ):
                     # 状态指标行
                     status_ok = result.get("status") == "success"
@@ -193,7 +193,36 @@ def qa_page():
                     if not status_ok and result.get("error"):
                         ui.label(result["error"]).classes('text-sm text-red-500')
 
-                    # SQL 折叠
+                    # 思考过程时间线
+                    exec_hist = result.get("execution_history") or []
+                    if exec_hist or result.get("intent"):
+                        with ui.expansion('思考过程', icon='psychology').classes('w-full').props('dense default-opened'):
+                            with ui.element('div').classes('pl-3 border-l-2 border-blue-200 space-y-1'):
+                                # Step 1: 意图识别
+                                intent = result.get("intent", "未知")
+                                with ui.row().classes('items-center gap-1'):
+                                    ui.icon('search').classes('text-blue-400 text-sm')
+                                    ui.label(f'意图识别 → {intent}').classes('text-xs text-slate-600')
+                                # Step 2+: 执行历史
+                                for i, rec in enumerate(exec_hist):
+                                    ok = rec.get("status") == "success"
+                                    icon_name = 'check_circle' if ok else 'error'
+                                    icon_color = 'text-green-500' if ok else 'text-red-400'
+                                    with ui.row().classes('items-start gap-1'):
+                                        ui.icon(icon_name).classes(f'{icon_color} text-sm mt-0.5')
+                                        with ui.column().classes('gap-0'):
+                                            if ok:
+                                                ui.label(f'执行成功 → 返回 {rec.get("result_count", 0)} 条').classes('text-xs text-green-600')
+                                            else:
+                                                err_msg = str(rec.get("error", ""))[:60]
+                                                ui.label(f'执行失败 → {err_msg}').classes('text-xs text-red-500')
+                                            # 可展开的完整 SQL
+                                            sql_short = str(rec.get("sql", ""))
+                                            if sql_short:
+                                                with ui.expansion(sql_short[:50] + ('...' if len(sql_short) > 50 else '')).classes('w-full').props('dense'):
+                                                    ui.code(sql_short, language='sql').classes('w-full text-xs')
+
+                    # SQL 折叠（最终 SQL，可编辑）
                     sql_text = _expand_sql_params(result.get("sql", ""), result.get("sql_params"))
                     if sql_text:
                         with ui.expansion('SQL', icon='code').classes('w-full').props('dense'):
@@ -238,7 +267,7 @@ def qa_page():
                             cols_raw = list(answer_data[0].keys())
                             tbl_cols = [{"name": c, "label": c.replace('_', ' ').title(), "field": c, "sortable": True} for c in cols_raw]
                             ui.table(columns=tbl_cols, rows=answer_data[:50],
-                                     pagination={"rowsPerPage": 5}).classes('w-full text-xs')
+                                     pagination={"rowsPerPage": 5}).classes('w-full text-xs').props('dense wrap-cells')
 
                             # 媒体预览
                             img_cols, video_col = _detect_media_cols(cols_raw)

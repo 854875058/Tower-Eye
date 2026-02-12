@@ -71,6 +71,7 @@ def monitor_page():
                         "时间": str(r.get("timestamp", ""))[:19],
                         "问题": str(r.get("question", ""))[:50],
                         "意图": str(r.get("intent", "")),
+                        "SQL": str(r.get("sql", "") or "")[:100],
                         "状态": str(r.get("status", "")),
                         "耗时ms": f"{r.get('total_duration_ms', 0):.0f}" if r.get('total_duration_ms') else "-",
                     })
