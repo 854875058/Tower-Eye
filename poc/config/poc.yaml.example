@@ -1,0 +1,75 @@
+paths:
+  raw_images_dir: "warning_img"
+  raw_videos_dir: "warning_file"
+  structured_dir: "poc/data/structured"
+  db_path: "poc/data/metadata.db"
+  schema_path: "poc/schema/metadata.sql"
+  lancedb_dir: "poc/data/lancedb"
+  trace_db_path: "logs/traces.db"
+  log_dir: "logs"
+  embeddings_dir: "poc/data/embeddings"
+  index_dir: "poc/data/index"
+
+ingest:
+  asset_id_strategy: "sha256"
+  structured_files:
+    - "alarms_warning.csv"
+    - "alarms.csv"
+    - "alarms.json"
+  default_source: "offline_batch"
+  default_region: "unknown"
+
+search:
+  embedding_model: "qwen"          # "clip" or "qwen"
+  clip_model: "clip-ViT-L-14"
+  model_cache_dir: "models"
+  model_source: "huggingface"
+  hf_mirror: "https://hf-mirror.com"
+  qwen_api_url: "http://10.132.19.82:8010"
+  qwen_timeout: 30
+  qwen_dummy_image: "warning_img"
+  reranker_enabled: true
+  reranker_api_url: "http://10.132.19.82:8011"
+  reranker_timeout: 60
+  reranker_top_k: 20
+  vector_weight: 0.7
+  keyword_weight: 0.3
+  top_k: 10
+  device: "cuda"
+  batch_size: 32
+  auto_batch_size: true
+
+llm:
+  enabled: true
+  provider: "deepseek"
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-chat"
+  api_key_env: "DEEPSEEK_API_KEY"
+  mode: "hybrid"
+  api_key: "YOUR_DEEPSEEK_API_KEY_HERE"   # <-- 替换为你的 DeepSeek 密钥
+
+agent:
+  enabled: true
+  max_retries: 3
+  enable_trace: true
+  enable_security: true
+
+security:
+  allowed_tables: [events, assets, detections, annotations, embeddings]
+  sensitive_tables: [users, passwords]
+
+train:
+  yolo_model: "yolov8x-worldv2.pt"
+  epochs: 10
+  imgsz: 640
+
+gaode:
+  api_key: "YOUR_GAODE_API_KEY_HERE"      # <-- 替换为你的高德地图密钥
+  geocode_url: "https://restapi.amap.com/v3/geocode/geo"
+
+ray:
+  enabled: true
+  address: "auto"
+  num_gpus: 1
+  dashboard_port: 8265
+  namespace: "multimodal"

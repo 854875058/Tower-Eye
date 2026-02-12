@@ -46,3 +46,15 @@ __pycache__
 *.cache
 *.tmp
 *.swp
+
+# 含敏感信息的配置文件（使用 poc.yaml.example 作为模板）
+poc/config/poc.yaml
+.env
+nul
+
+# Qwen3-VL 模型文件和服务（部署在 GPU 服务器上）
+/qwen3-vl/models/
+/qwen3-vl/*.txt
+
+# 其他项目目录
+/极智-automl-平台/
