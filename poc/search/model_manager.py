@@ -131,6 +131,19 @@ class ModelManager:
         else:
             raise ValueError(f"不支持的模型类型: {self.model_type}")
 
+    def encode_images_batch(self, image_paths: list) -> np.ndarray:
+        """批量图像向量化 — 利用服务端 batch API 加速"""
+        if self.model_type == "qwen":
+            return self.embedding_model.encode_batch(images=image_paths)
+        elif self.model_type == "clip":
+            from PIL import Image
+            images = [Image.open(p).convert("RGB") for p in image_paths]
+            return self.embedding_model.encode(
+                images, convert_to_numpy=True, normalize_embeddings=True
+            )
+        else:
+            raise ValueError(f"不支持的模型类型: {self.model_type}")
+
     def rerank(self, query_text: str, results: list, top_k: int = 20) -> list:
         """重排序"""
         if self.reranker_enabled and self.reranker_model:

@@ -266,30 +266,44 @@ def main() -> None:
         import time
         start_time = time.time()
 
-        # 批量处理图像
+        # 真正的批量处理 — 利用服务端 batch API
         embeddings = []
         processed = 0
-        for i in range(0, len(images), batch_size):
-            batch_paths = images[i:i + batch_size]
+        failed = 0
+        total = len(images)
+        # 服务端 batch 一次不宜太大（显存/请求体限制），用较小的 sub-batch
+        sub_batch = min(batch_size, 8)
 
-            for path in batch_paths:
-                try:
-                    vec = manager.encode_image(path)
-                    embeddings.append((path, vec))
-                except Exception as e:
-                    print(f"  警告: 无法处理图片 {path}: {e}")
-                    continue
-                processed += 1
-                if processed % 10 == 0:
-                    elapsed = time.time() - start_time
-                    speed = processed / elapsed if elapsed > 0 else 0
-                    print(f"  处理进度: {processed}/{len(images)}  ({speed:.1f} 张/秒)")
+        for i in range(0, total, sub_batch):
+            batch_paths = images[i:i + sub_batch]
+            try:
+                vecs = manager.encode_images_batch(batch_paths)
+                for j, path in enumerate(batch_paths):
+                    embeddings.append((path, vecs[j]))
+                processed += len(batch_paths)
+            except Exception as batch_err:
+                # batch 失败，逐张 fallback
+                for path in batch_paths:
+                    try:
+                        vec = manager.encode_image(path)
+                        embeddings.append((path, vec))
+                        processed += 1
+                    except Exception as e:
+                        print(f"  警告: 无法处理图片 {path}: {e}")
+                        failed += 1
 
-        print(f"  处理进度: {processed}/{len(images)} (完成)")
+            if processed % 50 == 0 or processed == total:
+                elapsed = time.time() - start_time
+                speed = processed / elapsed if elapsed > 0 else 0
+                eta = (total - processed) / speed if speed > 0 else 0
+                print(f"  进度: {processed}/{total}  ({speed:.1f} 张/秒, 预计剩余 {eta:.0f}s, 失败 {failed})")
+
+        print(f"  处理进度: {processed}/{total} (完成, 失败 {failed})")
 
         elapsed_time = time.time() - start_time
         print(f"向量生成完成，耗时: {elapsed_time:.2f} 秒")
-        print(f"平均速度: {len(images) / elapsed_time:.2f} 张/秒")
+        if processed > 0:
+            print(f"平均速度: {processed / elapsed_time:.2f} 张/秒")
 
     # 从 SQLite 获取资产元数据（只需最小标识字段，结构化数据留在 SQLite）
     conn = connect_db(db_path)

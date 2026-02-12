@@ -190,18 +190,20 @@ class Qwen3VLEmbedding:
         return np.array(embeddings)
 
     def _encode_batch_remote(self, images: List[Union[str, Path]]) -> np.ndarray:
-        """调用服务端 /v1/tower/embed_batch 批量接口"""
+        """调用服务端 /v1/tower/embed_batch 批量接口（base64 传输）"""
         items = []
         for img_path in images:
             p = str(img_path)
             if not os.path.exists(p):
                 raise FileNotFoundError(f"图像文件不存在: {p}")
-            items.append({"text": "", "image_path": os.path.abspath(p)})
+            with open(p, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("utf-8")
+            items.append({"text": "", "image_base64": b64})
 
         response = post_with_retry(
             f"{self.api_url}/v1/tower/embed_batch",
             json={"items": items},
-            timeout=self.timeout * len(items),  # batch 超时按数量放大
+            timeout=self.timeout * len(items),
             max_retries=self.max_retries,
             logger=log,
         )
