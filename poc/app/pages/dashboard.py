@@ -61,9 +61,9 @@ def dashboard_page():
             with ui.row().classes('items-center gap-2 mb-4'):
                 ui.icon('account_tree').classes('text-blue-500 text-xl')
                 ui.label('系统架构图').classes('font-bold text-lg text-slate-800')
-            ui.mermaid('''graph TB
+            ui.mermaid('''graph LR
     subgraph UI["前端交互层"]
-        direction LR
+        direction TB
         NUI["NiceGUI Web UI"]
         QA_Page["智能问答"]
         Search_Page["多模态检索"]
@@ -75,24 +75,24 @@ def dashboard_page():
         NUI --- Monitor_Page
     end
 
-    subgraph Agent_Layer["Agent 编排层 — LangGraph 状态机"]
-        direction LR
-        Parse["1. 问题解析<br/>NL2SQL"]
-        Validate["2. SQL 验证<br/>安全护栏"]
-        Execute["3. SQL 执行<br/>SQLite"]
-        Format["4. 结果格式化<br/>图表/表格"]
-        Fix["5. 自我修正<br/>LLM 重写 SQL"]
+    subgraph Agent_Layer["Agent 编排层"]
+        direction TB
+        Parse["问题解析 NL2SQL"]
+        Validate["SQL 验证 安全护栏"]
+        Execute["SQL 执行"]
+        Format["结果格式化"]
+        Fix["自我修正 LLM重写"]
         Parse --> Validate --> Execute --> Format
         Execute -.->|失败| Fix -.->|重试| Validate
     end
 
     subgraph Search_Layer["检索引擎层"]
-        direction LR
-        Text_Enc["文本编码<br/>Qwen3-VL"]
-        Img_Enc["图像编码<br/>Qwen3-VL"]
-        Video_Enc["视频抽帧<br/>OpenCV"]
-        Hybrid["混合检索<br/>向量+关键词"]
-        Rerank["Reranker 精排<br/>Qwen3-VL"]
+        direction TB
+        Text_Enc["文本编码"]
+        Img_Enc["图像编码"]
+        Video_Enc["视频抽帧"]
+        Hybrid["混合检索"]
+        Rerank["Reranker精排"]
         Text_Enc --> Hybrid
         Img_Enc --> Hybrid
         Video_Enc --> Img_Enc
@@ -100,25 +100,19 @@ def dashboard_page():
     end
 
     subgraph Model_Layer["AI 模型层"]
-        direction LR
-        Qwen_Embed["Qwen3-VL<br/>Embedding API<br/>:8010"]
-        Qwen_Rerank["Qwen3-VL<br/>Reranker API<br/>:8011"]
-        DeepSeek["DeepSeek Chat<br/>NL2SQL 引擎"]
-        YOLO["YOLOv26x<br/>目标检测"]
-        VLLM["VLLM API<br/>语义分析"]
-    end
-
-    subgraph Infra["基础设施层"]
-        direction LR
-        Ray["Ray 分布式<br/>Actor 调度"]
-        Daft["Daft 批量管线<br/>TB 级入库"]
+        direction TB
+        Qwen_Embed["Qwen3-VL Embedding :8010"]
+        Qwen_Rerank["Qwen3-VL Reranker :8011"]
+        DeepSeek["DeepSeek NL2SQL"]
+        YOLO["YOLOv26x 检测"]
+        VLLM["VLLM 语义分析"]
     end
 
     subgraph Storage["数据存储层"]
-        direction LR
-        LDB[("LanceDB<br/>向量数据库")]
-        SQLite[("SQLite<br/>结构化数据")]
-        FS["本地文件系统<br/>图片/视频"]
+        direction TB
+        LDB[("LanceDB 向量库")]
+        SQLite[("SQLite 结构化")]
+        FS["文件系统 图片/视频"]
     end
 
     QA_Page --> Agent_Layer
@@ -130,11 +124,9 @@ def dashboard_page():
     Search_Layer --> Qwen_Embed
     Search_Layer --> Qwen_Rerank
     Search_Layer --> LDB
-    Infra --> Model_Layer
-    Daft --> LDB
-    Daft --> SQLite
-    LDB --> FS''').classes('w-full').style(
-                'min-height:500px'
+    Rerank --> LDB
+    LDB --> FS''').classes('w-full overflow-x-auto').style(
+                'min-height:420px'
             )
 
         # ── 四大核心能力 ──
