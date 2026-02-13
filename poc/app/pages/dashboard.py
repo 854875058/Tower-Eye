@@ -39,214 +39,148 @@ def dashboard_page():
                         ):
                             ui.icon(icon).classes(f'text-{color}-500 text-xl')
 
-        # ── 技术栈（紧凑横条卡片） ──
-        with ui.element('div').classes(
-            'w-full rounded-2xl bg-white border border-slate-100 shadow-sm p-5 mb-6'
-        ):
-            ui.label('核心技术栈').classes('text-sm font-semibold text-slate-500 mb-3')
+        # ── 技术栈卡片（两行） ──
+        with ui.grid(columns=5).classes('w-full gap-5 mb-6'):
             tech_cards = [
-                ('LangGraph', 'Agent 引擎', 'psychology', 'blue'),
-                ('LanceDB', '向量数据库', 'storage', 'purple'),
-                ('Qwen3-VL', '多模态模型', 'auto_awesome', 'amber'),
-                ('YOLOv26x', '目标检测', 'videocam', 'emerald'),
-                ('Ray + Daft', '分布式计算', 'cloud', 'rose'),
-                ('DeepSeek', 'NL2SQL', 'chat', 'sky'),
-                ('SQLite', '结构化存储', 'table_chart', 'slate'),
-                ('NiceGUI', 'Web 前端', 'web', 'indigo'),
+                ('LangGraph', 'Agent 引擎', '状态机编排 / 自我修正 / 链路追踪', 'psychology', 'blue'),
+                ('LanceDB', '向量数据库', '混合检索 / 动态索引 / 亚秒响应', 'storage', 'purple'),
+                ('Qwen3-VL', '多模态模型', 'Embedding + Reranker 二阶段', 'auto_awesome', 'amber'),
+                ('YOLOv26x', '目标检测', '双引擎标注 / 18类车辆识别', 'videocam', 'emerald'),
+                ('Ray + Daft', '分布式计算', 'GPU Actor / TB级批量管线', 'cloud', 'rose'),
+                ('DeepSeek', 'NL2SQL 引擎', '自然语言转SQL / 自我修正', 'chat', 'sky'),
+                ('SQLite', '结构化存储', '事件/资产/告警元数据', 'table_chart', 'slate'),
+                ('NiceGUI', 'Web 前端', '响应式UI / WebSocket实时', 'web', 'indigo'),
+                ('OpenCV', '视频处理', '抽帧 / 卡尔曼跟踪', 'movie', 'teal'),
+                ('VLLM', '语义分析', '场景理解 / 描述生成', 'auto_fix_high', 'orange'),
             ]
-            with ui.row().classes('w-full flex-wrap gap-3'):
-                for name, role, icon, color in tech_cards:
-                    with ui.element('div').classes(
-                        f'flex items-center gap-2 px-4 py-2 rounded-xl bg-{color}-50 border border-{color}-100'
-                    ):
-                        ui.icon(icon).classes(f'text-{color}-500 text-base')
+            for name, role, desc, icon, color in tech_cards:
+                with ui.element('div').classes('kpi-card'):
+                    with ui.row().classes('items-center gap-3 mb-2'):
+                        with ui.element('div').classes(
+                            f'w-10 h-10 rounded-xl bg-{color}-50 flex items-center justify-center'
+                        ):
+                            ui.icon(icon).classes(f'text-{color}-500 text-lg')
                         with ui.column().classes('gap-0'):
-                            ui.label(name).classes('text-sm font-bold text-slate-700 leading-tight')
-                            ui.label(role).classes('text-[10px] text-slate-400 leading-tight')
+                            ui.label(name).classes('text-base font-bold text-slate-800')
+                            ui.label(role).classes('text-xs text-slate-400')
+                    ui.label(desc).classes('text-xs text-slate-500 leading-relaxed')
 
-        # ── 系统架构图（卡片式分层） ──
-        with ui.element('div').classes('w-full rounded-2xl bg-white border border-slate-100 shadow-sm p-6 mb-6'):
-            with ui.row().classes('items-center gap-2 mb-5'):
+        # ── 系统架构图（Mermaid + 自定义主题） ──
+        with ui.element('div').classes('kpi-card mb-6 w-full'):
+            with ui.row().classes('items-center gap-2 mb-4'):
                 ui.icon('account_tree').classes('text-blue-500 text-xl')
                 ui.label('系统架构图').classes('font-bold text-lg text-slate-800')
+            ui.mermaid('''%%{init: {"theme": "base", "themeVariables": {
+                "primaryColor": "#dbeafe", "primaryTextColor": "#1e3a5f",
+                "primaryBorderColor": "#93c5fd", "lineColor": "#64748b",
+                "secondaryColor": "#f3e8ff", "tertiaryColor": "#fef3c7",
+                "fontSize": "13px", "fontFamily": "Inter, sans-serif"
+            }}}%%
+graph LR
+    subgraph UI["前端交互层 · NiceGUI"]
+        direction TB
+        QA_Page["智能问答<br/>自然语言提问"]
+        Search_Page["多模态检索<br/>文本/图片/视频"]
+        Label_Page["自动标注<br/>图片/视频批量"]
+        Monitor_Page["系统监控<br/>全链路追踪"]
+    end
 
-            def _arch_layer(title, color, gradient, items):
-                """渲染一个架构层：标题条 + 内部节点卡片"""
-                with ui.element('div').classes('w-full'):
-                    # 层标题
-                    with ui.element('div').classes(
-                        f'w-full rounded-t-xl bg-gradient-to-r {gradient} px-4 py-2'
-                    ):
-                        ui.label(title).classes('text-white font-bold text-sm tracking-wide')
-                    # 节点卡片区
-                    with ui.element('div').classes(
-                        f'w-full rounded-b-xl border border-t-0 border-{color}-100 bg-{color}-50/30 p-4'
-                    ):
-                        with ui.row().classes('w-full flex-wrap gap-3 justify-center'):
-                            for icon, name, desc in items:
-                                with ui.element('div').classes(
-                                    'flex items-center gap-2 bg-white rounded-lg px-3 py-2 shadow-sm border border-slate-100'
-                                ).style('min-width:140px'):
-                                    ui.icon(icon).classes(f'text-{color}-500 text-lg flex-shrink-0')
-                                    with ui.column().classes('gap-0'):
-                                        ui.label(name).classes('text-xs font-bold text-slate-700 leading-tight')
-                                        ui.label(desc).classes('text-[10px] text-slate-400 leading-tight')
+    subgraph QA_Flow["智能问答 · LangGraph Agent"]
+        direction TB
+        NL["自然语言输入"]
+        NL2SQL["NL2SQL 意图解析<br/>DeepSeek Chat"]
+        TimeArea["时间/地区/场景<br/>实体自动提取"]
+        SQLGen["SQL 生成<br/>注入当前时间"]
+        Guard["安全护栏<br/>表白名单/注入防护"]
+        Exec["SQL 执行"]
+        Fix["自我修正<br/>LLM 分析错误重写"]
+        Fmt["结果格式化<br/>表格/图表/摘要"]
+        NL --> NL2SQL --> TimeArea --> SQLGen --> Guard --> Exec
+        Exec -->|成功| Fmt
+        Exec -.->|失败 max 3次| Fix -.-> SQLGen
+    end
 
-            def _arrow_down():
-                with ui.row().classes('w-full justify-center py-1'):
-                    ui.icon('keyboard_double_arrow_down').classes('text-slate-300 text-2xl')
+    subgraph Search_Flow["多模态检索 · 二阶段"]
+        direction TB
+        Input["输入分流"]
+        TxtEnc["文本向量编码<br/>Qwen3-VL Embed"]
+        ImgEnc["图像向量编码<br/>Qwen3-VL Embed"]
+        VidProc["视频抽帧<br/>OpenCV 中间帧"]
+        Filter["结构化预过滤<br/>SQLite 条件筛选"]
+        VecSearch["向量检索<br/>LanceDB ANN"]
+        Hybrid["混合检索<br/>向量+关键词加权"]
+        PostFilter["后置过滤<br/>asset_id 交集"]
+        Rerank["Reranker 精排<br/>Qwen3-VL Rerank"]
+        Input -->|文本| TxtEnc --> Hybrid
+        Input -->|图片| ImgEnc --> VecSearch
+        Input -->|视频| VidProc --> ImgEnc
+        Input -->|筛选条件| Filter --> PostFilter
+        Hybrid --> PostFilter --> Rerank
+        VecSearch --> PostFilter
+    end
 
-            # Layer 1: 前端交互层
-            _arch_layer('前端交互层 · NiceGUI Web UI', 'blue', 'from-blue-500 to-blue-600', [
-                ('chat', '智能问答', '自然语言提问'),
-                ('search', '多模态检索', '文本/图片/视频'),
-                ('label', '自动标注', '图片/视频批量'),
-                ('desktop_windows', '系统监控', '全链路追踪'),
-            ])
-            _arrow_down()
+    subgraph Label_Flow["自动标注 · 双引擎"]
+        direction TB
+        ImgIn["图片/视频输入"]
+        YOLO["YOLOv26x 检测<br/>18类工程车辆"]
+        Track["卡尔曼跟踪<br/>多目标轨迹关联"]
+        VLLM["VLLM 语义分析<br/>场景理解/描述"]
+        Export["标注导出<br/>YOLO格式/可编辑"]
+        ImgIn --> YOLO --> Track --> Export
+        ImgIn --> VLLM --> Export
+    end
 
-            # Layer 2: 业务逻辑层（三列并排）
-            with ui.grid(columns=3).classes('w-full gap-3'):
-                # 智能问答流程
-                with ui.element('div').classes('w-full'):
-                    with ui.element('div').classes(
-                        'w-full rounded-t-xl bg-gradient-to-r from-blue-400 to-blue-500 px-3 py-1.5'
-                    ):
-                        ui.label('智能问答 · LangGraph Agent').classes('text-white font-semibold text-xs')
-                    with ui.element('div').classes(
-                        'w-full rounded-b-xl border border-t-0 border-blue-100 bg-blue-50/30 p-3'
-                    ):
-                        steps = [
-                            ('edit_note', 'NL2SQL 意图解析'),
-                            ('schedule', '时间/地区实体提取'),
-                            ('code', 'SQL 生成 + 时间注入'),
-                            ('shield', '安全护栏验证'),
-                            ('play_arrow', 'SQL 执行'),
-                            ('autorenew', '失败自我修正 x3'),
-                            ('format_list_bulleted', '结果格式化'),
-                        ]
-                        with ui.column().classes('gap-1'):
-                            for i, (ic, st) in enumerate(steps):
-                                with ui.row().classes('items-center gap-2'):
-                                    ui.icon(ic).classes('text-blue-400 text-sm flex-shrink-0')
-                                    ui.label(st).classes('text-[11px] text-slate-600')
-                                if i < len(steps) - 1:
-                                    with ui.row().classes('pl-2'):
-                                        ui.icon('arrow_downward').classes('text-blue-200 text-xs')
+    subgraph Models["AI 模型服务"]
+        direction TB
+        QwenEmbed["Qwen3-VL Embedding<br/>:8010 图文跨模态"]
+        QwenRerank["Qwen3-VL Reranker<br/>:8011 精排重排序"]
+        DS["DeepSeek Chat<br/>NL2SQL/自我修正"]
+        YOLOModel["YOLOv26x<br/>目标检测"]
+        VLLMModel["VLLM API<br/>语义分析"]
+    end
 
-                # 多模态检索流程
-                with ui.element('div').classes('w-full'):
-                    with ui.element('div').classes(
-                        'w-full rounded-t-xl bg-gradient-to-r from-purple-400 to-purple-500 px-3 py-1.5'
-                    ):
-                        ui.label('多模态检索 · 二阶段').classes('text-white font-semibold text-xs')
-                    with ui.element('div').classes(
-                        'w-full rounded-b-xl border border-t-0 border-purple-100 bg-purple-50/30 p-3'
-                    ):
-                        steps = [
-                            ('call_split', '输入分流 文本/图片/视频'),
-                            ('movie', '视频抽帧 OpenCV'),
-                            ('auto_awesome', '向量编码 Qwen3-VL'),
-                            ('filter_alt', '结构化预过滤 SQLite'),
-                            ('manage_search', '混合检索 向量+关键词'),
-                            ('filter_list', '后置过滤 asset_id'),
-                            ('sort', 'Reranker 精排'),
-                        ]
-                        with ui.column().classes('gap-1'):
-                            for i, (ic, st) in enumerate(steps):
-                                with ui.row().classes('items-center gap-2'):
-                                    ui.icon(ic).classes('text-purple-400 text-sm flex-shrink-0')
-                                    ui.label(st).classes('text-[11px] text-slate-600')
-                                if i < len(steps) - 1:
-                                    with ui.row().classes('pl-2'):
-                                        ui.icon('arrow_downward').classes('text-purple-200 text-xs')
+    subgraph Storage["数据存储层"]
+        direction TB
+        LDB[("LanceDB<br/>向量索引")]
+        SQLiteDB[("SQLite<br/>结构化数据")]
+        FS["文件系统<br/>图片/视频/告警"]
+    end
 
-                # 自动标注流程
-                with ui.element('div').classes('w-full'):
-                    with ui.element('div').classes(
-                        'w-full rounded-t-xl bg-gradient-to-r from-amber-400 to-amber-500 px-3 py-1.5'
-                    ):
-                        ui.label('自动标注 · 双引擎').classes('text-white font-semibold text-xs')
-                    with ui.element('div').classes(
-                        'w-full rounded-b-xl border border-t-0 border-amber-100 bg-amber-50/30 p-3'
-                    ):
-                        steps = [
-                            ('upload_file', '图片/视频输入'),
-                            ('videocam', 'YOLOv26x 目标检测'),
-                            ('timeline', '卡尔曼多目标跟踪'),
-                            ('auto_awesome', 'VLLM 语义分析'),
-                            ('download', '标注导出 YOLO格式'),
-                        ]
-                        with ui.column().classes('gap-1'):
-                            for i, (ic, st) in enumerate(steps):
-                                with ui.row().classes('items-center gap-2'):
-                                    ui.icon(ic).classes('text-amber-400 text-sm flex-shrink-0')
-                                    ui.label(st).classes('text-[11px] text-slate-600')
-                                if i < len(steps) - 1:
-                                    with ui.row().classes('pl-2'):
-                                        ui.icon('arrow_downward').classes('text-amber-200 text-xs')
+    subgraph Pipeline["数据入库管线 · Ray + Daft"]
+        direction TB
+        Ingest["数据采集<br/>告警/资产/图片"]
+        RayActor["Ray GPU Actor<br/>分布式调度"]
+        DaftETL["Daft ETL<br/>TB级批量处理"]
+        Embed["批量向量化<br/>Qwen3-VL Embed"]
+        Summarize["图像理解<br/>VLLM 摘要生成"]
+        Index["索引构建<br/>LanceDB 入库"]
+        Ingest --> RayActor
+        Ingest --> DaftETL
+        RayActor --> Embed --> Index
+        DaftETL --> Summarize --> Index
+    end
 
-            _arrow_down()
+    QA_Page --> QA_Flow
+    Search_Page --> Search_Flow
+    Label_Page --> Label_Flow
+    Monitor_Page -.-> Storage
 
-            # Layer 3: AI 模型服务层
-            _arch_layer('AI 模型服务层', 'rose', 'from-rose-400 to-pink-500', [
-                ('auto_awesome', 'Qwen3-VL Embed', ':8010 图文跨模态'),
-                ('sort', 'Qwen3-VL Rerank', ':8011 精排重排序'),
-                ('chat', 'DeepSeek Chat', 'NL2SQL / 自我修正'),
-                ('videocam', 'YOLOv26x', '18类目标检测'),
-                ('psychology', 'VLLM API', '语义分析'),
-            ])
-            _arrow_down()
-
-            # Layer 4: 数据存储层 + 入库管线
-            with ui.grid(columns=2).classes('w-full gap-3'):
-                # 存储层
-                with ui.element('div').classes('w-full'):
-                    with ui.element('div').classes(
-                        'w-full rounded-t-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-2'
-                    ):
-                        ui.label('数据存储层').classes('text-white font-bold text-sm')
-                    with ui.element('div').classes(
-                        'w-full rounded-b-xl border border-t-0 border-emerald-100 bg-emerald-50/30 p-4'
-                    ):
-                        with ui.row().classes('w-full flex-wrap gap-3 justify-center'):
-                            for ic, nm, ds in [
-                                ('hub', 'LanceDB', '向量索引'),
-                                ('table_chart', 'SQLite', '结构化数据'),
-                                ('folder', '文件系统', '图片/视频/告警'),
-                            ]:
-                                with ui.element('div').classes(
-                                    'flex items-center gap-2 bg-white rounded-lg px-3 py-2 shadow-sm border border-slate-100'
-                                ).style('min-width:130px'):
-                                    ui.icon(ic).classes('text-emerald-500 text-lg flex-shrink-0')
-                                    with ui.column().classes('gap-0'):
-                                        ui.label(nm).classes('text-xs font-bold text-slate-700 leading-tight')
-                                        ui.label(ds).classes('text-[10px] text-slate-400 leading-tight')
-
-                # 入库管线
-                with ui.element('div').classes('w-full'):
-                    with ui.element('div').classes(
-                        'w-full rounded-t-xl bg-gradient-to-r from-slate-500 to-slate-600 px-4 py-2'
-                    ):
-                        ui.label('数据入库管线 · Ray + Daft').classes('text-white font-bold text-sm')
-                    with ui.element('div').classes(
-                        'w-full rounded-b-xl border border-t-0 border-slate-200 bg-slate-50 p-4'
-                    ):
-                        with ui.row().classes('w-full flex-wrap gap-3 justify-center'):
-                            for ic, nm, ds in [
-                                ('cloud_download', '数据采集', '告警/资产/图片'),
-                                ('memory', 'Ray GPU Actor', '分布式调度'),
-                                ('transform', 'Daft ETL', 'TB级批量处理'),
-                                ('auto_awesome', '批量向量化', 'Qwen3-VL'),
-                                ('build', '索引构建', 'LanceDB 入库'),
-                            ]:
-                                with ui.element('div').classes(
-                                    'flex items-center gap-2 bg-white rounded-lg px-3 py-2 shadow-sm border border-slate-100'
-                                ).style('min-width:120px'):
-                                    ui.icon(ic).classes('text-slate-500 text-lg flex-shrink-0')
-                                    with ui.column().classes('gap-0'):
-                                        ui.label(nm).classes('text-xs font-bold text-slate-700 leading-tight')
-                                        ui.label(ds).classes('text-[10px] text-slate-400 leading-tight')
+    QA_Flow --> DS
+    QA_Flow --> SQLiteDB
+    Search_Flow --> QwenEmbed
+    Search_Flow --> QwenRerank
+    Search_Flow --> LDB
+    Search_Flow --> SQLiteDB
+    Label_Flow --> YOLOModel
+    Label_Flow --> VLLMModel
+    Pipeline --> QwenEmbed
+    Pipeline --> VLLMModel
+    Pipeline --> LDB
+    Pipeline --> SQLiteDB
+    Pipeline --> FS
+    LDB --> FS''').classes('w-full').style(
+                'min-height:420px; width:100%;'
+            )
 
         # ── 四大核心能力 ──
         with ui.grid(columns=2).classes('w-full gap-5 mb-6'):
