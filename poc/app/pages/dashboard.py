@@ -77,7 +77,7 @@ def dashboard_page():
                 "mainBkg": "#f8fafc", "nodeBorder": "#cbd5e1",
                 "clusterBkg": "#f8fafc", "clusterBorder": "#cbd5e1",
                 "titleColor": "#334155",
-                "fontSize": "13px", "fontFamily": "Inter, sans-serif"
+                "fontSize": "15px", "fontFamily": "Inter, sans-serif"
             }}}%%
 graph LR
     subgraph UI["前端交互层 · NiceGUI"]
