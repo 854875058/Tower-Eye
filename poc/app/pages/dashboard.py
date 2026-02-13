@@ -181,7 +181,15 @@ graph LR
     Pipeline --> LDB
     Pipeline --> SQLiteDB
     Pipeline --> FS
-    LDB --> FS''').classes('w-full').style(
+    LDB --> FS
+
+    style UI fill:#eff6ff,stroke:#3b82f6,stroke-width:2px,color:#1e40af
+    style QA_Flow fill:#eef2ff,stroke:#6366f1,stroke-width:2px,color:#3730a3
+    style Search_Flow fill:#faf5ff,stroke:#a855f7,stroke-width:2px,color:#6b21a8
+    style Label_Flow fill:#fffbeb,stroke:#f59e0b,stroke-width:2px,color:#92400e
+    style Models fill:#fdf2f8,stroke:#ec4899,stroke-width:2px,color:#9d174d
+    style Storage fill:#ecfdf5,stroke:#10b981,stroke-width:2px,color:#065f46
+    style Pipeline fill:#f0f9ff,stroke:#0ea5e9,stroke-width:2px,color:#0c4a6e''').classes('w-full').style(
                 'min-height:420px; width:100%;'
             )
 
