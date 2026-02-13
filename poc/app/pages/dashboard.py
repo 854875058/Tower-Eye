@@ -77,45 +77,43 @@ def dashboard_page():
                 "mainBkg": "#f8fafc", "nodeBorder": "#cbd5e1",
                 "clusterBkg": "#f8fafc", "clusterBorder": "#cbd5e1",
                 "titleColor": "#334155",
-                "fontSize": "11px", "fontFamily": "Inter, sans-serif"
+                "fontSize": "13px", "fontFamily": "Inter, sans-serif"
             }}}%%
 graph LR
     subgraph UI["前端交互层 · NiceGUI"]
         direction TB
-        QA_Page["智能问答 · 自然语言提问"]
-        Search_Page["多模态检索 · 文本/图片/视频"]
-        Label_Page["自动标注 · 图片/视频批量"]
-        Monitor_Page["系统监控 · 全链路追踪"]
+        QA_Page["智能问答"]
+        Search_Page["多模态检索"]
+        Label_Page["自动标注"]
+        Monitor_Page["系统监控"]
     end
 
     subgraph QA_Flow["智能问答 · LangGraph Agent"]
-        direction TB
-        NL["自然语言输入"] --> NL2SQL["NL2SQL · DeepSeek"] --> TimeArea["实体提取 · 时间/地区"]
-        TimeArea --> SQLGen["SQL生成 · 时间注入"] --> Guard["安全护栏"] --> Exec["SQL执行"]
+        direction LR
+        NL["自然语言输入"] --> NL2SQL["NL2SQL · DeepSeek"] --> SQLGen["SQL生成 · 护栏校验"]
+        SQLGen --> Exec["SQL执行"]
         Exec -->|成功| Fmt["结果格式化"]
         Exec -.->|失败x3| Fix["自我修正"] -.-> SQLGen
     end
 
     subgraph Search_Flow["多模态检索 · 二阶段"]
-        direction TB
+        direction LR
         Input["输入分流"]
-        Input -->|文本| TxtEnc["文本编码 · Qwen3-VL"] --> Hybrid["混合检索 · 向量+关键词"]
-        Input -->|图片| ImgEnc["图像编码 · Qwen3-VL"] --> VecSearch["向量检索 · LanceDB"]
-        Input -->|视频| VidProc["视频抽帧 · OpenCV"] --> ImgEnc
-        Input -->|筛选| Filter["预过滤 · SQLite"] --> PostFilter["后置过滤 · asset_id交集"]
-        Hybrid --> PostFilter --> Rerank["Reranker精排"]
-        VecSearch --> PostFilter
+        Input -->|文本| TxtEnc["文本编码"] --> Hybrid["混合检索"]
+        Input -->|图片| ImgEnc["图像编码"] --> VecSearch["向量检索"]
+        Input -->|视频| VidProc["视频抽帧"] --> ImgEnc
+        Hybrid --> Rerank["Reranker精排"]
+        VecSearch --> Rerank
     end
 
     subgraph Label_Flow["自动标注 · 双引擎"]
-        direction TB
-        ImgIn["图片/视频输入"]
-        ImgIn --> YOLO["YOLOv26x · 18类车辆"] --> Track["卡尔曼跟踪"] --> Export["标注导出 · YOLO格式"]
-        ImgIn --> VLLM["VLLM · 语义分析"] --> Export
+        direction LR
+        ImgIn["输入"] --> YOLO["YOLOv26x检测"] --> Track["卡尔曼跟踪"] --> Export["标注导出"]
+        ImgIn --> VLLM_L["VLLM语义分析"] --> Export
     end
 
     subgraph Models["AI 模型服务"]
-        direction TB
+        direction LR
         QwenEmbed["Qwen3-VL Embed :8010"]
         QwenRerank["Qwen3-VL Rerank :8011"]
         DS["DeepSeek Chat"]
@@ -124,18 +122,16 @@ graph LR
     end
 
     subgraph Storage["数据存储层"]
-        direction TB
-        LDB[("LanceDB · 向量索引")]
-        SQLiteDB[("SQLite · 结构化数据")]
-        FS["文件系统 · 图片/视频"]
+        direction LR
+        LDB[("LanceDB")]
+        SQLiteDB[("SQLite")]
+        FS["文件系统"]
     end
 
     subgraph Pipeline["数据入库 · Ray + Daft"]
-        direction TB
-        Ingest["数据采集"] --> RayActor["Ray GPU Actor"]
-        Ingest --> DaftETL["Daft ETL"]
-        RayActor --> Embed["批量向量化"] --> Index["索引构建 · LanceDB"]
-        DaftETL --> Summarize["图像理解 · VLLM"] --> Index
+        direction LR
+        Ingest["数据采集"] --> RayActor["Ray GPU Actor"] --> Embed["批量向量化"] --> Index["索引构建"]
+        Ingest --> DaftETL["Daft ETL"] --> Summarize["VLLM摘要"] --> Index
     end
 
     QA_Page --> QA_Flow
@@ -148,7 +144,6 @@ graph LR
     Search_Flow --> QwenEmbed
     Search_Flow --> QwenRerank
     Search_Flow --> LDB
-    Search_Flow --> SQLiteDB
     Label_Flow --> YOLOModel
     Label_Flow --> VLLMModel
     Pipeline --> QwenEmbed
@@ -156,7 +151,6 @@ graph LR
     Pipeline --> LDB
     Pipeline --> SQLiteDB
     Pipeline --> FS
-    LDB --> FS
 
     style UI fill:#eff6ff,stroke:#3b82f6,stroke-width:2px,color:#1e40af
     style QA_Flow fill:#eef2ff,stroke:#6366f1,stroke-width:2px,color:#3730a3
