@@ -48,7 +48,8 @@ def init_ray(config: dict) -> bool:
             init_kwargs["num_gpus"] = num_gpus
             # dashboard 需要额外依赖，缺失时自动跳过
             try:
-                import ray.dashboard  # noqa: F401
+                import importlib
+                importlib.import_module("ray.dashboard")
                 init_kwargs["dashboard_port"] = dashboard_port
                 init_kwargs["include_dashboard"] = True
             except (ImportError, ModuleNotFoundError):

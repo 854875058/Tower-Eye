@@ -71,9 +71,12 @@ def dashboard_page():
                 ui.icon('account_tree').classes('text-blue-500 text-xl')
                 ui.label('系统架构图').classes('font-bold text-lg text-slate-800')
             ui.mermaid('''%%{init: {"theme": "base", "themeVariables": {
-                "primaryColor": "#dbeafe", "primaryTextColor": "#1e3a5f",
-                "primaryBorderColor": "#93c5fd", "lineColor": "#64748b",
-                "secondaryColor": "#f3e8ff", "tertiaryColor": "#fef3c7",
+                "primaryColor": "#eff6ff", "primaryTextColor": "#1e3a5f",
+                "primaryBorderColor": "#93c5fd", "lineColor": "#94a3b8",
+                "secondaryColor": "#f0f4ff", "tertiaryColor": "#f8fafc",
+                "mainBkg": "#f8fafc", "nodeBorder": "#cbd5e1",
+                "clusterBkg": "#f8fafc", "clusterBorder": "#cbd5e1",
+                "titleColor": "#334155",
                 "fontSize": "13px", "fontFamily": "Inter, sans-serif"
             }}}%%
 graph LR

@@ -109,7 +109,21 @@
       "Bash(powershell -Command \"Get-Process -Id 4560 -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 2; Start-Process -FilePath python -ArgumentList ''poc/app/app_ui.py'' -WorkingDirectory ''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔'' -NoNewWindow; Start-Sleep -Seconds 10; netstat -ano | Select-String '':8080.*LISTENING''\")",
       "Bash(powershell -Command \"Stop-Process -Id 39420 -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; Start-Process -FilePath python -ArgumentList ''poc/app/app_ui.py'' -WorkingDirectory ''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔'' -NoNewWindow; Start-Sleep -Seconds 10; netstat -ano | Select-String '':8080.*LISTENING''\")",
       "Bash(powershell -Command \"Stop-Process -Id 16532 -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; Start-Process -FilePath python -ArgumentList ''poc/app/app_ui.py'' -WorkingDirectory ''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔'' -NoNewWindow; Start-Sleep -Seconds 10; netstat -ano | Select-String '':8080.*LISTENING''\")",
-      "Bash(powershell -Command \"Get-Process -Id 26552 -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 2; Start-Process -FilePath python -ArgumentList ''poc/app/app_ui.py'' -WorkingDirectory ''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔'' -NoNewWindow; Start-Sleep -Seconds 10; netstat -ano | Select-String '':8080.*LISTENING''\")"
+      "Bash(powershell -Command \"Get-Process -Id 26552 -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 2; Start-Process -FilePath python -ArgumentList ''poc/app/app_ui.py'' -WorkingDirectory ''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔'' -NoNewWindow; Start-Sleep -Seconds 10; netstat -ano | Select-String '':8080.*LISTENING''\")",
+      "Bash(tasklist /FI \"IMAGENAME eq python.exe\" /FO CSV)",
+      "Bash(findstr /i \"app_ui\")",
+      "Bash(wmic process where \"commandline like ''%%app_ui%%''\" get processid,commandline)",
+      "Bash(taskkill /PID 12872 /F)",
+      "Bash(cmd /c \"taskkill /PID 12872 /F\")",
+      "Bash(cmd /c \"taskkill /PID 12872 /F 2>&1\")",
+      "Bash(wmic process where \"processid=12872\" call terminate)",
+      "Bash(wmic process where \"commandline like ''%%app_ui%%'' and name=''python.exe''\" get processid)",
+      "Bash(/d/Anaconda3/python.exe -c \"import poc.app.pages.dashboard; print\\(''import OK''\\)\")",
+      "Bash(cmd /c \"netstat -ano | findstr :8080 | findstr LISTENING\")",
+      "Bash(/d/Anaconda3/python.exe -c \"import ray; print\\(ray.__version__\\)\")",
+      "Bash(/d/Anaconda3/python.exe -c \"\nfrom poc.infra.ray_init import init_ray\nfrom poc.pipeline.utils import load_yaml\nconfig = load_yaml\\(''poc/config/poc.yaml''\\)\nresult = init_ray\\(config\\)\nprint\\(''init_ray result:'', result\\)\n\")",
+      "Bash(/d/Anaconda3/python.exe -c \"\nimport ast\nast.parse\\(open\\(''poc/infra/ray_init.py'', encoding=''utf-8''\\).read\\(\\)\\)\nast.parse\\(open\\(''poc/app/pages/dashboard.py'', encoding=''utf-8''\\).read\\(\\)\\)\nprint\\(''Both files syntax OK''\\)\n\")",
+      "Bash(/d/Anaconda3/python.exe -c \"\nfrom poc.infra.ray_init import init_ray, get_ray_status, shutdown_ray\nfrom poc.pipeline.utils import load_yaml\nconfig = load_yaml\\(''poc/config/poc.yaml''\\)\nresult = init_ray\\(config\\)\nprint\\(''init_ray result:'', result\\)\nstatus = get_ray_status\\(\\)\nprint\\(''status:'', status\\)\nshutdown_ray\\(\\)\n\")"
     ]
   },
   "hooks": {
