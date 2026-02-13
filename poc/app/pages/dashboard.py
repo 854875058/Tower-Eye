@@ -131,14 +131,18 @@ def dashboard_page():
         FS["文件系统<br/>图片/视频/告警"]
     end
 
-    subgraph Pipeline["数据入库管线"]
+    subgraph Pipeline["数据入库管线 · Ray + Daft"]
         direction TB
         Ingest["数据采集<br/>告警/资产/图片"]
+        RayActor["Ray GPU Actor<br/>分布式调度"]
+        DaftETL["Daft ETL<br/>TB级批量处理"]
         Embed["批量向量化<br/>Qwen3-VL Embed"]
         Summarize["图像理解<br/>VLLM 摘要生成"]
         Index["索引构建<br/>LanceDB 入库"]
-        Ingest --> Embed --> Index
-        Ingest --> Summarize --> Index
+        Ingest --> RayActor
+        Ingest --> DaftETL
+        RayActor --> Embed --> Index
+        DaftETL --> Summarize --> Index
     end
 
     QA_Page --> QA_Flow
@@ -192,7 +196,7 @@ def dashboard_page():
                     '标注结果可编辑 / YOLO 格式导出',
                     '视频逐帧标注 & 智能切片',
                 ]),
-                ('系统监控', 'monitoring', 'emerald', '全链路可观测性', [
+                ('系统监控', 'desktop_windows', 'emerald', '全链路可观测性', [
                     '数据统计仪表盘 — 资产/事件/向量实时计数',
                     '查询历史追踪 — 意图/SQL/耗时/状态',
                     'Tool 注册中心 — 工具列表与调用统计',
