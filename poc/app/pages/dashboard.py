@@ -10,7 +10,7 @@ def dashboard_page():
     with create_layout('/'):
         page_header('Tower-Eye 铁塔之眼 · 架构概览', '生产级 RAG + Agent + 多模态检索系统全景')
 
-        # ── 实时数据统计 KPI ──
+        # ── 实时数据统计 KPI（彩色渐变卡片） ──
         try:
             _db = resolve_path(config.get("paths", {}).get("db_path", "poc/data/metadata.db"))
             stats = db_stats(_db); lc = lance_count()
@@ -18,43 +18,51 @@ def dashboard_page():
             stats = {"assets": 0, "events": 0, "detections": 0, "annotations": 0, "embeddings": 0}; lc = 0
 
         kpi_items = [
-            ('资产总数', f'{stats["assets"]:,}', 'inventory_2', 'blue'),
-            ('告警事件', f'{stats["events"]:,}', 'warning', 'amber'),
-            ('检测记录', f'{stats["detections"]:,}', 'search', 'emerald'),
-            ('向量索引', f'{lc:,}', 'hub', 'purple'),
+            ('资产总数', f'{stats["assets"]:,}', 'inventory_2', 'blue', 'from-blue-500 to-blue-600'),
+            ('告警事件', f'{stats["events"]:,}', 'warning', 'amber', 'from-amber-500 to-orange-500'),
+            ('检测记录', f'{stats["detections"]:,}', 'search', 'emerald', 'from-emerald-500 to-teal-500'),
+            ('向量索引', f'{lc:,}', 'hub', 'purple', 'from-purple-500 to-violet-500'),
         ]
         with ui.grid(columns=4).classes('w-full gap-5 mb-6'):
-            for title, value, icon, color in kpi_items:
-                with ui.element('div').classes('kpi-card'):
-                    with ui.row().classes('items-center justify-between'):
+            for title, value, icon, color, gradient in kpi_items:
+                with ui.element('div').classes(
+                    'relative overflow-hidden rounded-2xl bg-white border border-slate-100 shadow-sm hover:shadow-md transition-all'
+                ).style('padding:0'):
+                    # 顶部渐变色条
+                    ui.element('div').classes(f'h-1.5 w-full bg-gradient-to-r {gradient}')
+                    with ui.row().classes('items-center justify-between p-5'):
                         with ui.column().classes('gap-0.5'):
                             ui.label(title).classes('text-xs font-medium text-slate-400 uppercase tracking-wide')
                             ui.label(value).classes('text-3xl font-bold text-slate-800')
                         with ui.element('div').classes(
-                            f'w-14 h-14 rounded-2xl bg-{color}-50 flex items-center justify-center'
+                            f'w-12 h-12 rounded-2xl bg-{color}-50 flex items-center justify-center'
                         ):
-                            ui.icon(icon).classes(f'text-{color}-500 text-2xl')
+                            ui.icon(icon).classes(f'text-{color}-500 text-xl')
 
-        # ── 技术栈卡片 ──
-        with ui.grid(columns=5).classes('w-full gap-5 mb-6'):
+        # ── 技术栈（紧凑横条卡片） ──
+        with ui.element('div').classes(
+            'w-full rounded-2xl bg-white border border-slate-100 shadow-sm p-5 mb-6'
+        ):
+            ui.label('核心技术栈').classes('text-sm font-semibold text-slate-500 mb-3')
             tech_cards = [
-                ('LangGraph', 'Agent 引擎', '状态机编排 / 自我修正 / 链路追踪', 'psychology', 'blue'),
-                ('LanceDB', '向量数据库', '混合检索 / 动态索引 / 亚秒响应', 'storage', 'purple'),
-                ('Qwen3-VL', '多模态模型', 'Embedding + Reranker 二阶段', 'auto_awesome', 'amber'),
-                ('YOLOv26x', '目标检测', '双引擎标注 / 18类车辆识别', 'videocam', 'emerald'),
-                ('Ray + Daft', '分布式计算', 'GPU Actor / TB级批量管线', 'cloud', 'rose'),
+                ('LangGraph', 'Agent 引擎', 'psychology', 'blue'),
+                ('LanceDB', '向量数据库', 'storage', 'purple'),
+                ('Qwen3-VL', '多模态模型', 'auto_awesome', 'amber'),
+                ('YOLOv26x', '目标检测', 'videocam', 'emerald'),
+                ('Ray + Daft', '分布式计算', 'cloud', 'rose'),
+                ('DeepSeek', 'NL2SQL', 'chat', 'sky'),
+                ('SQLite', '结构化存储', 'table_chart', 'slate'),
+                ('NiceGUI', 'Web 前端', 'web', 'indigo'),
             ]
-            for name, role, desc, icon, color in tech_cards:
-                with ui.element('div').classes('kpi-card'):
-                    with ui.row().classes('items-center gap-3 mb-2'):
-                        with ui.element('div').classes(
-                            f'w-10 h-10 rounded-xl bg-{color}-50 flex items-center justify-center'
-                        ):
-                            ui.icon(icon).classes(f'text-{color}-500 text-lg')
+            with ui.row().classes('w-full flex-wrap gap-3'):
+                for name, role, icon, color in tech_cards:
+                    with ui.element('div').classes(
+                        f'flex items-center gap-2 px-4 py-2 rounded-xl bg-{color}-50 border border-{color}-100'
+                    ):
+                        ui.icon(icon).classes(f'text-{color}-500 text-base')
                         with ui.column().classes('gap-0'):
-                            ui.label(name).classes('text-base font-bold text-slate-800')
-                            ui.label(role).classes('text-xs text-slate-400')
-                    ui.label(desc).classes('text-xs text-slate-500 leading-relaxed')
+                            ui.label(name).classes('text-sm font-bold text-slate-700 leading-tight')
+                            ui.label(role).classes('text-[10px] text-slate-400 leading-tight')
 
         # ── 系统架构图（大图，详细） ──
         with ui.element('div').classes('kpi-card mb-6 w-full'):
