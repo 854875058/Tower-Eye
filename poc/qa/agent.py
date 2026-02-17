@@ -242,7 +242,28 @@ def format_answer_node(state: AgentState) -> AgentState:
     """
     print(f"[format_answer_node] 格式化答案")
 
-    if state["intent"] == "count":
+    if state["intent"] == "chat":
+        # 闲聊意图：直接返回友好回复
+        q = state["question"].strip().lower()
+        if any(k in q for k in ["你好", "您好", "hello", "hi", "嗨", "hey"]):
+            reply = "你好！我是铁塔之眼智能问答助手，可以帮你查询告警数据、统计分析等。试试问我：\n- 按街道统计最近30天各类告警数量\n- 查询最近20条车辆闯入告警\n- 统计各设备触发告警次数TOP10"
+        elif any(k in q for k in ["你是谁", "你叫什么"]):
+            reply = "我是铁塔之眼智能问答助手，基于 LangGraph Agent 架构，支持自然语言查询告警数据库。"
+        elif any(k in q for k in ["你能做什么", "你会什么", "怎么用", "使用说明", "帮助"]):
+            reply = "我可以帮你：\n- 查询告警记录（按类型、时间、街道、设备等条件）\n- 统计分析（按维度分组计数、TOP排名）\n- 查看告警详情（图片、视频）\n\n直接用自然语言提问即可，例如「查询海沧区最近7天的告警」。"
+        elif any(k in q for k in ["谢谢", "感谢"]):
+            reply = "不客气，有问题随时问我！"
+        elif any(k in q for k in ["再见", "拜拜", "bye"]):
+            reply = "再见，下次有需要随时找我！"
+        else:
+            reply = "我是告警数据查询助手，暂时只能回答和告警数据相关的问题。试试问我「按街道统计告警数量」或「查询最近20条告警」。"
+        state["final_answer"] = {
+            "type": "chat",
+            "value": reply,
+            "message": reply,
+        }
+
+    elif state["intent"] == "count":
         # 统计类查询 — 兼容 cnt / 数量 / COUNT(*) 等各种别名
         if state["sql_result"]:
             first_row = state["sql_result"][0]
@@ -301,10 +322,12 @@ def should_retry(state: AgentState) -> Literal["fix_sql", "error"]:
         return "error"
 
 
-def should_continue_after_parse(state: AgentState) -> Literal["validate_sql", "error"]:
+def should_continue_after_parse(state: AgentState) -> Literal["validate_sql", "format_answer", "error"]:
     """路由函数：解析后是否继续"""
     if state.get("error_message"):
         return "error"
+    if state.get("intent") == "chat":
+        return "format_answer"
     return "validate_sql"
 
 
@@ -350,6 +373,7 @@ def build_agent_graph() -> StateGraph:
         should_continue_after_parse,
         {
             "validate_sql": "validate_sql",
+            "format_answer": "format_answer",
             "error": END
         }
     )

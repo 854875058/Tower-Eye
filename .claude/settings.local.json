@@ -130,7 +130,15 @@
       "Bash(pip show jieba)",
       "Bash(pip install jieba-fast)",
       "Bash(pip install pkuseg)",
-      "Bash(start cmd /k \"cd /d E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔 && streamlit run poc/app/app_v2.py\")"
+      "Bash(start cmd /k \"cd /d E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔 && streamlit run poc/app/app_v2.py\")",
+      "Bash(where streamlit)",
+      "Bash(where python)",
+      "Bash(dir .venvScriptspython.exe)",
+      "Bash(.venv/Scripts/python.exe -c \"import ray; print\\(''OK:'', ray.__version__\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"import sys; print\\(sys.version\\); print\\(sys.executable\\)\")",
+      "Bash(.venv/Scripts/pip.exe install ray)",
+      "Bash(.venv/Scripts/python.exe -c \"from poc.infra.ray_init import _RAY_AVAILABLE, get_ray_status; print\\(f''Ray available: {_RAY_AVAILABLE}''\\); print\\(get_ray_status\\(\\)\\)\")",
+      "Bash(.venv/Scripts/pip.exe install \"ray[default]\")"
     ]
   },
   "hooks": {

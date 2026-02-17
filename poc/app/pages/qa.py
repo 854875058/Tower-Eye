@@ -331,8 +331,12 @@ def qa_page():
                     if answer:
                         answer_data = answer.get("value")
 
+                        # ── chat 类型：纯文本回复 ──
+                        if answer.get("type") == "chat":
+                            ui.markdown(str(answer_data)).classes('text-sm text-slate-700')
+
                         # ── list 类型：表格 + 媒体 ──
-                        if isinstance(answer_data, list) and len(answer_data) > 0 and isinstance(answer_data[0], dict):
+                        elif isinstance(answer_data, list) and len(answer_data) > 0 and isinstance(answer_data[0], dict):
                             ui.label(f'共 {len(answer_data)} 条记录').classes('text-sm text-blue-600')
                             cols_raw = list(answer_data[0].keys())
                             # 表格隐藏 extra_json（太长影响阅读）

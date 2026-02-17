@@ -90,9 +90,40 @@ def _parse_location(text: str) -> Tuple[Optional[float], Optional[float], Option
     return lat, lon, radius
 
 
+_CHAT_PATTERNS = [
+    # 问候
+    "你好", "您好", "hello", "hi", "嗨", "hey",
+    # 感谢/告别
+    "谢谢", "感谢", "再见", "拜拜", "bye",
+    # 自我介绍/能力询问
+    "你是谁", "你叫什么", "你能做什么", "你会什么", "怎么用", "使用说明", "帮助",
+    # 纯闲聊
+    "今天天气", "讲个笑话", "你好吗",
+]
+
+# 数据库查询关键词 — 只要命中任意一个就不是闲聊
+_QUERY_KEYWORDS = [
+    "查询", "查看", "搜索", "查找", "查一下", "找一下", "列出",
+    "统计", "多少", "数量", "总数", "分布", "TOP", "top", "排名",
+    "告警", "事件", "设备", "街道", "区县", "置信度", "工单",
+    "最近", "今天", "昨天", "本月", "本周",
+]
+
+
 def _parse_intent(text: str) -> str:
-    if any(k in text for k in ["多少", "统计", "数量", "总数", "分布", "TOP", "top", "排名"]):
-        return "count"
+    t = text.strip()
+    # 先检查是否命中查询关键词（优先级最高）
+    if any(k in t for k in _QUERY_KEYWORDS):
+        if any(k in t for k in ["多少", "统计", "数量", "总数", "分布", "TOP", "top", "排名"]):
+            return "count"
+        return "list"
+    # 再检查是否是闲聊
+    t_lower = t.lower()
+    if any(p in t_lower for p in _CHAT_PATTERNS):
+        return "chat"
+    # 短文本且无查询关键词 → 大概率闲聊
+    if len(t) <= 6:
+        return "chat"
     return "list"
 
 
@@ -152,6 +183,11 @@ def _parse_confidence(text: str) -> Optional[float]:
 
 def parse_question(text: str) -> QueryPlan:
     intent = _parse_intent(text)
+
+    # 闲聊意图：不生成 SQL
+    if intent == "chat":
+        return QueryPlan(intent="chat", sql="", params=[], filters={})
+
     event_type = None
     for key, value in SCENE_KEYWORDS.items():
         if key in text:
@@ -375,6 +411,11 @@ def build_query_plan(text: str, config: Dict) -> QueryPlan:
 
     mode = llm_cfg.get("mode", "rule")
     rule_plan = parse_question(text)
+
+    # 闲聊意图直接返回，不调 LLM
+    if rule_plan.intent == "chat":
+        print("[build_query_plan] 识别为闲聊，跳过 LLM")
+        return rule_plan
 
     if mode == "rule":
         return _auto_correct_intent(rule_plan)
