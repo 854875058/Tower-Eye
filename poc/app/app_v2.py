@@ -343,6 +343,13 @@ def init_systems(config: Dict):
     if Path(db_path).exists():
         init_tool_registry(db_path)
 
+    # 初始化 Ray 集群（已运行则连接，未运行则启动）
+    try:
+        from poc.infra.ray_init import init_ray
+        init_ray(config)
+    except Exception as e:
+        print(f"[init_systems] Ray 初始化跳过: {e}")
+
     return True
 
 

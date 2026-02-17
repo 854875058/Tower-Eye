@@ -5,7 +5,12 @@ Ray 集群初始化与状态管理
 - get_ray_status()  — 获取集群状态（用于监控页面展示）
 - create_actors(config) — 创建 GPU Actor 实例
 """
-import ray
+try:
+    import ray
+    _RAY_AVAILABLE = True
+except ImportError:
+    ray = None
+    _RAY_AVAILABLE = False
 
 
 def _get_ray_config(config: dict) -> dict:
@@ -16,6 +21,8 @@ def _get_ray_config(config: dict) -> dict:
 def init_ray(config: dict) -> bool:
     """
     初始化 Ray 集群。
+    - 如果 Ray 已在运行，连接现有集群
+    - 如果 Ray 未运行，启动新的本地集群
 
     Args:
         config: poc.yaml 完整配置字典
@@ -23,6 +30,10 @@ def init_ray(config: dict) -> bool:
     Returns:
         True 表示初始化成功，False 表示跳过或失败
     """
+    if not _RAY_AVAILABLE:
+        print("[Ray] ray 模块未安装，跳过初始化")
+        return False
+
     ray_cfg = _get_ray_config(config)
 
     if not ray_cfg.get("enabled", False):
@@ -30,7 +41,7 @@ def init_ray(config: dict) -> bool:
         return False
 
     if ray.is_initialized():
-        print("[Ray] 已初始化，跳过重复初始化")
+        print("[Ray] 已连接到 Ray 集群，跳过重复初始化")
         return True
 
     address = ray_cfg.get("address", "auto")
@@ -38,13 +49,25 @@ def init_ray(config: dict) -> bool:
     num_gpus = ray_cfg.get("num_gpus", None)
     dashboard_port = ray_cfg.get("dashboard_port", 8265)
 
+    # 先尝试连接已有集群
+    if address == "auto":
+        try:
+            ray.init(address="auto", namespace=namespace, ignore_reinit_error=True)
+            print(f"[Ray] 已连接到现有 Ray 集群 (namespace={namespace})")
+            return True
+        except ConnectionError:
+            print("[Ray] 未发现运行中的 Ray 集群，将启动新集群...")
+        except Exception:
+            print("[Ray] 连接现有集群失败，将启动新集群...")
+
     try:
         init_kwargs = {
             "namespace": namespace,
+            "ignore_reinit_error": True,
         }
 
         if address == "auto":
-            # 本地单机模式
+            # 本地单机模式：启动新集群
             init_kwargs["num_gpus"] = num_gpus
             # dashboard 需要额外依赖，缺失时自动跳过
             try:
@@ -59,7 +82,7 @@ def init_ray(config: dict) -> bool:
             init_kwargs["address"] = address
 
         ray.init(**init_kwargs)
-        print(f"[Ray] 初始化成功 — address={address}, namespace={namespace}")
+        print(f"[Ray] 初始化成功 -- address={address}, namespace={namespace}")
         return True
 
     except Exception as e:
@@ -69,6 +92,8 @@ def init_ray(config: dict) -> bool:
 
 def shutdown_ray():
     """关闭 Ray 集群连接"""
+    if not _RAY_AVAILABLE:
+        return
     if ray.is_initialized():
         ray.shutdown()
         print("[Ray] 已关闭")
@@ -81,6 +106,9 @@ def get_ray_status() -> dict:
     Returns:
         dict: 包含 nodes, total_gpus, total_cpus, actors 等信息
     """
+    if not _RAY_AVAILABLE:
+        return {"initialized": False, "error": "Ray 模块未安装 (pip install ray)"}
+
     if not ray.is_initialized():
         return {"initialized": False, "error": "Ray 未初始化"}
 
@@ -127,7 +155,7 @@ def create_actors(config: dict):
     Args:
         config: poc.yaml 完整配置字典
     """
-    if not ray.is_initialized():
+    if not _RAY_AVAILABLE or not ray.is_initialized():
         print("[Ray] 未初始化，跳过 Actor 创建")
         return
 
