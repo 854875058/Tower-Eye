@@ -129,7 +129,8 @@
       "Bash(pip install jieba -q)",
       "Bash(pip show jieba)",
       "Bash(pip install jieba-fast)",
-      "Bash(pip install pkuseg)"
+      "Bash(pip install pkuseg)",
+      "Bash(start cmd /k \"cd /d E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔 && streamlit run poc/app/app_v2.py\")"
     ]
   },
   "hooks": {

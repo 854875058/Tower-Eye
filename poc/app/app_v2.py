@@ -1132,6 +1132,7 @@ def render_intelligent_qa():
 
         # 将结果存入 session_state，使其在 rerun 后仍可访问
         st.session_state.last_qa_result = result
+        st.session_state.qa_card_page = 0  # 新查询重置卡片翻页
 
         # 保存查询追踪记录
         try:
@@ -1241,6 +1242,7 @@ def render_intelligent_qa():
                             "sql": edited_sql, "params": [], "result_count": len(new_data), "status": "success"
                         }]
                         st.session_state.last_qa_result = result
+                        st.session_state.qa_card_page = 0
                         st.rerun()
                     except Exception as e:
                         st.error(f"SQL 执行失败: {e}")
@@ -1374,50 +1376,113 @@ def render_intelligent_qa():
                                     st.session_state.auto_execute = True
                                     st.rerun()
 
-                # ---- 自动展示图片和视频 ----
+                # ---- 卡片式详情预览 ----
                 if (_img_col_indices or _video_col_idx is not None) and len(df) > 0:
-                    st.markdown("#### 🖼️ 媒体预览")
-                    display_rows = min(len(df), 9)
-                    for row_start in range(0, display_rows, 3):
-                        row_end = min(row_start + 3, display_rows)
-                        media_cols = st.columns(row_end - row_start)
-                        for j, row_idx in enumerate(range(row_start, row_end)):
-                            with media_cols[j]:
-                                has_media = False
-                                # 图片：按优先级尝试所有图片列
-                                for _ic_idx in _img_col_indices:
-                                    if has_media:
-                                        break
-                                    img_val = df.iloc[row_idx, _ic_idx]
-                                    if img_val and not pd.isna(img_val):
-                                        img_path_str = str(img_val)
-                                        for p in [Path(img_path_str),
-                                                  Path("warning_img") / Path(img_path_str).name,
-                                                  ROOT / "warning_img" / Path(img_path_str).name,
-                                                  ROOT / img_path_str]:
-                                            if p.exists():
-                                                st.image(str(p), caption=f"第{row_idx+1}条", use_container_width=True)
-                                                has_media = True
-                                                break
-                                # 视频
-                                if _video_col_idx is not None:
-                                    vid_val = df.iloc[row_idx, _video_col_idx]
-                                    if vid_val and not pd.isna(vid_val):
-                                        vid_str = str(vid_val).split(",")[0].strip()
-                                        vid_name = Path(vid_str).name
-                                        for vp in [Path(vid_str),
-                                                   Path("warning_file") / vid_name,
-                                                   ROOT / "warning_file" / vid_name,
-                                                   ROOT / vid_str]:
-                                            if vp.exists():
-                                                try:
-                                                    st.video(vp.read_bytes())
-                                                    has_media = True
-                                                except Exception:
-                                                    pass
-                                                break
-                                if not has_media:
-                                    st.caption(f"第{row_idx+1}条：无媒体文件")
+                    st.markdown("#### 📋 详情预览")
+                    _CARDS_PER_PAGE = 6
+                    _total_cards = len(df)
+                    _total_pages = max(1, (_total_cards + _CARDS_PER_PAGE - 1) // _CARDS_PER_PAGE)
+                    _card_page = st.session_state.get("qa_card_page", 0)
+                    if _card_page >= _total_pages:
+                        _card_page = 0
+                    _page_start = _card_page * _CARDS_PER_PAGE
+                    _page_end = min(_page_start + _CARDS_PER_PAGE, _total_cards)
+
+                    # 字段显示映射（原始列名 -> 显示名）
+                    _FIELD_LABELS = {
+                        "warning_type_name": "告警类型", "event_type": "告警类型",
+                        "alarm_time": "告警时间", "captured_at": "告警时间",
+                        "address": "地址",
+                        "town_name": "街道", "county_name": "区县",
+                        "device_name": "设备名称", "device_code": "设备编码",
+                        "confidence_level": "置信度", "alarm_level": "告警等级",
+                        "algorithm_name": "算法", "tenant_name": "租户",
+                    }
+                    # 需要跳过的列（媒体列、ID列等）
+                    _skip_cols = set()
+                    for _ic_idx in _img_col_indices:
+                        _skip_cols.add(raw_columns[_ic_idx])
+                    if _video_col_idx is not None:
+                        _skip_cols.add(raw_columns[_video_col_idx])
+
+                    for _ci in range(_page_start, _page_end):
+                        _row_data = answer_data[_ci] if isinstance(answer_data[_ci], dict) else {}
+                        st.markdown(f"---")
+                        st.markdown(f"**第 {_ci + 1} 条**")
+                        _media_col, _info_col = st.columns([1, 2])
+
+                        with _media_col:
+                            _has_media = False
+                            for _ic_idx in _img_col_indices:
+                                if _has_media:
+                                    break
+                                _img_val = df.iloc[_ci, _ic_idx]
+                                if _img_val and not pd.isna(_img_val):
+                                    _img_path_str = str(_img_val)
+                                    for _p in [Path(_img_path_str),
+                                               Path("warning_img") / Path(_img_path_str).name,
+                                               ROOT / "warning_img" / Path(_img_path_str).name,
+                                               ROOT / _img_path_str]:
+                                        if _p.exists():
+                                            st.image(str(_p), use_container_width=True)
+                                            _has_media = True
+                                            break
+                            if _video_col_idx is not None and not _has_media:
+                                _vid_val = df.iloc[_ci, _video_col_idx]
+                                if _vid_val and not pd.isna(_vid_val):
+                                    _vid_str = str(_vid_val).split(",")[0].strip()
+                                    _vid_name = Path(_vid_str).name
+                                    for _vp in [Path(_vid_str),
+                                                Path("warning_file") / _vid_name,
+                                                ROOT / "warning_file" / _vid_name,
+                                                ROOT / _vid_str]:
+                                        if _vp.exists():
+                                            try:
+                                                st.video(_vp.read_bytes())
+                                                _has_media = True
+                                            except Exception:
+                                                pass
+                                            break
+                            if not _has_media:
+                                st.caption("无媒体文件")
+
+                        with _info_col:
+                            # 优先显示已知字段，再显示其余字段
+                            _shown_keys = set()
+                            for _fk, _fl in _FIELD_LABELS.items():
+                                if _fk in _row_data and _fk not in _skip_cols:
+                                    _fv = _row_data[_fk]
+                                    if _fv is not None and str(_fv).strip():
+                                        if _fk == "confidence_level":
+                                            try:
+                                                st.write(f"**{_fl}**: {float(_fv):.2f}")
+                                            except (ValueError, TypeError):
+                                                st.write(f"**{_fl}**: {_fv}")
+                                        else:
+                                            st.write(f"**{_fl}**: {_fv}")
+                                    _shown_keys.add(_fk)
+                            # 显示剩余未展示的字段
+                            for _rk, _rv in _row_data.items():
+                                if _rk in _shown_keys or _rk in _skip_cols:
+                                    continue
+                                if _rk.lower() in ('id', 'event_id', 'uuid'):
+                                    continue
+                                if _rv is not None and str(_rv).strip():
+                                    st.write(f"**{_rk}**: {_rv}")
+
+                    # 翻页控件
+                    if _total_pages > 1:
+                        _pg_cols = st.columns([1, 2, 1])
+                        with _pg_cols[0]:
+                            if st.button("上一页", key="qa_card_prev", disabled=(_card_page <= 0)):
+                                st.session_state.qa_card_page = _card_page - 1
+                                st.rerun()
+                        with _pg_cols[1]:
+                            st.caption(f"第 {_card_page + 1} / {_total_pages} 页 (共 {_total_cards} 条)")
+                        with _pg_cols[2]:
+                            if st.button("下一页", key="qa_card_next", disabled=(_card_page >= _total_pages - 1)):
+                                st.session_state.qa_card_page = _card_page + 1
+                                st.rerun()
 
                 # ---- 智能追问：猜测下一步 ----
                 st.markdown("---")
