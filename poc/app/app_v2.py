@@ -508,52 +508,79 @@ def parse_media_urls(url_string: str) -> List[str]:
     return [url.strip() for url in str(url_string).split(',') if url.strip()]
 
 
-def _inject_sql_filters(sql: str, filters: Dict) -> str:
+def _inject_sql_filters(sql: str, params: list, filters: Dict) -> Tuple[str, list]:
     """
-    将 UI 高级筛选条件注入到已有的 SQL 中。
+    将 UI 高级筛选条件注入到已有的 SQL 中（参数化查询，防止 SQL 注入）。
 
-    策略：
-    - 找到 WHERE / GROUP BY / ORDER BY / LIMIT 的位置
-    - 在合适位置插入 AND 条件（已有 WHERE）或 WHERE 条件（无 WHERE）
-    - 条件使用 e. 表别名前缀（匹配 Agent 生成的 SQL 风格）
+    Args:
+        sql: 原始 SQL（可含 ? 占位符）
+        params: 原始参数列表
+        filters: UI 筛选条件字典
+
+    Returns:
+        (新 SQL, 新参数列表)
     """
     import re
 
     conditions = []
+    extra_params = []
 
     if filters.get("event_type"):
-        conditions.append(f"e.event_type = '{filters['event_type']}'")
+        conditions.append("e.event_type = ?")
+        extra_params.append(filters["event_type"])
     if filters.get("alarm_level"):
-        conditions.append(f"e.alarm_level = '{filters['alarm_level']}'")
+        conditions.append("e.alarm_level = ?")
+        extra_params.append(filters["alarm_level"])
     if filters.get("order_status"):
-        conditions.append(f"e.order_status = '{filters['order_status']}'")
+        conditions.append("e.order_status = ?")
+        extra_params.append(filters["order_status"])
     if filters.get("city_name"):
-        conditions.append(f"e.city_name = '{filters['city_name']}'")
+        conditions.append("e.city_name = ?")
+        extra_params.append(filters["city_name"])
     if filters.get("county_name"):
-        conditions.append(f"e.county_name = '{filters['county_name']}'")
+        conditions.append("e.county_name = ?")
+        extra_params.append(filters["county_name"])
     if filters.get("town_name"):
-        conditions.append(f"e.town_name = '{filters['town_name']}'")
+        conditions.append("e.town_name = ?")
+        extra_params.append(filters["town_name"])
     if filters.get("device_name"):
-        conditions.append(f"e.device_name LIKE '%{filters['device_name']}%'")
+        conditions.append("e.device_name LIKE ?")
+        extra_params.append(f"%{filters['device_name']}%")
     if filters.get("algorithm_name"):
-        conditions.append(f"e.algorithm_name LIKE '%{filters['algorithm_name']}%'")
+        conditions.append("e.algorithm_name LIKE ?")
+        extra_params.append(f"%{filters['algorithm_name']}%")
     if filters.get("confidence_min") is not None:
-        conditions.append(f"e.confidence_level >= {filters['confidence_min']}")
+        conditions.append("e.confidence_level >= ?")
+        extra_params.append(filters["confidence_min"])
     if filters.get("confidence_max") is not None:
-        conditions.append(f"e.confidence_level <= {filters['confidence_max']}")
+        conditions.append("e.confidence_level <= ?")
+        extra_params.append(filters["confidence_max"])
     if filters.get("start_time"):
-        conditions.append(f"e.alarm_time >= '{filters['start_time']}'")
+        conditions.append("e.alarm_time >= ?")
+        extra_params.append(filters["start_time"])
     if filters.get("end_time"):
-        conditions.append(f"e.alarm_time <= '{filters['end_time']}'")
+        conditions.append("e.alarm_time <= ?")
+        extra_params.append(filters["end_time"])
 
     if not conditions:
-        return sql
+        return sql, list(params)
 
     extra = " AND ".join(conditions)
 
     # 尝试匹配 GROUP BY / ORDER BY / LIMIT（第一个出现的位置）
     tail_match = re.search(r'\b(GROUP\s+BY|ORDER\s+BY|LIMIT)\b', sql, re.IGNORECASE)
     where_match = re.search(r'\bWHERE\b', sql, re.IGNORECASE)
+
+    # 找到 LIMIT ? 对应的参数位置：LIMIT 参数总是在 params 末尾
+    # 需要把 extra_params 插入到 LIMIT 参数之前
+    limit_match = re.search(r'\bLIMIT\s+\?', sql, re.IGNORECASE)
+    # 计算 LIMIT ? 之前有多少个 ? 占位符
+    if limit_match:
+        before_limit = sql[:limit_match.start()]
+        params_before_limit = before_limit.count('?')
+        new_params = list(params[:params_before_limit]) + extra_params + list(params[params_before_limit:])
+    else:
+        new_params = list(params) + extra_params
 
     if where_match:
         # 已有 WHERE → 在尾部关键词前或末尾插入 AND
@@ -570,7 +597,7 @@ def _inject_sql_filters(sql: str, filters: Dict) -> str:
         else:
             sql = sql + f" WHERE {extra}"
 
-    return sql
+    return sql, new_params
 
 
 def display_media(video_url: str, img_urls: List[str]):
@@ -912,7 +939,7 @@ def render_intelligent_qa():
     # 预设问题（放在输入框前面）
     st.markdown("**快速选择：**")
     preset_questions = [
-        "按街道统计最近30天各类告警数量",
+        "按街道统计各类告警数量",
         "查询最近20条车辆闯入告警的详细信息",
         "统计各设备触发告警次数最多的TOP10",
         "查询置信度大于0.9的高置信告警",
@@ -1066,21 +1093,18 @@ def render_intelligent_qa():
         qa_filters = _collect_qa_filters()
         if qa_filters and result.get("status") == "success" and result.get("sql"):
             try:
-                # 将参数化 SQL 的 ? 替换为实际值
-                injected_sql = result["sql"]
-                for _p in (result.get("sql_params") or []):
-                    if isinstance(_p, str):
-                        injected_sql = injected_sql.replace("?", f"'{_p}'", 1)
-                    else:
-                        injected_sql = injected_sql.replace("?", str(_p), 1)
+                original_sql = result["sql"]
+                original_params = list(result.get("sql_params") or [])
 
-                injected_sql = _inject_sql_filters(injected_sql, qa_filters)
+                injected_sql, injected_params = _inject_sql_filters(
+                    original_sql, original_params, qa_filters
+                )
 
-                # 重新执行 SQL
+                # 重新执行 SQL（参数化查询）
                 _cfg = load_config()
                 _db_p = resolve_path(_cfg.get("paths", {}).get("db_path", "poc/data/metadata.db"))
                 _conn = connect_db(_db_p)
-                rows = _conn.execute(injected_sql).fetchall()
+                rows = _conn.execute(injected_sql, injected_params).fetchall()
                 _conn.close()
                 new_data = [dict(r) for r in rows]
 
@@ -1097,10 +1121,10 @@ def render_intelligent_qa():
                     result["answer"] = {"type": "list", "value": new_data,
                                         "message": f"查询结果：返回 {len(new_data)} 条记录"}
                 result["sql"] = injected_sql
-                result["sql_params"] = []
+                result["sql_params"] = injected_params
                 result["intent"] = new_intent
                 result["execution_history"] = result.get("execution_history", []) + [{
-                    "sql": injected_sql, "params": [], "result_count": len(new_data), "status": "success"
+                    "sql": injected_sql, "params": injected_params, "result_count": len(new_data), "status": "success"
                 }]
                 st.info(f"🎛️ 已应用高级筛选条件")
             except Exception as _filter_err:

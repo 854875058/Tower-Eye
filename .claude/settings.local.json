@@ -125,7 +125,11 @@
       "Bash(/d/Anaconda3/python.exe -c \"\nimport ast\nast.parse\\(open\\(''poc/infra/ray_init.py'', encoding=''utf-8''\\).read\\(\\)\\)\nast.parse\\(open\\(''poc/app/pages/dashboard.py'', encoding=''utf-8''\\).read\\(\\)\\)\nprint\\(''Both files syntax OK''\\)\n\")",
       "Bash(/d/Anaconda3/python.exe -c \"\nfrom poc.infra.ray_init import init_ray, get_ray_status, shutdown_ray\nfrom poc.pipeline.utils import load_yaml\nconfig = load_yaml\\(''poc/config/poc.yaml''\\)\nresult = init_ray\\(config\\)\nprint\\(''init_ray result:'', result\\)\nstatus = get_ray_status\\(\\)\nprint\\(''status:'', status\\)\nshutdown_ray\\(\\)\n\")",
       "Bash(wmic process where \"processid=23108\" call terminate)",
-      "Bash(/d/Anaconda3/python.exe -c \"import ast; ast.parse\\(open\\(''poc/app/pages/dashboard.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\")"
+      "Bash(/d/Anaconda3/python.exe -c \"import ast; ast.parse\\(open\\(''poc/app/pages/dashboard.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(pip install jieba -q)",
+      "Bash(pip show jieba)",
+      "Bash(pip install jieba-fast)",
+      "Bash(pip install pkuseg)"
     ]
   },
   "hooks": {

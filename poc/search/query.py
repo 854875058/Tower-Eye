@@ -76,9 +76,43 @@ def encode_query(model, text: Optional[str], image_path: Optional[Path]):
     raise RuntimeError("Specify text or image for query.")
 
 
+try:
+    import jieba  # type: ignore
+    # 验证 jieba 是否真的可用（Python 3.12+ 兼容性问题）
+    jieba.cut("test")
+except Exception:  # pragma: no cover - optional dependency
+    jieba = None
+
+
+def _tokenize(text: str) -> set:
+    """中文分词：优先用 jieba，fallback 到 bigram + trigram 切分"""
+    if jieba is not None:
+        return {w for w in jieba.cut_for_search(text) if len(w.strip()) > 0}
+    # fallback: 中文 bigram + trigram（覆盖大部分中文词汇长度）
+    import re
+    tokens = set()
+    # 提取连续中文片段
+    segments = re.findall(r'[\u4e00-\u9fff]+', text)
+    for seg in segments:
+        # bigram
+        for i in range(len(seg) - 1):
+            tokens.add(seg[i:i+2])
+        # trigram
+        for i in range(len(seg) - 2):
+            tokens.add(seg[i:i+3])
+        # 原始片段本身
+        if len(seg) >= 2:
+            tokens.add(seg)
+    # 英文按空格分
+    for w in re.findall(r'[a-zA-Z0-9]+', text):
+        if len(w) > 1:
+            tokens.add(w)
+    return tokens
+
+
 def keyword_match_score(query_text: str, summary: str) -> float:
     """
-    计算关键词匹配得分
+    计算关键词匹配得分（支持中文分词）
 
     Args:
         query_text: 查询文本
@@ -93,8 +127,9 @@ def keyword_match_score(query_text: str, summary: str) -> float:
     query_text = query_text.lower()
     summary = summary.lower()
 
-    # 简单的关键词匹配：计算查询词在summary中出现的比例
-    query_words = set(query_text.split())
+    query_words = _tokenize(query_text)
+    # 过滤掉单字符停用词（的、了、在 等），保留有意义的词
+    query_words = {w for w in query_words if len(w) > 1}
     if not query_words:
         return 0.0
 

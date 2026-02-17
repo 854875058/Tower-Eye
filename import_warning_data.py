@@ -9,6 +9,7 @@ import csv
 import json
 import sqlite3
 import hashlib
+import re
 from pathlib import Path
 from datetime import datetime
 
@@ -37,6 +38,31 @@ NEW_COLUMNS = [
     ("img_src_path", "TEXT"),
     ("img_icon_path", "TEXT"),
 ]
+
+
+def normalize_alarm_time(raw: str) -> str:
+    """将 CSV 中各种时间格式统一为 YYYY-MM-DD HH:MM:SS
+
+    支持格式:
+      2025/1/10 7:21  -> 2025-01-10 07:21:00
+      2026/1/16 14:45 -> 2026-01-16 14:45:00
+      2025-07-01 08:00:00 -> 原样返回
+    """
+    if not raw or not raw.strip():
+        return ""
+    raw = raw.strip()
+    # 已经是标准格式
+    if re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", raw):
+        return raw
+    # 尝试多种格式
+    for fmt in ("%Y/%m/%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d"):
+        try:
+            dt = datetime.strptime(raw, fmt)
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+    # 无法解析，原样返回
+    return raw
 
 
 def create_asset_id(warning_order_id: str, file_name: str) -> str:
@@ -122,7 +148,7 @@ def import_warning_csv(csv_path: str, db_path: str):
             try:
                 # ---- 基础字段 ----
                 warning_order_id = row.get('warning_order_id', '')
-                alarm_time = row.get('alarm_time', '')
+                alarm_time = normalize_alarm_time(row.get('alarm_time', ''))
                 warning_type_name = row.get('warning_type_name', '')
                 latitude = row.get('latitude', '')
                 longitude = row.get('longitude', '')

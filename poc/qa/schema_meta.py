@@ -100,6 +100,7 @@ def _get_sample_values(conn: sqlite3.Connection, table: str, column: str,
             rows = conn.execute(
                 f"SELECT DISTINCT [{column}] FROM [{table}] "
                 f"WHERE [{column}] IS NOT NULL AND [{column}] != '' "
+                f"ORDER BY [{column}] "
                 f"LIMIT {limit}"
             ).fetchall()
         values = [str(r[0]) for r in rows if r[0] is not None]
