@@ -20,10 +20,11 @@ from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 
-from poc.pipeline.utils import connect_db, resolve_path
+from poc.pipeline.utils import resolve_path
 from poc.qa.guardrails import SQLGuardrail, SQLSecurityError
 from poc.qa.nl2sql import build_query_plan, call_llm_fix_sql
 from poc.qa.tools import ToolRegistry, get_tool_registry
+from poc.search.duckdb_engine import get_duckdb_engine
 
 
 class AgentState(TypedDict):
@@ -129,11 +130,11 @@ def execute_sql_node(state: AgentState) -> AgentState:
     print(f"[execute_sql_node] 执行 SQL")
 
     try:
-        conn = connect_db(resolve_path(state["db_path"]))
-        rows = conn.execute(state["sql"], state["sql_params"]).fetchall()
-        conn.close()
-
-        state["sql_result"] = [dict(row) for row in rows]
+        lancedb_dir = resolve_path(
+            state["config"].get("paths", {}).get("lancedb_dir", "poc/data/lancedb")
+        )
+        engine = get_duckdb_engine(str(lancedb_dir))
+        state["sql_result"] = engine.execute(state["sql"], state["sql_params"])
 
         # 记录执行历史
         state["execution_history"].append({

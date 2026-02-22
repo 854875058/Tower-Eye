@@ -78,3 +78,10 @@ def pick_first(row: Dict[str, Any], keys: Iterable[str]) -> Optional[Any]:
         if key in row and row[key] not in (None, ""):
             return row[key]
     return None
+
+
+def get_duckdb(config: Dict[str, Any]):
+    """获取 DuckDB 引擎单例（基于 Lance 表）"""
+    from poc.search.duckdb_engine import get_duckdb_engine
+    lancedb_dir = resolve_path(config.get("paths", {}).get("lancedb_dir", "poc/data/lancedb"))
+    return get_duckdb_engine(str(lancedb_dir))

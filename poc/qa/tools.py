@@ -12,8 +12,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from poc.pipeline.utils import connect_db, resolve_path
+from poc.pipeline.utils import resolve_path
 from poc.qa.guardrails import SQLGuardrail
+from poc.search.duckdb_engine import get_duckdb_engine
 
 
 @dataclass
@@ -30,19 +31,20 @@ class SemanticTool:
 
     def __init__(self, db_path: str):
         self.db_path = resolve_path(db_path)
+        # 兼容：如果传入 .db 路径，自动转为 LanceDB 目录
+        if self.db_path.suffix == ".db":
+            self._lancedb_dir = str(self.db_path.parent / "lancedb")
+        else:
+            self._lancedb_dir = str(self.db_path)
 
     def _execute_query(self, sql: str, params: List) -> List[Dict]:
-        """安全执行查询"""
+        """安全执行查询（通过 DuckDB）"""
         # 安全检查
         SQLGuardrail.validate_sql(sql)
         params = SQLGuardrail.sanitize_params(params)
 
-        conn = connect_db(self.db_path)
-        try:
-            rows = conn.execute(sql, params).fetchall()
-            return [dict(row) for row in rows]
-        finally:
-            conn.close()
+        engine = get_duckdb_engine(self._lancedb_dir)
+        return engine.execute(sql, params)
 
     def execute(self, **kwargs) -> ToolResult:
         """执行 Tool（子类实现）"""

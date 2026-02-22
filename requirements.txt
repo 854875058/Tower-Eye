@@ -16,3 +16,5 @@ langgraph>=0.2.0
 nicegui>=1.4.0
 ray[default]>=2.10.0
 getdaft>=0.3.0
+duckdb>=1.0.0
+lancedb>=0.6.0

@@ -43,12 +43,12 @@ def dashboard_page():
         with ui.grid(columns=5).classes('w-full gap-5 mb-6'):
             tech_cards = [
                 ('LangGraph', 'Agent 引擎', '状态机编排 / 自我修正 / 链路追踪', 'psychology', 'blue'),
-                ('LanceDB', '向量数据库', '混合检索 / 动态索引 / 亚秒响应', 'storage', 'purple'),
+                ('LanceDB', '统一数据底座', '向量检索 + 结构化存储 / 混合检索 / 动态索引', 'storage', 'purple'),
+                ('DuckDB', 'SQL 分析引擎', '进程内嵌入式 / 复杂聚合 / 零部署', 'table_chart', 'slate'),
                 ('Qwen3-VL', '多模态模型', 'Embedding + Reranker 二阶段', 'auto_awesome', 'amber'),
                 ('YOLOv26x', '目标检测', '双引擎标注 / 18类车辆识别', 'videocam', 'emerald'),
                 ('Ray + Daft', '分布式计算', 'GPU Actor / TB级批量管线', 'cloud', 'rose'),
                 ('DeepSeek', 'NL2SQL 引擎', '自然语言转SQL / 自我修正', 'chat', 'sky'),
-                ('SQLite', '结构化存储', '事件/资产/告警元数据', 'table_chart', 'slate'),
                 ('NiceGUI', 'Web 前端', '响应式UI / WebSocket实时', 'web', 'indigo'),
                 ('OpenCV', '视频处理', '抽帧 / 卡尔曼跟踪', 'movie', 'teal'),
                 ('VLLM', '语义分析', '场景理解 / 描述生成', 'auto_fix_high', 'orange'),
@@ -91,7 +91,7 @@ graph LR
     subgraph QA_Flow["智能问答 · LangGraph Agent"]
         direction LR
         NL["自然语言输入"] --> NL2SQL["NL2SQL · DeepSeek"] --> SQLGen["SQL生成 · 护栏校验"]
-        SQLGen --> Exec["SQL执行"]
+        SQLGen --> Exec["DuckDB执行"]
         Exec -->|成功| Fmt["结果格式化"]
         Exec -.->|失败x3| Fix["自我修正"] -.-> SQLGen
     end
@@ -121,11 +121,12 @@ graph LR
         VLLMModel["VLLM API"]
     end
 
-    subgraph Storage["数据存储层"]
+    subgraph Storage["数据存储层 · 一份数据两种查询"]
         direction LR
-        LDB[("LanceDB")]
-        SQLiteDB[("SQLite")]
+        LDB[("LanceDB · 统一数据底座")]
+        DuckDB[("DuckDB · SQL分析引擎")]
         FS["文件系统"]
+        LDB --> DuckDB
     end
 
     subgraph Pipeline["数据入库 · Ray + Daft"]
@@ -140,7 +141,7 @@ graph LR
     Monitor_Page -.-> Storage
 
     QA_Flow --> DS
-    QA_Flow --> SQLiteDB
+    QA_Flow --> DuckDB
     Search_Flow --> QwenEmbed
     Search_Flow --> QwenRerank
     Search_Flow --> LDB
@@ -149,7 +150,6 @@ graph LR
     Pipeline --> QwenEmbed
     Pipeline --> VLLMModel
     Pipeline --> LDB
-    Pipeline --> SQLiteDB
     Pipeline --> FS
 
     style UI fill:#eff6ff,stroke:#3b82f6,stroke-width:2px,color:#1e40af
@@ -166,8 +166,8 @@ graph LR
         with ui.grid(columns=2).classes('w-full gap-5 mb-6'):
             capabilities = [
                 ('智能问答', 'chat', 'blue', 'LangGraph Agent 驱动的对话式数据分析', [
-                    'NL2SQL — DeepSeek Chat 自然语言转 SQL',
-                    'LangGraph 状态机 — 解析→验证→执行→格式化',
+                    'NL2SQL — DeepSeek Chat 自然语言转 DuckDB SQL',
+                    'LangGraph 状态机 — 解析->验证->执行->格式化',
                     '自我修正 — SQL 失败自动分析错误，LLM 重写重试（max 3次）',
                     '安全护栏 — SQL 注入防护 / 表白名单 / 危险操作拦截',
                     '实体提取 — 时间/地区/场景关键词自动识别',
@@ -177,10 +177,10 @@ graph LR
                 ('多模态检索', 'search', 'purple', '图文视频统一入口 · 二阶段检索', [
                     'Qwen3-VL Embedding — 图文跨模态向量编码',
                     '三种输入 — 文本/图片/视频统一检索入口',
-                    '视频自动抽帧 — OpenCV 提取中间帧→向量检索',
-                    '混合检索 — 向量相似度 + 关键词匹配，权重可调',
+                    '视频自动抽帧 — OpenCV 提取中间帧->向量检索',
+                    '混合检索 — LanceDB 向量相似度 + 结构化过滤',
                     'Reranker 精排 — Qwen3-VL 二阶段重排序',
-                    '结构化预过滤 — SQLite 条件筛选→向量子集检索',
+                    '统一数据底座 — Lance 表同时支持向量检索和 DuckDB SQL',
                     '多维过滤 — 时间/地点/类型/设备/算法/置信度',
                     '上传即检索 — 图片/视频上传后自动触发',
                 ]),
@@ -222,12 +222,12 @@ graph LR
                     ui.icon('star').classes('text-amber-500 text-xl')
                     ui.label('技术亮点').classes('font-bold text-lg text-slate-800')
                 highlights = [
-                    ('二阶段检索', 'Qwen3-VL Embedding 向量召回 + Reranker 精排重排序'),
-                    ('混合检索', '向量相似度 + 关键词匹配，权重可调节'),
+                    ('统一数据底座', 'LanceDB 一份数据同时支持向量检索和 DuckDB SQL 分析'),
+                    ('混合检索', 'LanceDB 向量相似度 + 结构化过滤，一次查询融合两种能力'),
                     ('Agent 自我修正', 'SQL 执行失败自动分析错误，LLM 智能修正并重试'),
+                    ('嵌入式引擎', 'DuckDB 进程内 SQL 引擎，零部署零运维，开发生产一致'),
                     ('双引擎标注', 'YOLOv26x 快速检测 + VLLM API 语义验证'),
                     ('分布式调度', 'Ray GPU Actor + Daft TB 级批量管线'),
-                    ('跨平台运维', '统一 Python 脚本，自动适配 Linux/Windows'),
                     ('安全防护', 'SQL 注入防护 / 表白名单 / 危险操作拦截'),
                 ]
                 with ui.column().classes('gap-2'):

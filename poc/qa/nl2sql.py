@@ -130,14 +130,14 @@ def _parse_intent(text: str) -> str:
 def _parse_group_by(text: str) -> Optional[str]:
     """解析 GROUP BY 维度"""
     group_map = {
-        "街道": ("e.town_name", "街道"),
-        "乡镇": ("e.town_name", "街道"),
-        "区": ("e.county_name", "区县"),
-        "县": ("e.county_name", "区县"),
-        "设备": ("e.device_name", "设备"),
-        "算法": ("e.algorithm_name", "算法"),
-        "类型": ("e.event_type", "告警类型"),
-        "告警类型": ("e.event_type", "告警类型"),
+        "街道": ("town_name", "街道"),
+        "乡镇": ("town_name", "街道"),
+        "区": ("county_name", "区县"),
+        "县": ("county_name", "区县"),
+        "设备": ("device_name", "设备"),
+        "算法": ("algorithm_name", "算法"),
+        "类型": ("event_type", "告警类型"),
+        "告警类型": ("event_type", "告警类型"),
     }
     for keyword, (col, alias) in group_map.items():
         if f"按{keyword}" in text or f"各{keyword}" in text:
@@ -204,22 +204,22 @@ def parse_question(text: str) -> QueryPlan:
     where = []
     params: List = []
     if event_type:
-        where.append("e.event_type = ?")
+        where.append("event_type = ?")
         params.append(event_type)
     if start_time:
-        where.append("e.alarm_time >= ?")
+        where.append("alarm_time >= ?")
         params.append(start_time)
     if end_time:
-        where.append("e.alarm_time <= ?")
+        where.append("alarm_time <= ?")
         params.append(end_time)
     if town_name:
-        where.append("e.town_name LIKE ?")
+        where.append("town_name LIKE ?")
         params.append(f"%{town_name}%")
     if county_name:
-        where.append("e.county_name LIKE ?")
+        where.append("county_name LIKE ?")
         params.append(f"%{county_name}%")
     if confidence_min is not None:
-        where.append("e.confidence_level >= ?")
+        where.append("confidence_level >= ?")
         params.append(confidence_min)
 
     where_sql = " WHERE " + " AND ".join(where) if where else ""
@@ -229,23 +229,22 @@ def parse_question(text: str) -> QueryPlan:
         if group_by_result:
             group_col, group_alias = group_by_result
         else:
-            group_col, group_alias = "e.event_type", "告警类型"
+            group_col, group_alias = "event_type", "告警类型"
         sql = (
-            f"SELECT {group_col} AS {group_alias}, COUNT(*) AS 数量 FROM events e "
-            "LEFT JOIN assets a ON e.asset_id = a.asset_id"
+            f"SELECT {group_col} AS {group_alias}, COUNT(*) AS 数量 FROM events"
             + where_sql
             + f" GROUP BY {group_col} ORDER BY 数量 DESC"
         )
     else:
         sql = (
-            "SELECT e.event_type AS 告警类型, e.alarm_time AS 告警时间, "
-            "e.address AS 地址, e.town_name AS 街道, "
-            "e.device_name AS 设备名称, e.algorithm_name AS 算法, "
-            "e.order_status AS 工单状态, e.confidence_level AS 置信度, "
-            "a.file_path AS 图片路径, e.video_path AS 视频路径 "
-            "FROM events e LEFT JOIN assets a ON e.asset_id = a.asset_id"
+            "SELECT event_type AS 告警类型, alarm_time AS 告警时间, "
+            "address AS 地址, town_name AS 街道, "
+            "device_name AS 设备名称, algorithm_name AS 算法, "
+            "order_status AS 工单状态, confidence_level AS 置信度, "
+            "file_path AS 图片路径, video_path AS 视频路径 "
+            "FROM events"
             + where_sql
-            + " ORDER BY e.alarm_time DESC LIMIT ?"
+            + " ORDER BY alarm_time DESC LIMIT ?"
         )
         params.append(top_k)
 
@@ -323,11 +322,15 @@ def _build_nl2sql_system_prompt(schema_prompt: str) -> str:
     """构建 NL2SQL 的 system prompt"""
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return (
-        "你是一个专业的 NL2SQL 助手，负责将中文自然语言问题转换为 SQLite SQL 查询。\n\n"
+        "你是一个专业的 NL2SQL 助手，负责将中文自然语言问题转换为 DuckDB SQL 查询。\n\n"
         f"# 当前时间\n{now_str}\n"
         "所有涉及'最近N天'、'本月'、'今天'、'昨天'等相对时间的表达，都必须基于上面的当前时间计算。\n\n"
         "# 数据库 Schema\n"
         f"{schema_prompt}\n\n"
+        "# 重要：数据库结构说明\n"
+        "所有数据存储在一张统一的 `embeddings` 表中，`events` 和 `assets` 是该表的视图别名。\n"
+        "你可以直接查询 `events` 表，无需 JOIN assets，因为所有字段（包括 file_path、file_name）都在同一张表中。\n"
+        "示例：SELECT event_type, alarm_time, file_path FROM events WHERE ...\n\n"
         "# 实体提取规则（非常重要）\n"
         "在生成 SQL 前，你必须先从用户问题中正确提取实体：\n"
         "1. **区分量词和地名**：'20条'中的'条'是量词，不是地名的一部分。\n"
@@ -346,10 +349,10 @@ def _build_nl2sql_system_prompt(schema_prompt: str) -> str:
         "- **list**：用户问'查询'、'查看'、'详细信息'、'明细'，需要返回逐行记录\n"
         "- 例如：'按街道统计告警数量' → intent=count；'查询最近20条告警' → intent=list\n\n"
         "# SQL 生成规则\n"
-        "1. 两个表通过 `events.asset_id = assets.asset_id` 关联（LEFT JOIN）。\n"
+        "1. 直接查询 `events` 表即可，所有字段都在这张表中，不需要 JOIN。\n"
         "2. 时间字段 `alarm_time` 格式为 `YYYY-MM-DD HH:MM:SS`，时间过滤用字符串比较即可。\n"
-        "3. SQL 中的值必须用 `?` 占位符（参数化查询），对应的值放在 params 数组中。\n"
-        "4. 如果是列表查询（intent=list），SELECT 中必须包含 `a.file_path` 和 `e.video_path`，方便展示图片和视频。\n"
+        "3. SQL 中的值必须用 `$1`, `$2`, ... 占位符（DuckDB 参数化查询），对应的值放在 params 数组中。\n"
+        "4. 如果是列表查询（intent=list），SELECT 中必须包含 `file_path` 和 `video_path`，方便展示图片和视频。\n"
         "5. 如果是统计查询（intent=count），建议带 GROUP BY 分组维度和 ORDER BY 数量 DESC。\n"
         "6. 只允许 SELECT 查询，禁止 INSERT/UPDATE/DELETE/DROP 等写操作。\n"
         "7. 列表查询默认 LIMIT 20，除非用户指定了数量。\n"
@@ -459,11 +462,14 @@ def call_llm_fix_sql(question: str, failed_sql: str, error_msg: str,
         f"# 当前时间\n{now_str}\n\n"
         "# 数据库 Schema\n"
         f"{schema_prompt}\n\n"
+        "# 重要：数据库结构说明\n"
+        "所有数据在一张统一的 `embeddings` 表中，`events` 和 `assets` 是该表的视图别名。\n"
+        "直接查询 `events` 表即可，无需 JOIN，所有字段都在同一张表中。\n\n"
         "# 关键规则\n"
-        "1. 两个表通过 `events.asset_id = assets.asset_id` 关联（LEFT JOIN）。\n"
+        "1. 直接查询 `events` 表，不需要 JOIN。\n"
         "2. 时间字段 `alarm_time` 格式为 `YYYY-MM-DD HH:MM:SS`。\n"
-        "3. SQL 中的值必须用 `?` 占位符（参数化查询），对应的值放在 params 数组中。\n"
-        "4. 如果是列表查询，SELECT 中必须包含 `a.file_path` 和 `e.video_path`。\n"
+        "3. SQL 中的值必须用 `$1`, `$2`, ... 占位符（DuckDB 参数化查询），对应的值放在 params 数组中。\n"
+        "4. 如果是列表查询，SELECT 中必须包含 `file_path` 和 `video_path`。\n"
         "5. 只允许 SELECT 查询。\n\n"
         "# 输出格式\n"
         "严格输出一个 JSON 对象：\n"

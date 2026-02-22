@@ -1,11 +1,10 @@
 """
-共享模块 — 导入、配置、单例、SQLite 辅助函数、UI 布局
+共享模块 — 导入、配置、单例、DuckDB 辅助函数、UI 布局
 从 app_ui.py 拆分而来，供各页面模块引用
 """
 import re
 import sys
 import json
-import sqlite3
 import asyncio
 import hashlib
 import tempfile
@@ -24,17 +23,24 @@ from nicegui import ui, app, events
 
 # ── 后端导入 ──────────────────────────────────────────────────────────────
 try:
-    from poc.pipeline.utils import load_yaml, connect_db, resolve_path
+    from poc.pipeline.utils import load_yaml, resolve_path
     from poc.qa.agent import create_agent
     from poc.qa.trace import init_trace_manager, get_trace_manager, QueryTrace
     from poc.qa.tools import init_tool_registry, get_tool_registry
     from poc.search.model_manager import ModelManager
     from poc.search.query import hybrid_search, build_asset_id_filter
+    from poc.search.duckdb_engine import get_duckdb_engine
     config = load_yaml("poc/config/poc.yaml")
 except ImportError as _ie:
     config = {}
     ModelManager = None  # type: ignore
     print(f"Warning: backend import failed: {_ie}")
+
+
+def _get_engine():
+    """获取 DuckDB 引擎单例"""
+    lancedb_dir = resolve_path(config.get("paths", {}).get("lancedb_dir", "poc/data/lancedb"))
+    return get_duckdb_engine(str(lancedb_dir))
 
 # ── 静态文件服务 ──────────────────────────────────────────────────────────
 try:
@@ -91,56 +97,57 @@ def ensure_systems():
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# SQLite 辅助函数
+# DuckDB 辅助函数（数据统一在 Lance 表中）
 # ══════════════════════════════════════════════════════════════════════════
 
 def build_sqlite_filter(filters: dict) -> Tuple[str, list]:
+    """构建 SQL 过滤条件（兼容旧接口名，实际走 DuckDB）"""
     clauses, params = [], []
     mapping = [
-        ("event_type", "e.event_type LIKE ?", lambda v: f"%{v}%"),
-        ("city_name", "e.extra_json LIKE ?", lambda v: f'%"city_name": "{v}"%'),
-        ("county_name", "e.extra_json LIKE ?", lambda v: f'%"county_name": "{v}"%'),
-        ("town_name", "e.extra_json LIKE ?", lambda v: f'%"town_name": "{v}"%'),
-        ("device_name", "e.device_name LIKE ?", lambda v: f"%{v}%"),
-        ("alarm_level", "e.extra_json LIKE ?", lambda v: f'%"emergency_level": "{v}"%'),
-        ("order_status", "e.extra_json LIKE ?", lambda v: f'%"order_status": "{v}"%'),
-        ("algorithm_name", "e.extra_json LIKE ?", lambda v: f'%{v}%'),
-        ("algorithm_code", "e.extra_json LIKE ?", lambda v: f'%"algorithm_code": "{v}"%'),
-        ("device_code", "e.extra_json LIKE ?", lambda v: f'%"device_code": "{v}"%'),
-        ("importance_level", "e.extra_json LIKE ?", lambda v: f'%"importance_level": "{v}"%'),
-        ("warning_source_name", "e.extra_json LIKE ?", lambda v: f'%"warning_source_name": "{v}"%'),
-        ("alarm_body", "e.extra_json LIKE ?", lambda v: f'%"alarm_body": "{v}"%'),
-        ("tenant_name", "e.extra_json LIKE ?", lambda v: f'%"tenant_name": "{v}"%'),
-        ("channel_name", "e.extra_json LIKE ?", lambda v: f'%"channel_name": "{v}"%'),
+        ("event_type", "event_type LIKE ?", lambda v: f"%{v}%"),
+        ("city_name", "city_name LIKE ?", lambda v: f"%{v}%"),
+        ("county_name", "county_name LIKE ?", lambda v: f"%{v}%"),
+        ("town_name", "town_name LIKE ?", lambda v: f"%{v}%"),
+        ("device_name", "device_name LIKE ?", lambda v: f"%{v}%"),
+        ("alarm_level", "alarm_level LIKE ?", lambda v: f"%{v}%"),
+        ("order_status", "order_status LIKE ?", lambda v: f"%{v}%"),
+        ("algorithm_name", "algorithm_name LIKE ?", lambda v: f"%{v}%"),
+        ("algorithm_code", "algorithm_code LIKE ?", lambda v: f"%{v}%"),
+        ("device_code", "device_code LIKE ?", lambda v: f"%{v}%"),
+        ("importance_level", "importance_level LIKE ?", lambda v: f"%{v}%"),
+        ("warning_source_name", "alarm_source LIKE ?", lambda v: f"%{v}%"),
+        ("alarm_body", "alarm_body LIKE ?", lambda v: f"%{v}%"),
+        ("tenant_name", "tenant_name LIKE ?", lambda v: f"%{v}%"),
+        ("channel_name", "channel_name LIKE ?", lambda v: f"%{v}%"),
     ]
     for key, clause, fmt in mapping:
         if filters.get(key):
             clauses.append(clause)
             params.append(fmt(filters[key]))
     if filters.get("confidence_min") is not None:
-        clauses.append("e.confidence_level >= ?"); params.append(filters["confidence_min"])
+        clauses.append("confidence_level >= ?"); params.append(filters["confidence_min"])
     if filters.get("confidence_max") is not None:
-        clauses.append("e.confidence_level <= ?"); params.append(filters["confidence_max"])
+        clauses.append("confidence_level <= ?"); params.append(filters["confidence_max"])
     if filters.get("start_time"):
-        clauses.append("e.alarm_time >= ?"); params.append(filters["start_time"])
+        clauses.append("alarm_time >= ?"); params.append(filters["start_time"])
     if filters.get("end_time"):
-        clauses.append("e.alarm_time <= ?"); params.append(filters["end_time"])
+        clauses.append("alarm_time <= ?"); params.append(filters["end_time"])
     return (" AND " + " AND ".join(clauses)) if clauses else "", params
 
 
 def _inject_sql_filters(sql: str, filters: Dict) -> str:
     conditions = []
-    simple = [("event_type", "e.event_type = '{}'"), ("alarm_level", "e.alarm_level = '{}'"),
-              ("order_status", "e.order_status = '{}'"), ("city_name", "e.city_name = '{}'"),
-              ("county_name", "e.county_name = '{}'"), ("town_name", "e.town_name = '{}'")]
+    simple = [("event_type", "event_type = '{}'"), ("alarm_level", "alarm_level = '{}'"),
+              ("order_status", "order_status = '{}'"), ("city_name", "city_name = '{}'"),
+              ("county_name", "county_name = '{}'"), ("town_name", "town_name = '{}'")]
     for k, tpl in simple:
         if filters.get(k): conditions.append(tpl.format(filters[k]))
-    if filters.get("device_name"): conditions.append(f"e.device_name LIKE '%{filters['device_name']}%'")
-    if filters.get("algorithm_name"): conditions.append(f"e.algorithm_name LIKE '%{filters['algorithm_name']}%'")
-    if filters.get("confidence_min") is not None: conditions.append(f"e.confidence_level >= {filters['confidence_min']}")
-    if filters.get("confidence_max") is not None: conditions.append(f"e.confidence_level <= {filters['confidence_max']}")
-    if filters.get("start_time"): conditions.append(f"e.alarm_time >= '{filters['start_time']}'")
-    if filters.get("end_time"): conditions.append(f"e.alarm_time <= '{filters['end_time']}'")
+    if filters.get("device_name"): conditions.append(f"device_name LIKE '%{filters['device_name']}%'")
+    if filters.get("algorithm_name"): conditions.append(f"algorithm_name LIKE '%{filters['algorithm_name']}%'")
+    if filters.get("confidence_min") is not None: conditions.append(f"confidence_level >= {filters['confidence_min']}")
+    if filters.get("confidence_max") is not None: conditions.append(f"confidence_level <= {filters['confidence_max']}")
+    if filters.get("start_time"): conditions.append(f"alarm_time >= '{filters['start_time']}'")
+    if filters.get("end_time"): conditions.append(f"alarm_time <= '{filters['end_time']}'")
     if not conditions: return sql
     extra = " AND ".join(conditions)
     tail = re.search(r'\b(GROUP\s+BY|ORDER\s+BY|LIMIT)\b', sql, re.IGNORECASE)
@@ -153,42 +160,38 @@ def _inject_sql_filters(sql: str, filters: Dict) -> str:
 
 
 def db_stats(db_path) -> Dict[str, int]:
-    p = resolve_path(str(db_path)) if not isinstance(db_path, Path) else db_path
-    if not p.exists():
-        return {"assets": 0, "events": 0, "detections": 0, "annotations": 0, "embeddings": 0}
-    conn = connect_db(p)
-    s = {}
+    """统计数据量（从 DuckDB/Lance 获取）"""
     try:
-        for t in ("assets", "events", "detections", "annotations", "embeddings"):
-            s[t] = conn.execute(f"SELECT COUNT(*) AS c FROM {t}").fetchone()["c"]
+        engine = _get_engine()
+        total = engine.count("embeddings")
+        return {
+            "assets": total, "events": total,
+            "detections": 0, "annotations": 0, "embeddings": total,
+        }
     except Exception:
-        s = {"assets": 0, "events": 0, "detections": 0, "annotations": 0, "embeddings": 0}
-    finally:
-        conn.close()
-    return s
+        return {"assets": 0, "events": 0, "detections": 0, "annotations": 0, "embeddings": 0}
 
 
 def lance_count() -> int:
     try:
-        import lancedb
-        ldb_dir = resolve_path(config.get("paths", {}).get("lancedb_dir", "poc/data/lancedb"))
-        return lancedb.connect(str(ldb_dir)).open_table("embeddings").count_rows()
+        engine = _get_engine()
+        return engine.count("embeddings")
     except Exception:
         return 0
 
 
 def fetch_events_by_asset_ids(db_path, asset_ids: List[str]) -> Dict[str, dict]:
+    """通过 asset_id 列表获取事件详情（从 DuckDB）"""
     if not asset_ids: return {}
     try:
-        conn = connect_db(db_path)
+        engine = _get_engine()
         ph = ", ".join("?" for _ in asset_ids)
-        rows = conn.execute(
-            f"SELECT e.*, a.file_path, a.file_name FROM events e LEFT JOIN assets a ON e.asset_id = a.asset_id WHERE a.asset_id IN ({ph})",
-            asset_ids).fetchall()
-        conn.close()
+        rows = engine.execute(
+            f"SELECT * FROM events WHERE asset_id IN ({ph})",
+            asset_ids
+        )
         result = {}
-        for r in rows:
-            rd = dict(r)
+        for rd in rows:
             extra = {}
             if rd.get("extra_json"):
                 try: extra = json.loads(rd["extra_json"])
@@ -226,46 +229,40 @@ def build_result_item(rd: dict, score: float = 0.0) -> dict:
 
 
 def get_dropdown_options(db_path_str: str) -> Dict[str, List[str]]:
-    p = Path(db_path_str)
-    if not p.exists(): return {}
-    conn = connect_db(p)
+    """获取下拉选项（从 DuckDB 直接查询列）"""
+    try:
+        engine = _get_engine()
+    except Exception:
+        return {}
+    # 这些字段现在是 Lance 表的直接列
     fields = ["tenant_name", "channel_name", "device_name", "device_code",
-              "algorithm_name", "algorithm_code", "warning_source_name",
-              "warning_type_name", "alarm_body", "importance_level"]
+              "algorithm_name", "algorithm_code", "alarm_source",
+              "alarm_body", "importance_level"]
     result = {}
     for f in fields:
         try:
-            rows = conn.execute(
-                f"SELECT DISTINCT json_extract(extra_json, '$.{f}') AS val FROM events "
-                f"WHERE json_extract(extra_json, '$.{f}') IS NOT NULL AND json_extract(extra_json, '$.{f}') != '' ORDER BY val"
-            ).fetchall()
-            vals = [r["val"] for r in rows]
-            if vals: result[f] = vals
-        except Exception: pass
-    conn.close()
+            vals = engine.distinct_values(f)
+            if vals:
+                result[f] = vals
+        except Exception:
+            pass
     return result
 
 
 def get_area_hierarchy(db_path_str: str) -> Dict:
-    p = Path(db_path_str)
+    """获取地区层级（从 DuckDB）"""
     empty = {"cities": [], "county_by_city": {}, "town_by_county": {}}
-    if not p.exists(): return empty
-    conn = connect_db(p)
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(events)").fetchall()}
-    if "city_name" not in cols:
-        rows = conn.execute(
-            "SELECT DISTINCT json_extract(extra_json,'$.city_name') AS city,"
-            "json_extract(extra_json,'$.county_name') AS county,"
-            "json_extract(extra_json,'$.town_name') AS town "
-            "FROM events WHERE json_extract(extra_json,'$.city_name') IS NOT NULL").fetchall()
-    else:
-        rows = conn.execute(
+    try:
+        engine = _get_engine()
+        rows = engine.execute(
             "SELECT DISTINCT city_name AS city, county_name AS county, town_name AS town "
-            "FROM events WHERE city_name IS NOT NULL AND city_name != ''").fetchall()
-    conn.close()
+            "FROM events WHERE city_name IS NOT NULL AND city_name != ''"
+        )
+    except Exception:
+        return empty
     cities = set(); cbc: Dict[str, set] = {}; tbc: Dict[str, set] = {}
     for r in rows:
-        city, county, town = r["city"] or "", r["county"] or "", r["town"] or ""
+        city, county, town = r.get("city") or "", r.get("county") or "", r.get("town") or ""
         if city:
             cities.add(city)
             if county:

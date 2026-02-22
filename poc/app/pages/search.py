@@ -16,10 +16,11 @@ _log.addHandler(_fh)
 
 from nicegui import ui, events
 from poc.app.pages.shared import (
-    create_layout, page_header, config, resolve_path, connect_db,
+    create_layout, page_header, config, resolve_path,
     get_model_manager, get_dropdown_options, get_area_hierarchy,
     geocode_address, build_sqlite_filter, build_asset_id_filter,
     fetch_events_by_asset_ids, build_result_item, hybrid_search,
+    _get_engine,
 )
 
 
@@ -343,10 +344,10 @@ def search_page():
 
         def _render_related_data(item: dict, db_path):
             try:
-                conn = connect_db(db_path)
-                cur = conn.execute("SELECT * FROM events WHERE asset_id = ?", (item['asset_id'],)).fetchone()
-                if not cur: conn.close(); return
-                ed = dict(cur)
+                engine = _get_engine()
+                rows = engine.execute("SELECT * FROM events WHERE asset_id = ?", [item['asset_id']])
+                if not rows: return
+                ed = rows[0]
                 extra = {}
                 if ed.get("extra_json"):
                     try: extra = json.loads(ed["extra_json"])
@@ -357,10 +358,9 @@ def search_page():
                     video_key = Path(raw_video.split(",")[0].strip()).stem
                 siblings = []
                 if video_key:
-                    siblings = conn.execute(
-                        "SELECT e.*, a.file_path, a.file_name FROM events e LEFT JOIN assets a ON e.asset_id = a.asset_id WHERE e.extra_json LIKE ?",
-                        (f'%{video_key}%',)).fetchall()
-                conn.close()
+                    siblings = engine.execute(
+                        "SELECT * FROM events WHERE extra_json LIKE ?",
+                        [f'%{video_key}%'])
                 if video_key:
                     ui.label(f'同一告警共 {len(siblings)} 条记录').classes('text-xs text-slate-400 mb-2')
                 if len(siblings) > 1:
@@ -449,14 +449,13 @@ def search_page():
                         None, lambda: mgr.encode_text(q).astype("float32"))
 
                 if query_vec is None:
-                    conn = connect_db(_db_path)
-                    sql = "SELECT e.*, a.file_path, a.file_name FROM events e LEFT JOIN assets a ON e.asset_id = a.asset_id WHERE 1=1"
+                    engine = _get_engine()
+                    sql = "SELECT * FROM events WHERE 1=1"
                     where_extra, params = build_sqlite_filter(filters)
-                    sql += where_extra + f" ORDER BY e.alarm_time DESC LIMIT {top_k}"
-                    rows = conn.execute(sql, params).fetchall(); conn.close()
+                    sql += where_extra + f" ORDER BY alarm_time DESC LIMIT {top_k}"
+                    rows = engine.execute(sql, params)
                     formatted = []
-                    for r in rows:
-                        rd = dict(r)
+                    for rd in rows:
                         extra = {}
                         if rd.get("extra_json"):
                             try: extra = json.loads(rd["extra_json"])
@@ -469,10 +468,10 @@ def search_page():
                     where_extra, sql_params = build_sqlite_filter(filters)
                     pre_filtered_ids = None
                     if where_extra:
-                        conn = connect_db(_db_path)
-                        id_sql = "SELECT DISTINCT a.asset_id FROM events e LEFT JOIN assets a ON e.asset_id = a.asset_id WHERE 1=1" + where_extra
-                        pre_filtered_ids = [r[0] for r in conn.execute(id_sql, sql_params).fetchall()]
-                        conn.close()
+                        engine = _get_engine()
+                        id_sql = "SELECT DISTINCT asset_id FROM events WHERE 1=1" + where_extra
+                        id_rows = engine.execute(id_sql, sql_params)
+                        pre_filtered_ids = [r["asset_id"] for r in id_rows]
                         if not pre_filtered_ids:
                             state['results'] = []; render_results()
                             ui.notify('筛选条件无匹配结果', type='warning'); return

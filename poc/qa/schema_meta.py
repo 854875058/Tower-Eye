@@ -1,5 +1,5 @@
 """
-表头码表生成器 — 自动从 SQLite 提取字段信息 + 示例值
+表头码表生成器 — 从 DuckDB (Lance 表) 提取字段信息 + 示例值
 
 用途：
 - 为 LLM NL2SQL 提供精确的 schema 描述
@@ -7,11 +7,10 @@
 - 结果缓存，避免重复查询
 """
 
-import sqlite3
 from functools import lru_cache
 from typing import Dict, List, Tuple
 
-from poc.pipeline.utils import connect_db, resolve_path
+from poc.pipeline.utils import resolve_path
 
 # ── 字段中文含义映射 ──────────────────────────────────────────────
 COLUMN_DESCRIPTIONS: Dict[str, str] = {
@@ -80,33 +79,34 @@ TABLE_DESCRIPTIONS: Dict[str, str] = {
 TARGET_TABLES = ["events", "assets"]
 
 
-def _get_table_columns(conn: sqlite3.Connection, table: str) -> List[Tuple[str, str]]:
-    """获取表的列名和类型"""
-    cursor = conn.execute(f"PRAGMA table_info({table})")
-    return [(row[1], row[2]) for row in cursor.fetchall()]
+def _get_table_columns(engine, table: str) -> List[Tuple[str, str]]:
+    """获取表的列名和类型（从 DuckDB information_schema）"""
+    rows = engine.con.execute(
+        "SELECT column_name, data_type FROM information_schema.columns "
+        "WHERE table_name = ?", [table]
+    ).fetchall()
+    return [(r[0], r[1]) for r in rows]
 
 
-def _get_sample_values(conn: sqlite3.Connection, table: str, column: str,
+def _get_sample_values(engine, table: str, column: str,
                        is_enum: bool = False, limit: int = 5) -> str:
     """获取字段的示例值或枚举值"""
     try:
         if is_enum:
-            rows = conn.execute(
-                f"SELECT DISTINCT [{column}] FROM [{table}] "
-                f"WHERE [{column}] IS NOT NULL AND [{column}] != '' "
-                f"ORDER BY [{column}]"
+            rows = engine.con.execute(
+                f'SELECT DISTINCT "{column}" FROM {table} '
+                f'WHERE "{column}" IS NOT NULL AND CAST("{column}" AS VARCHAR) <> \'\' '
+                f'ORDER BY "{column}"'
             ).fetchall()
         else:
-            rows = conn.execute(
-                f"SELECT DISTINCT [{column}] FROM [{table}] "
-                f"WHERE [{column}] IS NOT NULL AND [{column}] != '' "
-                f"ORDER BY [{column}] "
-                f"LIMIT {limit}"
+            rows = engine.con.execute(
+                f'SELECT DISTINCT "{column}" FROM {table} '
+                f'WHERE "{column}" IS NOT NULL AND CAST("{column}" AS VARCHAR) <> \'\' '
+                f'ORDER BY "{column}" LIMIT {limit}'
             ).fetchall()
         values = [str(r[0]) for r in rows if r[0] is not None]
         if not values:
             return ""
-        # 截断过长的值
         truncated = []
         for v in values:
             if len(v) > 30:
@@ -118,10 +118,10 @@ def _get_sample_values(conn: sqlite3.Connection, table: str, column: str,
         return ""
 
 
-def _build_table_prompt(conn: sqlite3.Connection, table: str) -> str:
+def _build_table_prompt(engine, table: str) -> str:
     """为单个表生成码表文本"""
     table_desc = TABLE_DESCRIPTIONS.get(table, table)
-    columns = _get_table_columns(conn, table)
+    columns = _get_table_columns(engine, table)
 
     lines = [
         f"## 表: {table} ({table_desc})",
@@ -132,7 +132,7 @@ def _build_table_prompt(conn: sqlite3.Connection, table: str) -> str:
     for col_name, col_type in columns:
         desc = COLUMN_DESCRIPTIONS.get(col_name, "")
         is_enum = col_name in ENUM_FIELDS
-        samples = _get_sample_values(conn, table, col_name, is_enum=is_enum)
+        samples = _get_sample_values(engine, table, col_name, is_enum=is_enum)
         lines.append(f"| {col_name} | {col_type} | {desc} | {samples} |")
 
     return "\n".join(lines)
@@ -141,25 +141,33 @@ def _build_table_prompt(conn: sqlite3.Connection, table: str) -> str:
 @lru_cache(maxsize=4)
 def build_schema_prompt(db_path: str) -> str:
     """
-    自动从 SQLite 数据库生成完整的 schema 码表文本。
+    从 DuckDB (Lance 表) 生成完整的 schema 码表文本。
 
     Args:
-        db_path: 数据库文件路径（会经过 resolve_path 处理）
+        db_path: LanceDB 目录路径或旧 SQLite 路径（兼容，会自动转为 LanceDB 路径）
 
     Returns:
         Markdown 格式的码表描述字符串
     """
-    conn = connect_db(resolve_path(db_path))
-    try:
-        parts = []
-        for table in TARGET_TABLES:
-            # 检查表是否存在
-            check = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                (table,)
-            ).fetchone()
-            if check:
-                parts.append(_build_table_prompt(conn, table))
-        return "\n\n".join(parts)
-    finally:
-        conn.close()
+    from poc.search.duckdb_engine import get_duckdb_engine
+
+    # 兼容旧调用：如果传入的是 .db 文件路径，自动转为 LanceDB 目录
+    p = resolve_path(db_path)
+    if p.suffix == ".db":
+        lancedb_dir = p.parent / "lancedb"
+    else:
+        lancedb_dir = p
+
+    engine = get_duckdb_engine(str(lancedb_dir))
+
+    # 数据统一在 embeddings 表中，通过 events/assets 视图暴露
+    # 只展示 events 视图给 LLM（包含所有字段）
+    parts = []
+    for table in TARGET_TABLES:
+        try:
+            cols = _get_table_columns(engine, table)
+            if cols:
+                parts.append(_build_table_prompt(engine, table))
+        except Exception:
+            pass
+    return "\n\n".join(parts)

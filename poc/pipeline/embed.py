@@ -305,13 +305,26 @@ def main() -> None:
         if processed > 0:
             print(f"平均速度: {processed / elapsed_time:.2f} 张/秒")
 
-    # 从 SQLite 获取资产元数据（只需最小标识字段，结构化数据留在 SQLite）
+    # 从 SQLite 获取资产+事件全量元数据（写入 Lance 表，供 DuckDB 统一查询）
     conn = connect_db(db_path)
     assets_data = {}
     assets_by_filename = {}
     for row in conn.execute("""
-        SELECT a.asset_id, a.file_path, a.file_name
+        SELECT a.asset_id, a.file_path, a.file_name, a.media_type, a.captured_at,
+               a.lat AS asset_lat, a.lon AS asset_lon, a.source,
+               e.event_id, e.event_type, e.alarm_level, e.alarm_source, e.alarm_time,
+               e.lat, e.lon, e.region, e.extra_json, e.summary, e.description,
+               e.address, e.device_name, e.confidence_level,
+               e.province_name, e.city_name, e.county_name,
+               e.town_code, e.town_name, e.device_code,
+               e.channel_code, e.channel_name,
+               e.warning_order_id, e.warning_type_id, e.alarm_body,
+               e.algorithm_code, e.algorithm_name,
+               e.emergency_level, e.importance_level, e.order_status,
+               e.confidence_level_max, e.tenant_name,
+               e.video_path, e.img_src_path, e.img_icon_path
         FROM assets a
+        LEFT JOIN events e ON a.asset_id = e.asset_id
     """).fetchall():
         row_dict = dict(row)
         assets_data[row["file_path"]] = row_dict
@@ -343,12 +356,53 @@ def main() -> None:
             continue
 
         matched_count += 1
+        ai = asset_info
 
         lance_data.append({
-            "asset_id": asset_info["asset_id"],
+            "asset_id": ai["asset_id"],
             "file_path": str(path),
-            "file_name": asset_info["file_name"],
+            "file_name": ai["file_name"] or "",
             "vector": vec.tolist(),
+            # assets 字段
+            "media_type": ai.get("media_type") or "",
+            "captured_at": ai.get("captured_at") or "",
+            "source": ai.get("source") or "",
+            # events 字段
+            "event_id": ai.get("event_id") or "",
+            "event_type": ai.get("event_type") or "",
+            "alarm_level": ai.get("alarm_level") or "",
+            "alarm_source": ai.get("alarm_source") or "",
+            "alarm_time": ai.get("alarm_time") or "",
+            "lat": float(ai.get("lat") or 0),
+            "lon": float(ai.get("lon") or 0),
+            "region": ai.get("region") or "",
+            "extra_json": ai.get("extra_json") or "",
+            "summary": ai.get("summary") or "",
+            "description": ai.get("description") or "",
+            "address": ai.get("address") or "",
+            "device_name": ai.get("device_name") or "",
+            "confidence_level": float(ai.get("confidence_level") or 0),
+            "province_name": ai.get("province_name") or "",
+            "city_name": ai.get("city_name") or "",
+            "county_name": ai.get("county_name") or "",
+            "town_code": ai.get("town_code") or "",
+            "town_name": ai.get("town_name") or "",
+            "device_code": ai.get("device_code") or "",
+            "channel_code": ai.get("channel_code") or "",
+            "channel_name": ai.get("channel_name") or "",
+            "warning_order_id": ai.get("warning_order_id") or "",
+            "warning_type_id": ai.get("warning_type_id") or "",
+            "alarm_body": ai.get("alarm_body") or "",
+            "algorithm_code": ai.get("algorithm_code") or "",
+            "algorithm_name": ai.get("algorithm_name") or "",
+            "emergency_level": ai.get("emergency_level") or "",
+            "importance_level": ai.get("importance_level") or "",
+            "order_status": ai.get("order_status") or "",
+            "confidence_level_max": float(ai.get("confidence_level_max") or 0),
+            "tenant_name": ai.get("tenant_name") or "",
+            "video_path": ai.get("video_path") or "",
+            "img_src_path": ai.get("img_src_path") or "",
+            "img_icon_path": ai.get("img_icon_path") or "",
         })
 
     # 写入 LanceDB

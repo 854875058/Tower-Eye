@@ -12,9 +12,9 @@ from typing import Any, Dict, List
 
 from nicegui import ui
 from poc.app.pages.shared import (
-    create_layout, page_header, config, resolve_path, connect_db,
+    create_layout, page_header, config, resolve_path,
     ensure_systems, get_agent, get_trace_manager, QueryTrace,
-    get_area_hierarchy, _inject_sql_filters,
+    get_area_hierarchy, _inject_sql_filters, _get_engine,
 )
 
 
@@ -302,10 +302,8 @@ def qa_page():
 
                             async def rerun_sql(editor=sql_editor, res=result):
                                 try:
-                                    conn = connect_db(_db_path)
-                                    rows = conn.execute(editor.value).fetchall()
-                                    conn.close()
-                                    new_data = [dict(r) for r in rows]
+                                    engine = _get_engine()
+                                    new_data = engine.execute(editor.value)
                                     sql_upper = editor.value.upper()
                                     has_agg = any(fn in sql_upper for fn in ("COUNT(", "SUM(", "AVG("))
                                     new_intent = "count" if has_agg and "GROUP BY" in sql_upper else res.get("intent", "list")
@@ -623,10 +621,8 @@ def qa_page():
                         for p in (result.get("sql_params") or []):
                             injected = injected.replace("?", f"'{p}'" if isinstance(p, str) else str(p), 1)
                         injected = _inject_sql_filters(injected, qa_f)
-                        conn = connect_db(_db_path)
-                        rows = conn.execute(injected).fetchall()
-                        conn.close()
-                        new_data = [dict(r) for r in rows]
+                        engine = _get_engine()
+                        new_data = engine.execute(injected)
                         sql_upper = injected.upper()
                         has_agg = any(fn in sql_upper for fn in ("COUNT(", "SUM(", "AVG("))
                         new_intent = "count" if has_agg and "GROUP BY" in sql_upper else result.get("intent", "list")
