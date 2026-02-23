@@ -241,7 +241,8 @@ def parse_question(text: str) -> QueryPlan:
             "address AS 地址, town_name AS 街道, "
             "device_name AS 设备名称, algorithm_name AS 算法, "
             "order_status AS 工单状态, confidence_level AS 置信度, "
-            "file_path AS 图片路径, video_path AS 视频路径 "
+            "file_path AS 图片路径, video_path AS 视频路径, "
+            "img_src_path, img_icon_path, extra_json "
             "FROM events"
             + where_sql
             + " ORDER BY alarm_time DESC LIMIT ?"
@@ -352,7 +353,7 @@ def _build_nl2sql_system_prompt(schema_prompt: str) -> str:
         "1. 直接查询 `events` 表即可，所有字段都在这张表中，不需要 JOIN。\n"
         "2. 时间字段 `alarm_time` 格式为 `YYYY-MM-DD HH:MM:SS`，时间过滤用字符串比较即可。\n"
         "3. SQL 中的值必须用 `$1`, `$2`, ... 占位符（DuckDB 参数化查询），对应的值放在 params 数组中。\n"
-        "4. 如果是列表查询（intent=list），SELECT 中必须包含 `file_path` 和 `video_path`，方便展示图片和视频。\n"
+        "4. 如果是列表查询（intent=list），SELECT 中必须包含 `file_path`、`video_path`、`img_icon_path`、`extra_json`，方便展示图片、视频和标注框图。\n"
         "5. 如果是统计查询（intent=count），建议带 GROUP BY 分组维度和 ORDER BY 数量 DESC。\n"
         "6. 只允许 SELECT 查询，禁止 INSERT/UPDATE/DELETE/DROP 等写操作。\n"
         "7. 列表查询默认 LIMIT 20，除非用户指定了数量。\n"

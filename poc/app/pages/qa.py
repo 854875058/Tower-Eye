@@ -106,6 +106,10 @@ def _render_detail_fields(row: dict, cols_raw: list, img_cols: list, video_col):
     skip = {cols_raw[ic] for ic in img_cols}
     if video_col is not None:
         skip.add(cols_raw[video_col])
+    # 媒体相关列在右侧 tab 展示，左侧字段列表中跳过
+    for media_col in ('img_icon_path', 'img_src_path', 'file_path', 'video_path'):
+        if media_col in cols_raw:
+            skip.add(media_col)
     shown = set()
     for key, label in PRIORITY:
         v = row.get(key)
@@ -153,10 +157,8 @@ def _draw_yolo_boxes(img_path: str, detections: list) -> str:
         colors = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255)]
         for i, det in enumerate(detections):
             color = colors[i % len(colors)]
-            # 支持多种 bbox 格式
             if all(k in det for k in ('bbox_x', 'bbox_y', 'bbox_w', 'bbox_h')):
                 bx, by, bw, bh = det['bbox_x'], det['bbox_y'], det['bbox_w'], det['bbox_h']
-                # 归一化坐标 → 像素
                 if all(0 <= v <= 1.0 for v in (bx, by, bw, bh)):
                     bx, by, bw, bh = bx * w, by * h, bw * w, bh * h
                 x1, y1 = int(bx), int(by)
@@ -193,7 +195,6 @@ def _parse_detections(row: dict) -> list:
         return []
     if not isinstance(extra, dict):
         return []
-    # 尝试多种字段名
     for key in ('detections', 'detection_results', 'bbox_list', 'objects'):
         if key in extra and isinstance(extra[key], list):
             return extra[key]
@@ -201,7 +202,8 @@ def _parse_detections(row: dict) -> list:
 
 
 def _find_sibling_images(row: dict) -> list:
-    """根据 video_path / extra_json.video_url 查找同源视频的所有关联图片。"""
+    """根据 video_path / extra_json.video_url 查找同源视频的所有关联图片。
+    返回去重后的文件名列表（不含当前记录自身）。"""
     video_stem = ""
     vp = row.get('video_path', '')
     if vp:
@@ -221,40 +223,52 @@ def _find_sibling_images(row: dict) -> list:
     try:
         engine = _get_engine()
         siblings = engine.execute(
-            "SELECT file_path FROM events WHERE extra_json LIKE ? LIMIT 20",
+            "SELECT file_path, img_src_path FROM events WHERE extra_json LIKE ? LIMIT 30",
             [f'%{video_stem}%'])
-        return [s['file_path'] for s in siblings if s.get('file_path')]
+        # 收集所有可用图片路径（去重，排除当前记录）
+        current_src = _Path(row.get('img_src_path', '') or '').name
+        seen = set()
+        result = []
+        for s in siblings:
+            for col in ('img_src_path', 'file_path'):
+                fp = s.get(col, '')
+                if fp:
+                    name = _Path(fp).name
+                    if name and name not in seen and name != current_src:
+                        seen.add(name)
+                        result.append(name)
+        return result
     except Exception:
         return []
 
 
 def _render_media_panel(panel_id: str, file_path: str, img_src: str,
-                        video_path: str, detections: list, siblings: list, row_idx: int):
+                        img_icon: str, video_path: str,
+                        detections: list, siblings: list, row_idx: int):
     """渲染单个媒体面板内容。"""
     if panel_id == 'alert_img' and file_path:
         img_name = _Path(file_path).name
         img_url = f'/warning_img/{img_name}'
         img_el = ui.image(img_url).classes('w-full rounded cursor-pointer')
-        # 大图弹窗
         with ui.dialog() as dlg:
             with ui.card().classes('p-2'):
                 ui.image(img_url).classes('max-w-[80vw] max-h-[80vh]')
                 ui.button('关闭', on_click=dlg.close).props('flat color=grey')
         img_el.on('click', dlg.open)
 
-    elif panel_id == 'src_img' and img_src:
-        # img_src_path 可能是逗号分隔的多张
-        for sp in str(img_src).split(','):
+    elif panel_id == 'icon_img' and img_icon:
+        # img_icon_path 是带标注框的版本（_02_ 系列）
+        for sp in str(img_icon).split(','):
             sp = sp.strip()
             if sp:
-                src_name = _Path(sp).name
-                src_url = f'/warning_img/{src_name}'
-                src_el = ui.image(src_url).classes('w-full rounded cursor-pointer mb-1')
+                icon_name = _Path(sp).name
+                icon_url = f'/warning_img/{icon_name}'
+                icon_el = ui.image(icon_url).classes('w-full rounded cursor-pointer mb-1')
                 with ui.dialog() as dlg2:
                     with ui.card().classes('p-2'):
-                        ui.image(src_url).classes('max-w-[80vw] max-h-[80vh]')
+                        ui.image(icon_url).classes('max-w-[80vw] max-h-[80vh]')
                         ui.button('关闭', on_click=dlg2.close).props('flat color=grey')
-                src_el.on('click', dlg2.open)
+                icon_el.on('click', dlg2.open)
 
     elif panel_id == 'video' and video_path:
         vn = _Path(str(video_path).split(",")[0].strip()).name
@@ -270,8 +284,7 @@ def _render_media_panel(panel_id: str, file_path: str, img_src: str,
                     ui.button('关闭', on_click=dlg3.close).props('flat color=grey')
             ann_el.on('click', dlg3.open)
         else:
-            ui.label('YOLO 标注 (cv2 不可用，文本模式)').classes('text-xs text-slate-500 mb-1')
-        # 检测列表
+            ui.label('YOLO (cv2 unavailable)').classes('text-xs text-slate-500 mb-1')
         for det in detections:
             lbl = det.get('label', '?')
             conf = det.get('confidence', 0)
@@ -279,11 +292,10 @@ def _render_media_panel(panel_id: str, file_path: str, img_src: str,
             ui.label(f"  - {lbl}{conf_str}").classes('text-xs text-slate-600 font-mono')
 
     elif panel_id == 'related' and siblings:
-        ui.label(f'同源视频共 {len(siblings)} 张图片').classes('text-xs text-slate-500 mb-1')
+        ui.label(f'同源视频共 {len(siblings)} 张关联图片').classes('text-xs text-slate-500 mb-1')
         with ui.row().classes('flex-wrap gap-1'):
-            for fp in siblings[:12]:
-                sib_name = _Path(fp).name
-                sib_url = f'/warning_img/{sib_name}'
+            for fname in siblings[:12]:
+                sib_url = f'/warning_img/{fname}'
                 sib_el = ui.image(sib_url).classes('w-16 h-12 object-cover rounded cursor-pointer')
                 with ui.dialog() as dlg4:
                     with ui.card().classes('p-2'):
@@ -548,41 +560,48 @@ def qa_page():
                                                     _file_path = str(iv)
                                                     break
                                             _img_src = row.get('img_src_path', '') or ''
+                                            _img_icon = row.get('img_icon_path', '') or ''
                                             _video_path = ''
                                             if video_col is not None:
                                                 _video_path = row.get(cols_raw[video_col], '') or ''
                                             _detections = _parse_detections(row)
                                             _siblings = _find_sibling_images(row) if _video_path else []
 
+                                            # 判断 img_src 和 file_path 是否同一张图
+                                            _fp_name = _Path(_file_path).name if _file_path else ''
+                                            _src_name = _Path(_img_src).name if _img_src else ''
+                                            _icon_name = _Path(str(_img_icon).split(',')[0].strip()).name if _img_icon else ''
+                                            _src_is_same = (_src_name == _fp_name)
+                                            _icon_is_same = (_icon_name == _fp_name) or (_icon_name == _src_name)
+
                                             has_media = bool(_file_path or _img_src or _video_path)
-                                            if has_media or _detections or _siblings:
+                                            if has_media or _detections or _siblings or (_img_icon and not _icon_is_same):
                                                 with ui.column().classes('gap-1 flex-shrink-0').style('width:320px'):
                                                     # 构建动态 tabs
                                                     tab_defs = []
                                                     if _file_path:
                                                         tab_defs.append(('alert_img', 'photo', '告警图片'))
-                                                    if _img_src:
-                                                        tab_defs.append(('src_img', 'image', '原图'))
+                                                    if _img_icon and not _icon_is_same:
+                                                        tab_defs.append(('icon_img', 'crop_square', '标注框图'))
                                                     if _video_path:
                                                         tab_defs.append(('video', 'videocam', '视频'))
                                                     if _detections and _file_path:
-                                                        tab_defs.append(('yolo', 'crop_square', '标注'))
-                                                    if len(_siblings) > 1:
+                                                        tab_defs.append(('yolo', 'auto_fix_high', 'YOLO'))
+                                                    if _siblings:
                                                         tab_defs.append(('related', 'collections', '关联'))
 
                                                     if len(tab_defs) == 1:
-                                                        # 只有一个 tab 时不渲染 tab 栏
                                                         _tid, _, _ = tab_defs[0]
-                                                        _render_media_panel(_tid, _file_path, _img_src, _video_path, _detections, _siblings, ri)
+                                                        _render_media_panel(_tid, _file_path, _img_src, _img_icon, _video_path, _detections, _siblings, ri)
                                                     elif tab_defs:
                                                         with ui.tabs().classes('w-full').props('dense no-caps') as tabs:
                                                             tab_objs = {}
-                                                            for _tid, _icon, _label in tab_defs:
-                                                                tab_objs[_tid] = ui.tab(_tid, label=_label, icon=_icon)
+                                                            for _tid, _icon_i, _label in tab_defs:
+                                                                tab_objs[_tid] = ui.tab(_tid, label=_label, icon=_icon_i)
                                                         with ui.tab_panels(tabs, value=tab_defs[0][0]).classes('w-full'):
                                                             for _tid, _, _ in tab_defs:
                                                                 with ui.tab_panel(_tid):
-                                                                    _render_media_panel(_tid, _file_path, _img_src, _video_path, _detections, _siblings, ri)
+                                                                    _render_media_panel(_tid, _file_path, _img_src, _img_icon, _video_path, _detections, _siblings, ri)
 
                             # count 类型 → 查看明细按钮
                             if result.get("intent") == "count":
