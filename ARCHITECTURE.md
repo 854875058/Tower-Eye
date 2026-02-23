@@ -20,7 +20,12 @@
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         用户层 (User Layer)                      │
-│  Streamlit UI / REST API / CLI                                  │
+│  NiceGUI Web UI / REST API / CLI                                │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐       │
+│  │ 智能问答 │  │多模态检索│  │ 自动标注 │  │ 系统监控 │       │
+│  │ /qa      │  │ /search  │  │ /label   │  │ /monitor │       │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘       │
+│  共享组件: 高德地图选点 | 高级筛选面板 | 图片上传              │
 └────────────────────────┬────────────────────────────────────────┘
                          │
 ┌────────────────────────▼────────────────────────────────────────┐
@@ -31,11 +36,14 @@
 │  │  │Parse │→│SQL Cache│→│Validate│→│Execute│→│Format│→END │  │
 │  │  │      │  │ 命中?  │  │  SQL  │  │  SQL │  │Answer│     │  │
 │  │  │      │  │ ↓ miss │  └───┬───┘  └───┬──┘  └──────┘     │  │
-│  │  └──────┘  │ LLM生成│    ↓ error   ↓ error               │  │
-│  │            └───────┘  ┌──────┐                            │  │
-│  │                       │ Fix  │←──────────┘                │  │
-│  │                       │ SQL  │ (自我修正)                  │  │
-│  │                       └──────┘                            │  │
+│  │  └──┬───┘  │ LLM生成│    ↓ error   ↓ error               │  │
+│  │     │      └───────┘  ┌──────┐                            │  │
+│  │     │ search          │ Fix  │←──────────┘                │  │
+│  │     ↓ intent          │ SQL  │ (自我修正)                  │  │
+│  │  ┌──────────┐         └──────┘                            │  │
+│  │  │ Vector   │→ Format Answer → END                        │  │
+│  │  │ Search   │  (hybrid_search + 筛选预过滤)               │  │
+│  │  └──────────┘                                             │  │
 │  └──────────────────────────────────────────────────────────┘  │
 └────────────────────────┬────────────────────────────────────────┘
                          │
@@ -72,12 +80,15 @@
 **关键特性**：
 - ✅ **状态机编排**：将线性流程改造为可循环的状态图
 - ✅ **自我修正**：SQL 执行失败后自动重试（最多 3 次）
+- ✅ **向量检索融合**：视觉描述类查询自动路由到 hybrid_search
 - ✅ **可视化**：支持导出状态图（Mermaid 格式）
 - ✅ **上下文记忆**：保留对话历史，支持多轮交互
 
 **状态流转**：
 ```
-START → 解析问题 → SQL缓存查找 → [命中] → 验证SQL → 执行SQL → 格式化答案 → END
+START → 解析问题 → [search intent] → 向量检索 → 格式化答案 → END
+              ↓ [list/count]
+         SQL缓存查找 → [命中] → 验证SQL → 执行SQL → 格式化答案 → END
                         ↓ [未命中]
                     LLM 生成SQL → 验证SQL → 执行SQL → 格式化答案 → END
                                    ↓ 失败      ↓ 失败
@@ -200,6 +211,68 @@ print(f"平均耗时: {stats['avg_duration_ms']} ms")
 - 只展示有数据的 Tab，无数据不渲染
 - 单 Tab 时不显示 Tab 栏，直接展示内容
 - 所有图片支持点击弹窗全屏预览（`ui.dialog`）
+- 关联图片 Tab 采用懒加载，切换到该 Tab 时才查询 DuckDB
+
+---
+
+### 5.1 **Agent 向量检索融合** (`poc/qa/agent.py` + `poc/qa/nl2sql.py`)
+
+**功能**：QA 页 Agent 自动判断查询意图，视觉内容描述类查询走向量检索而非 NL2SQL。
+
+**意图路由**：
+| 意图 | 触发条件 | 执行路径 |
+|------|------|------|
+| `count` | 统计/数量/分布/TOP | NL2SQL → SQL 执行 |
+| `list` | 查询/查看/列出 + 结构化条件 | NL2SQL → SQL 执行 |
+| `search` | 视觉描述词（颜色/物体/场景） | hybrid_search 向量检索 |
+| `chat` | 问候/闲聊 | 直接回复 |
+
+**关键设计**：
+- `_VISUAL_KEYWORDS` 列表包含颜色、物体、场景、动作等视觉描述词
+- `_STRUCTURED_KEYWORDS` 优先级更高，命中则强制走 SQL
+- `vector_search_node` 支持解析 `[筛选条件: ...]` 前缀，通过 DuckDB 预过滤 asset_id
+
+---
+
+### 5.2 **QA 页图片上传搜索** (`poc/app/pages/qa.py`)
+
+**功能**：在 QA 页底部输入区旁新增图片上传按钮，上传后自动编码并执行向量检索。
+
+**流程**：
+1. 用户上传图片/视频 → 保存临时文件
+2. 视频自动抽中间帧
+3. `ModelManager.encode_image()` 生成向量
+4. `hybrid_search()` 检索相似图片
+5. 结果以 search 类型聊天气泡展示（图片卡片网格）
+
+---
+
+### 5.3 **高级筛选 Prompt 注入** (`poc/app/pages/qa.py`)
+
+**功能**：筛选条件从后置 SQL 注入改为前置 prompt 注入，同时支持 SQL 和向量检索。
+
+**双重保障**：
+1. **前置注入**：`_build_filter_context()` 将筛选条件转为自然语言拼接到问题前（如 `[筛选条件: 城市=天津] 找红色挖掘机`）
+2. **后置注入**：对 SQL 查询保留 `_inject_sql_filters()` 作为补充（仅非 search intent）
+3. **向量预过滤**：`vector_search_node` 解析筛选前缀，通过 DuckDB 获取 asset_id 列表传给 LanceDB
+
+---
+
+### 5.4 **地图选点组件** (`poc/app/pages/shared.py`)
+
+**功能**：基于高德地图 JS SDK 的交互式地图选点，嵌入 QA 页和搜索页。
+
+**交互方式**：
+- 点击地图设置中心点经纬度
+- 拖拽 Marker 调整位置
+- 圆圈显示搜索半径范围
+- 地址搜索框 → 高德 geocode API 解析
+
+**技术实现**：
+- `render_map_picker()` 封装为可复用组件
+- `ui.html()` 嵌入 AMap JS SDK
+- `ui.run_javascript()` + `emitEvent()` 实现前后端坐标通信
+- 高德 API key 来自 `poc/config/poc.yaml:95`
 
 ---
 
@@ -248,11 +321,12 @@ if result.success:
 
 | 层级 | 技术 | 用途 |
 |------|------|------|
-| **Agent 编排** | LangGraph | 状态机、自我修正 |
+| **Agent 编排** | LangGraph | 状态机、自我修正、意图路由 |
 | **LLM** | DeepSeek API | 自然语言理解、SQL 生成 |
-| **向量检索** | FAISS + Sentence-Transformers | 多模态相似度搜索 |
-| **结构化数据** | SQLite | 元数据存储 |
-| **前端** | Streamlit | 演示界面 |
+| **向量检索** | LanceDB + Qwen3-VL Embedding | 多模态混合检索（向量+关键词） |
+| **结构化数据** | DuckDB (over LanceDB) | SQL 引擎、元数据查询 |
+| **前端** | NiceGUI | Web UI（智能问答/多模态检索/监控） |
+| **地图** | 高德地图 JS SDK | 地图选点、地址解码 |
 | **监控** | 自研 Trace 系统 | 查询追踪、性能分析 |
 | **安全** | 自研 Guardrail | SQL 注入防护 |
 
@@ -411,4 +485,4 @@ def handle_user_query(question: str, user_id: str):
 
 **架构设计**: AI 架构师
 **技术栈**: Python 3.8+, LangGraph, DeepSeek, LanceDB, DuckDB
-**最后更新**: 2026-02-24
+**最后更新**: 2026-02-23
