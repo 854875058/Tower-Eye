@@ -18,6 +18,7 @@ from poc.app.pages.shared import (
     ensure_systems, get_agent, get_model_manager, get_trace_manager, QueryTrace,
     get_area_hierarchy, _inject_sql_filters, _get_engine,
     hybrid_search, build_asset_id_filter, fetch_events_by_asset_ids,
+    render_map_picker,
 )
 
 
@@ -380,6 +381,7 @@ def qa_page():
             'city': '', 'county': '', 'town': '',
             'device_name': '', 'algorithm_name': '',
             'confidence_min': 0.0, 'confidence_max': 1.0,
+            'enable_geo': False, 'lat': '', 'lon': '', 'radius_km': 5.0,
         }
         area_h = get_area_hierarchy(str(_db_path))
 
@@ -412,6 +414,10 @@ def qa_page():
                         ui.number(min=0, max=1, step=0.05, value=0).bind_value(qa_filters_state, 'confidence_min').props('outlined dense').classes('w-20')
                         ui.label('~').classes('self-center')
                         ui.number(min=0, max=1, step=0.05, value=1).bind_value(qa_filters_state, 'confidence_max').props('outlined dense').classes('w-20')
+            with ui.column().classes('w-full px-4 pb-4 gap-2'):
+                ui.switch('启用地理位置过滤').bind_value(qa_filters_state, 'enable_geo')
+                render_map_picker(qa_filters_state, lat_key='lat', lon_key='lon',
+                                  radius_key='radius_km', map_id='qa-map')
 
         def collect_qa_filters() -> Dict:
             f = {}

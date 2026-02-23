@@ -20,7 +20,7 @@ from poc.app.pages.shared import (
     get_model_manager, get_dropdown_options, get_area_hierarchy,
     geocode_address, build_sqlite_filter, build_asset_id_filter,
     fetch_events_by_asset_ids, build_result_item, hybrid_search,
-    _get_engine,
+    _get_engine, render_map_picker,
 )
 
 
@@ -255,21 +255,8 @@ def search_page():
                             ui.time().bind_value(f_state, 'end_time_val').on('update:model-value', et_menu.close)
             with ui.column().classes('w-full px-4 pb-4 gap-2'):
                 ui.switch('启用地理位置过滤').bind_value(f_state, 'enable_geo')
-                with ui.row().classes('gap-4'):
-                    geo_addr = ui.input('地址搜索', placeholder='如：天安门、深圳市南山区').props('outlined dense')
-                    async def do_geocode():
-                        gaode = config.get("gaode", {})
-                        r = geocode_address(geo_addr.value, gaode.get("api_key", ""), gaode.get("geocode_url", ""))
-                        if r:
-                            f_state['lat'] = str(r[0]); f_state['lon'] = str(r[1])
-                            ui.notify(f'解析成功: {r[2]}', type='positive')
-                        else:
-                            ui.notify('地址解析失败', type='warning')
-                    ui.button('解析', on_click=do_geocode).props('outline size=sm rounded')
-                with ui.row().classes('gap-4'):
-                    ui.input('纬度').bind_value(f_state, 'lat').props('outlined dense').classes('w-32')
-                    ui.input('经度').bind_value(f_state, 'lon').props('outlined dense').classes('w-32')
-                    ui.number('半径(km)', min=1, max=50, value=5).bind_value(f_state, 'radius_km').props('outlined dense').classes('w-32')
+                render_map_picker(f_state, lat_key='lat', lon_key='lon',
+                                  radius_key='radius_km', map_id='search-map')
 
         def collect_search_filters() -> dict:
             f = {}

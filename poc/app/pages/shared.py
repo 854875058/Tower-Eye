@@ -287,6 +287,132 @@ def geocode_address(address: str, api_key: str, geocode_url: str) -> Optional[Tu
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# 地图选点组件（高德地图 JS SDK）
+# ══════════════════════════════════════════════════════════════════════════
+
+def render_map_picker(state_dict: dict, lat_key: str = 'lat', lon_key: str = 'lon',
+                      radius_key: str = 'radius_km', map_id: str = 'map-picker'):
+    """嵌入高德地图选点组件，点击设置经纬度，拖拽圆圈设置半径。
+
+    Args:
+        state_dict: 绑定的状态字典，选点结果写入 state_dict[lat_key] / state_dict[lon_key]
+        lat_key / lon_key / radius_key: 状态字典中的键名
+        map_id: DOM 容器 id（同页面多个地图时需不同）
+    """
+    gaode_cfg = config.get("gaode", {})
+    api_key = gaode_cfg.get("api_key", "")
+    geocode_url = gaode_cfg.get("geocode_url", "")
+
+    # 地址搜索行
+    with ui.row().classes('w-full gap-2 items-center mb-1'):
+        geo_input = ui.input('地址搜索', placeholder='如：天安门、深圳市南山区').props('outlined dense').classes('flex-1')
+
+        async def _do_geocode():
+            addr = geo_input.value
+            if not addr:
+                ui.notify('请输入地址', type='warning')
+                return
+            r = geocode_address(addr, api_key, geocode_url)
+            if r:
+                lat_val, lon_val, formatted = r
+                state_dict[lat_key] = str(lat_val)
+                state_dict[lon_key] = str(lon_val)
+                ui.notify(f'解析成功: {formatted}', type='positive')
+                # 更新地图中心
+                await ui.run_javascript(f'''
+                    if (window._mapPicker_{map_id}) {{
+                        var center = new AMap.LngLat({lon_val}, {lat_val});
+                        window._mapPicker_{map_id}.setCenter(center);
+                        if (window._mapMarker_{map_id}) {{
+                            window._mapMarker_{map_id}.setPosition(center);
+                        }} else {{
+                            window._mapMarker_{map_id} = new AMap.Marker({{position: center, map: window._mapPicker_{map_id}}});
+                        }}
+                        if (window._mapCircle_{map_id}) {{
+                            window._mapCircle_{map_id}.setCenter(center);
+                        }}
+                    }}
+                ''')
+            else:
+                ui.notify('地址解析失败', type='warning')
+
+        ui.button('解析', on_click=_do_geocode).props('outline size=sm rounded')
+
+    # 经纬度 + 半径显示
+    with ui.row().classes('w-full gap-3 items-center mb-1'):
+        ui.input('纬度', placeholder='lat').bind_value(state_dict, lat_key).props('outlined dense').classes('w-28')
+        ui.input('经度', placeholder='lon').bind_value(state_dict, lon_key).props('outlined dense').classes('w-28')
+        ui.number('半径(km)', min=0.5, max=100, step=0.5, value=5.0).bind_value(state_dict, radius_key).props('outlined dense').classes('w-28')
+
+    # 地图容器
+    map_container = ui.html(f'<div id="{map_id}" style="width:100%;height:280px;border-radius:12px;border:1px solid #e2e8f0;"></div>')
+
+    # 初始化地图 JS
+    init_lat = state_dict.get(lat_key, '') or '39.9'
+    init_lon = state_dict.get(lon_key, '') or '116.4'
+    init_radius = float(state_dict.get(radius_key, 5.0) or 5.0) * 1000
+
+    ui.add_head_html(f'''
+    <script src="https://webapi.amap.com/maps?v=2.0&key={api_key}"></script>
+    ''')
+
+    async def _init_map():
+        await ui.run_javascript(f'''
+        (function() {{
+            if (window._mapPicker_{map_id}) return;
+            var map = new AMap.Map("{map_id}", {{
+                zoom: 12,
+                center: [{init_lon}, {init_lat}],
+                mapStyle: "amap://styles/light"
+            }});
+            window._mapPicker_{map_id} = map;
+
+            var marker = new AMap.Marker({{
+                position: [{init_lon}, {init_lat}],
+                map: map, draggable: true
+            }});
+            window._mapMarker_{map_id} = marker;
+
+            var circle = new AMap.Circle({{
+                center: [{init_lon}, {init_lat}],
+                radius: {init_radius},
+                strokeColor: "#2563eb", strokeWeight: 2, strokeOpacity: 0.6,
+                fillColor: "#2563eb", fillOpacity: 0.1,
+                map: map
+            }});
+            window._mapCircle_{map_id} = circle;
+
+            map.on('click', function(e) {{
+                var lng = e.lnglat.getLng();
+                var lat = e.lnglat.getLat();
+                marker.setPosition(e.lnglat);
+                circle.setCenter(e.lnglat);
+                // 回传坐标到 Python
+                emitEvent('map_click_{map_id}', {{lat: lat, lon: lng}});
+            }});
+
+            marker.on('dragend', function(e) {{
+                var pos = marker.getPosition();
+                circle.setCenter(pos);
+                emitEvent('map_click_{map_id}', {{lat: pos.getLat(), lon: pos.getLng()}});
+            }});
+        }})();
+        ''')
+
+    # 监听地图点击事件
+    def _on_map_click(e):
+        data = e.args if isinstance(e.args, dict) else {}
+        if 'lat' in data and 'lon' in data:
+            state_dict[lat_key] = str(round(data['lat'], 6))
+            state_dict[lon_key] = str(round(data['lon'], 6))
+
+    ui.on(f'map_click_{map_id}', _on_map_click)
+
+    # 页面加载后初始化地图
+    ui.timer(0.5, _init_map, once=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # UI 组件 & 布局
 # ══════════════════════════════════════════════════════════════════════════
 
