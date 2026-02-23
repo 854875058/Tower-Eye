@@ -108,9 +108,34 @@ def start_ray():
         if not ray.is_initialized():
             ray_address = ray_cfg.get("address", "auto")
             namespace = ray_cfg.get("namespace", "multimodal")
+            num_gpus = ray_cfg.get("num_gpus", 0)
             info(f"启动 Ray (address={ray_address}, namespace={namespace})...")
+
+            # address=auto 时需要先启动本地 Ray 集群
+            if ray_address == "auto":
+                try:
+                    # 先尝试启动本地 Ray head node
+                    r = subprocess.run(
+                        [get_python(), "-m", "ray", "start", "--head",
+                         "--num-gpus", str(num_gpus),
+                         "--dashboard-port", str(ray_cfg.get("dashboard_port", 8265))],
+                        capture_output=True, text=True, timeout=30,
+                    )
+                    if r.returncode == 0:
+                        ok("Ray head node 已启动")
+                    else:
+                        # 可能已经在运行
+                        if "already" in r.stderr.lower() or "already" in r.stdout.lower():
+                            info("Ray head node 已在运行")
+                        else:
+                            warn(f"Ray head node 启动异常: {r.stderr.strip()[:100]}")
+                except subprocess.TimeoutExpired:
+                    warn("Ray head node 启动超时")
+                except FileNotFoundError:
+                    warn("ray CLI 不可用")
+
             ray.init(address=ray_address, namespace=namespace, ignore_reinit_error=True)
-            ok("Ray 已启动")
+            ok("Ray 已连接")
         else:
             ok("Ray 已在运行中")
     except ImportError:

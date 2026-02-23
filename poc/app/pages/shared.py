@@ -79,11 +79,22 @@ def ensure_systems():
         trace_db.parent.mkdir(parents=True, exist_ok=True)
         init_trace_manager(db_path=trace_db, enable_file_log=True,
                            log_dir=Path(config.get("paths", {}).get("log_dir", "logs")))
-        db_path = config.get("paths", {}).get("db_path", "poc/data/metadata.db")
-        if Path(db_path).exists() or resolve_path(db_path).exists():
-            init_tool_registry(db_path)
+        print(f"[ensure_systems] trace_manager 初始化成功: {trace_db}")
     except Exception as e:
-        print(f"init systems error: {e}")
+        print(f"[ensure_systems] trace_manager 初始化失败: {e}")
+        import traceback; traceback.print_exc()
+
+    try:
+        db_path = config.get("paths", {}).get("db_path", "poc/data/metadata.db")
+        db_abs = resolve_path(db_path)
+        if db_abs.exists():
+            init_tool_registry(str(db_abs))
+            print(f"[ensure_systems] tool_registry 初始化成功: {db_abs}")
+        else:
+            print(f"[ensure_systems] tool_registry 跳过: db_path 不存在 ({db_abs})")
+    except Exception as e:
+        print(f"[ensure_systems] tool_registry 初始化失败: {e}")
+        import traceback; traceback.print_exc()
 
     # 初始化 Ray（如果配置启用）
     try:
