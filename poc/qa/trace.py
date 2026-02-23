@@ -197,6 +197,12 @@ class TraceManager:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # 兼容旧表：如果 question_hash 列不存在则添加（必须在建索引之前）
+        try:
+            conn.execute("SELECT question_hash FROM query_traces LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE query_traces ADD COLUMN question_hash TEXT")
+            conn.commit()
         # SQL 缓存池 — 独立表，按 question_hash 去重
         conn.execute("""
             CREATE TABLE IF NOT EXISTS sql_cache (
@@ -221,11 +227,6 @@ class TraceManager:
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_question_hash ON query_traces(question_hash)
         """)
-        # 兼容旧表：如果 question_hash 列不存在则添加
-        try:
-            conn.execute("SELECT question_hash FROM query_traces LIMIT 1")
-        except sqlite3.OperationalError:
-            conn.execute("ALTER TABLE query_traces ADD COLUMN question_hash TEXT")
         conn.commit()
         conn.close()
 

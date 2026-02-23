@@ -160,7 +160,10 @@
       "Bash(conda activate base)",
       "Bash(pip show duckdb)",
       "Bash(findstr -i \"duckdb lancedb nicegui\")",
-      "Bash(del _test_media.py)"
+      "Bash(del _test_media.py)",
+      "Bash(findstr /C:\"ensure_systems\" logsapp.log)",
+      "Bash(findstr /V \"GET\")",
+      "Bash(findstr \"ensure_systems\")"
     ]
   },
   "hooks": {
