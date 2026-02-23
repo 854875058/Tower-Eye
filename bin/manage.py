@@ -58,6 +58,65 @@ def get_python():
         if venv_py.exists():
             return str(venv_py)
     return sys.executable
+
+
+def stop_ray():
+    """停止 Ray 集群（如果正在运行）"""
+    try:
+        import ray
+        if ray.is_initialized():
+            ray.shutdown()
+            ok("Ray runtime 已关闭")
+    except ImportError:
+        pass
+    # 同时用 CLI 停止后台 Ray 进程
+    try:
+        r = subprocess.run(
+            [get_python(), "-m", "ray", "stop"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if r.returncode == 0:
+            ok("Ray 后台进程已停止")
+        else:
+            # ray stop 在没有运行时也返回 0，忽略
+            pass
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    except Exception as e:
+        warn(f"Ray 停止异常: {e}")
+
+
+def start_ray():
+    """启动 Ray 集群（如果配置启用）"""
+    try:
+        import yaml
+        cfg_path = ROOT / "poc" / "config" / "poc.yaml"
+        if cfg_path.exists():
+            with open(cfg_path, encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+            ray_cfg = cfg.get("ray", {})
+            if not ray_cfg.get("enabled", False):
+                info("Ray 未启用（poc.yaml ray.enabled=false），跳过")
+                return
+        else:
+            return
+    except Exception:
+        return
+
+    try:
+        import ray
+        if not ray.is_initialized():
+            ray_address = ray_cfg.get("address", "auto")
+            namespace = ray_cfg.get("namespace", "multimodal")
+            info(f"启动 Ray (address={ray_address}, namespace={namespace})...")
+            ray.init(address=ray_address, namespace=namespace, ignore_reinit_error=True)
+            ok("Ray 已启动")
+        else:
+            ok("Ray 已在运行中")
+    except ImportError:
+        warn("ray 未安装，跳过")
+    except Exception as e:
+        warn(f"Ray 启动失败: {e}")
 # PLACEHOLDER_1
 
 def is_port_in_use(port):
@@ -208,6 +267,10 @@ def cmd_start(args):
     info(f"入口: {APP_ENTRY}")
     print()
 
+    # 启动 Ray（在启动 Web 应用之前）
+    start_ray()
+    print()
+
     if IS_WIN:
         # Windows: 后台运行，日志写入 logs/app.log
         info("后台启动中...")
@@ -282,6 +345,10 @@ def cmd_stop(args):
     """停止服务"""
     banner("停止")
     stopped = False
+
+    # 0. 停止 Ray（在杀进程之前，优雅关闭）
+    info("停止 Ray...")
+    stop_ray()
 
     # 1. 通过 PID 文件
     if PID_FILE.exists():
