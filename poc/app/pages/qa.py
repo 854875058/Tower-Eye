@@ -640,7 +640,8 @@ def qa_page():
                                             if video_col is not None:
                                                 _video_path = row.get(cols_raw[video_col], '') or ''
                                             _detections = _parse_detections(row)
-                                            _siblings = _find_sibling_images(row) if _video_path else []
+                                            # 关联图片改为懒加载，不在渲染时查询
+                                            _has_video = bool(_video_path)
 
                                             # 判断 img_src 和 file_path 是否同一张图
                                             _fp_name = _Path(_file_path).name if _file_path else ''
@@ -650,7 +651,7 @@ def qa_page():
                                             _icon_is_same = (_icon_name == _fp_name) or (_icon_name == _src_name)
 
                                             has_media = bool(_file_path or _img_src or _video_path)
-                                            if has_media or _detections or _siblings or (_img_icon and not _icon_is_same):
+                                            if has_media or _detections or _has_video or (_img_icon and not _icon_is_same):
                                                 with ui.column().classes('gap-1 flex-shrink-0').style('width:320px'):
                                                     # 构建动态 tabs
                                                     tab_defs = []
@@ -662,12 +663,13 @@ def qa_page():
                                                         tab_defs.append(('video', 'videocam', '视频'))
                                                     if _detections and _file_path:
                                                         tab_defs.append(('yolo', 'auto_fix_high', 'YOLO'))
-                                                    if _siblings:
+                                                    # 关联 tab 始终添加（有视频时），内容懒加载
+                                                    if _has_video:
                                                         tab_defs.append(('related', 'collections', '关联'))
 
                                                     if len(tab_defs) == 1:
                                                         _tid, _, _ = tab_defs[0]
-                                                        _render_media_panel(_tid, _file_path, _img_src, _img_icon, _video_path, _detections, _siblings, ri)
+                                                        _render_media_panel(_tid, _file_path, _img_src, _img_icon, _video_path, _detections, [], ri)
                                                     elif tab_defs:
                                                         with ui.tabs().classes('w-full').props('dense no-caps') as tabs:
                                                             tab_objs = {}
@@ -676,7 +678,38 @@ def qa_page():
                                                         with ui.tab_panels(tabs, value=tab_defs[0][0]).classes('w-full'):
                                                             for _tid, _, _ in tab_defs:
                                                                 with ui.tab_panel(_tid):
-                                                                    _render_media_panel(_tid, _file_path, _img_src, _img_icon, _video_path, _detections, _siblings, ri)
+                                                                    if _tid == 'related':
+                                                                        # 懒加载关联图片
+                                                                        _lazy_container = ui.column().classes('w-full')
+                                                                        _lazy_loaded = {'done': False}
+                                                                        _cur_row = row
+
+                                                                        def _load_related(container=_lazy_container, r=_cur_row, loaded=_lazy_loaded):
+                                                                            if loaded['done']:
+                                                                                return
+                                                                            loaded['done'] = True
+                                                                            siblings = _find_sibling_images(r)
+                                                                            container.clear()
+                                                                            with container:
+                                                                                if siblings:
+                                                                                    ui.label(f'找到 {len(siblings)} 张关联图片').classes('text-xs text-slate-500 mb-1')
+                                                                                    with ui.row().classes('flex-wrap gap-1'):
+                                                                                        for sib_name in siblings[:12]:
+                                                                                            sib_url = f'/warning_img/{sib_name}'
+                                                                                            sib_el = ui.image(sib_url).classes('w-16 h-12 object-cover rounded cursor-pointer')
+                                                                                            with ui.dialog() as dlg:
+                                                                                                with ui.card().classes('p-2'):
+                                                                                                    ui.image(sib_url).classes('max-w-[80vw] max-h-[80vh]')
+                                                                                                    ui.button('关闭', on_click=dlg.close).props('flat color=grey')
+                                                                                            sib_el.on('click', dlg.open)
+                                                                                else:
+                                                                                    ui.label('无关联图片').classes('text-xs text-slate-400')
+
+                                                                        # tab 切换时触发加载
+                                                                        tabs.on('update:model-value',
+                                                                                lambda e, fn=_load_related, tid='related': fn() if (isinstance(e.args, str) and e.args == tid) or (hasattr(e, 'value') and e.value == tid) else None)
+                                                                    else:
+                                                                        _render_media_panel(_tid, _file_path, _img_src, _img_icon, _video_path, _detections, [], ri)
 
                             # count 类型 → 查看明细按钮
                             if result.get("intent") == "count":
