@@ -37,7 +37,8 @@ class Qwen3VLEmbedding:
     def encode_text(self, text: str, dummy_image_path: str = None) -> np.ndarray:
         """
         文本向量化
-        注意：Qwen3-VL API 要求同时提供 text 和 image_path
+        注意：Qwen3-VL API 要求同时提供 text 和 image，
+        这里将 dummy image 以 base64 发送，避免远程服务端路径不可达。
 
         Args:
             text: 输入文本
@@ -62,10 +63,16 @@ class Qwen3VLEmbedding:
                     raise ValueError(f"占位图像目录为空: {image_path}")
                 image_path = images[0]
 
-            # API 要求必须提供 image_path
+            # 读取 dummy image 并以 base64 发送（避免远程服务端路径不可达）
+            if not os.path.exists(image_path):
+                raise FileNotFoundError(f"占位图像文件不存在: {image_path}")
+
+            with open(image_path, "rb") as f:
+                image_b64 = base64.b64encode(f.read()).decode("utf-8")
+
             payload = {
                 "text": text,
-                "image_path": os.path.abspath(image_path) if os.path.exists(image_path) else image_path
+                "image_base64": image_b64,
             }
 
             response = post_with_retry(
