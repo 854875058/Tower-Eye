@@ -430,6 +430,26 @@ def qa_page():
                 f['confidence_max'] = qa_filters_state['confidence_max']
             return f
 
+        def _build_filter_context(filters: Dict) -> str:
+            """将筛选条件转为自然语言上下文，拼接到用户问题前"""
+            parts = []
+            label_map = {
+                'event_type': '事件类型', 'alarm_level': '告警等级',
+                'order_status': '工单状态', 'device_name': '设备名称',
+                'algorithm_name': '算法名称', 'city_name': '城市',
+                'county_name': '区县', 'town_name': '街道',
+            }
+            for k, label in label_map.items():
+                if filters.get(k):
+                    parts.append(f"{label}={filters[k]}")
+            if filters.get('confidence_min'):
+                parts.append(f"置信度>={filters['confidence_min']}")
+            if filters.get('confidence_max') and filters['confidence_max'] < 1:
+                parts.append(f"置信度<={filters['confidence_max']}")
+            if not parts:
+                return ""
+            return "[筛选条件: " + ", ".join(parts) + "] "
+
         # ── 聊天消息区 ──
         chat_scroll = ui.scroll_area().classes('w-full border rounded-xl bg-slate-50').style('height: 60vh')
         chat_container = ui.column().classes('w-full p-4 gap-4')
@@ -792,6 +812,11 @@ def qa_page():
                 return
             question_input.value = ''
 
+            # 高级筛选：前置注入到问题中（Agent/NL2SQL 会看到筛选上下文）
+            qa_f = collect_qa_filters()
+            filter_ctx = _build_filter_context(qa_f)
+            agent_question = filter_ctx + q if filter_ctx else q
+
             # 添加用户消息 + 思考占位（带 lines 列表）
             chat_history.append({'role': 'user', 'content': q})
             thinking_msg = {'role': 'thinking', 'content': '', 'lines': []}
@@ -818,7 +843,7 @@ def qa_page():
                     old_stdout = sys.stdout
                     sys.stdout = _StdoutCapture(old_stdout, log_q)
                     try:
-                        r = agent.query(q, user_id="nicegui_user")
+                        r = agent.query(agent_question, user_id="nicegui_user")
                         result_holder.append(r)
                     except Exception as e:
                         error_holder.append(e)
@@ -856,9 +881,8 @@ def qa_page():
 
                 result = result_holder[0]
 
-                # 高级筛选注入
-                qa_f = collect_qa_filters()
-                if qa_f and result.get("status") == "success" and result.get("sql"):
+                # 高级筛选后置注入（仅对 SQL 查询生效，作为前置 prompt 注入的补充保障）
+                if qa_f and result.get("status") == "success" and result.get("sql") and result.get("intent") != "search":
                     try:
                         injected = result["sql"]
                         for p in (result.get("sql_params") or []):

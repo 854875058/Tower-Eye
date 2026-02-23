@@ -100,18 +100,38 @@ def vector_search_node(state: AgentState) -> AgentState:
     功能：
     - 使用 ModelManager 将查询文本编码为向量
     - 调用 hybrid_search 执行混合检索
+    - 支持筛选条件前置过滤（通过 [筛选条件: ...] 前缀解析）
     - 将检索结果格式化为与 SQL 查询兼容的结构
     """
+    import re as _re
     question = state["question"]
     config = state["config"]
     filters = state.get("filters") or {}
     top_k = filters.get("top_k", 10)
 
-    print(f"[vector_search_node] 执行向量检索: {question}")
+    # 解析 [筛选条件: ...] 前缀，提取筛选条件用于 DuckDB 预过滤
+    filter_dict = {}
+    clean_question = question
+    m = _re.match(r'\[筛选条件:\s*(.+?)\]\s*', question)
+    if m:
+        clean_question = question[m.end():]
+        for pair in m.group(1).split(','):
+            pair = pair.strip()
+            if '=' in pair and '>=' not in pair and '<=' not in pair:
+                k, v = pair.split('=', 1)
+                key_map = {'事件类型': 'event_type', '告警等级': 'alarm_level',
+                           '工单状态': 'order_status', '设备名称': 'device_name',
+                           '算法名称': 'algorithm_name', '城市': 'city_name',
+                           '区县': 'county_name', '街道': 'town_name'}
+                db_key = key_map.get(k.strip())
+                if db_key:
+                    filter_dict[db_key] = v.strip()
+
+    print(f"[vector_search_node] 执行向量检索: {clean_question}, filters={filter_dict}")
 
     try:
         from poc.search.model_manager import ModelManager
-        from poc.search.query import hybrid_search
+        from poc.search.query import hybrid_search, build_asset_id_filter
         import lancedb as _ldb
 
         lancedb_dir = resolve_path(
@@ -121,11 +141,45 @@ def vector_search_node(state: AgentState) -> AgentState:
         table = db.open_table("embeddings")
 
         mgr = ModelManager(config)
-        query_vec = mgr.encode_text(question).astype("float32")
+        query_vec = mgr.encode_text(clean_question).astype("float32")
+
+        # 如果有筛选条件，先通过 DuckDB 获取符合条件的 asset_id
+        lance_filter = None
+        if filter_dict:
+            from poc.search.duckdb_engine import get_duckdb_engine
+            engine = get_duckdb_engine(str(lancedb_dir))
+            where_parts = []
+            params = []
+            for k, v in filter_dict.items():
+                if k in ('device_name', 'algorithm_name'):
+                    where_parts.append(f"{k} LIKE ?")
+                    params.append(f"%{v}%")
+                else:
+                    where_parts.append(f"{k} = ?")
+                    params.append(v)
+            if where_parts:
+                sql = "SELECT DISTINCT asset_id FROM events WHERE " + " AND ".join(where_parts)
+                id_rows = engine.execute(sql, params)
+                pre_ids = [r["asset_id"] for r in id_rows]
+                if pre_ids:
+                    lance_filter = build_asset_id_filter(pre_ids)
+                else:
+                    # 筛选条件无匹配
+                    state["sql_result"] = []
+                    state["error_message"] = None
+                    state["execution_history"].append({
+                        "type": "vector_search", "query": clean_question,
+                        "result_count": 0, "status": "success"
+                    })
+                    state["messages"].append({
+                        "role": "system", "content": "筛选条件无匹配结果"
+                    })
+                    return state
 
         results_df = hybrid_search(
-            table, query_vec, query_text=question,
-            top_k=top_k, vector_weight=0.7, keyword_weight=0.3,
+            table, query_vec, query_text=clean_question,
+            top_k=top_k, filter_str=lance_filter,
+            vector_weight=0.7, keyword_weight=0.3,
         )
 
         # 转为 list[dict] 格式，与 SQL 结果兼容
@@ -138,7 +192,6 @@ def vector_search_node(state: AgentState) -> AgentState:
                         item["_distance"] = float(row[col])
                     continue
                 val = row[col]
-                # numpy/pandas 类型转 Python 原生类型
                 if hasattr(val, 'item'):
                     val = val.item()
                 item[col] = val
@@ -151,7 +204,7 @@ def vector_search_node(state: AgentState) -> AgentState:
 
         state["execution_history"].append({
             "type": "vector_search",
-            "query": question,
+            "query": clean_question,
             "result_count": len(search_results),
             "status": "success"
         })
