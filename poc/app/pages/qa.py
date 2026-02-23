@@ -987,9 +987,17 @@ def qa_page():
         async def handle_image_upload(e: events.UploadEventArguments):
             """上传图片后执行向量检索"""
             try:
-                name = e.file.name
-                content = await e.file.read()
+                name = e.name if hasattr(e, 'name') else e.file.name
+                # NiceGUI 兼容：优先 e.content（同步），fallback await e.file.read()
+                if hasattr(e, 'content') and e.content:
+                    content = e.content.read() if hasattr(e.content, 'read') else e.content
+                else:
+                    content = await e.file.read()
                 suffix = _Path(name).suffix.lower()
+
+                if not content or len(content) < 100:
+                    ui.notify('上传文件为空或过小', type='warning')
+                    return
 
                 # 保存临时文件
                 tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix,
@@ -1001,11 +1009,12 @@ def qa_page():
                 # 视频抽帧
                 is_video = suffix in ('.mp4', '.avi', '.mov')
                 if is_video:
+                    frame_ok = False
                     try:
                         import cv2
                         cap = cv2.VideoCapture(tmp_path)
                         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, total // 2)
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, max(total // 2, 0))
                         ret, frame = cap.read()
                         cap.release()
                         if ret:
@@ -1013,9 +1022,15 @@ def qa_page():
                                                                      dir=str(resolve_path('poc/data')))
                             cv2.imwrite(frame_tmp.name, frame)
                             frame_tmp.close()
+                            _Path(tmp_path).unlink(missing_ok=True)  # 删除原始视频临时文件
                             tmp_path = frame_tmp.name
-                    except Exception:
-                        pass
+                            frame_ok = True
+                    except Exception as vex:
+                        print(f"[handle_image_upload] video frame extraction failed: {vex}")
+                    if not frame_ok:
+                        ui.notify('视频抽帧失败，请上传图片文件', type='warning')
+                        _Path(tmp_path).unlink(missing_ok=True)
+                        return
 
                 # 添加用户消息
                 chat_history.append({'role': 'user', 'content': f'[上传图片搜索] {name}'})
@@ -1030,6 +1045,11 @@ def qa_page():
                 table = db.open_table("embeddings")
                 mgr = get_model_manager()
 
+                # 确认文件存在且非空
+                if not _Path(tmp_path).exists() or _Path(tmp_path).stat().st_size < 100:
+                    raise FileNotFoundError(f"临时文件不存在或为空: {tmp_path}")
+
+                print(f"[handle_image_upload] encoding image: {tmp_path}, size={_Path(tmp_path).stat().st_size}")
                 query_vec = await asyncio.get_event_loop().run_in_executor(
                     None, lambda: mgr.encode_image(tmp_path).astype("float32"))
 

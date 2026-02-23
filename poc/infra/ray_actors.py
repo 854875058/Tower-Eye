@@ -144,6 +144,17 @@ class EmbeddingActor:
         else:
             return self.embedding_model.encode_image(image_path)
 
+    def encode_image_bytes(self, image_bytes: bytes) -> np.ndarray:
+        """图像向量化（bytes 输入，避免路径传递问题）"""
+        if self.model_type == "qwen":
+            return self.embedding_model.encode_image_bytes(image_bytes)
+        else:
+            # CLIP: 从 bytes 加载
+            from PIL import Image
+            import io
+            image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            return self.embedding_model.encode(image, convert_to_numpy=True, normalize_embeddings=True)
+
     def encode_batch(self, image_paths: List[str]) -> List[np.ndarray]:
         """批量编码（Daft 管线用）"""
         return [self.encode_image(p) for p in image_paths]

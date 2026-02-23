@@ -114,7 +114,13 @@ class ModelManager:
         if actor is not None:
             import ray
             try:
-                return ray.get(actor.encode_image.remote(str(image_path)))
+                if self.model_type == "qwen":
+                    # Qwen 模式：读取文件 bytes 后发给 Actor，避免 Actor 进程路径问题
+                    with open(str(image_path), "rb") as f:
+                        image_bytes = f.read()
+                    return ray.get(actor.encode_image_bytes.remote(image_bytes))
+                else:
+                    return ray.get(actor.encode_image.remote(str(image_path)))
             except Exception as e:
                 print(f"[ModelManager] Ray Actor 调用失败，fallback 到本地: {e}")
 
