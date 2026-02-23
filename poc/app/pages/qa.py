@@ -6,16 +6,18 @@ import json
 import base64
 import queue
 import asyncio
+import tempfile
 import threading
 import traceback
 from pathlib import Path as _Path
 from typing import Any, Dict, List
 
-from nicegui import ui
+from nicegui import ui, events
 from poc.app.pages.shared import (
     create_layout, page_header, config, resolve_path,
-    ensure_systems, get_agent, get_trace_manager, QueryTrace,
+    ensure_systems, get_agent, get_model_manager, get_trace_manager, QueryTrace,
     get_area_hierarchy, _inject_sql_filters, _get_engine,
+    hybrid_search, build_asset_id_filter, fetch_events_by_asset_ids,
 )
 
 
@@ -918,11 +920,108 @@ def qa_page():
                 _refresh_chat()
                 traceback.print_exc()
 
+        # ── 图片上传搜索 ──
+        async def handle_image_upload(e: events.UploadEventArguments):
+            """上传图片后执行向量检索"""
+            try:
+                name = e.file.name
+                content = await e.file.read()
+                suffix = _Path(name).suffix.lower()
+
+                # 保存临时文件
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix,
+                                                   dir=str(resolve_path('poc/data')))
+                tmp.write(content)
+                tmp.close()
+                tmp_path = tmp.name
+
+                # 视频抽帧
+                is_video = suffix in ('.mp4', '.avi', '.mov')
+                if is_video:
+                    try:
+                        import cv2
+                        cap = cv2.VideoCapture(tmp_path)
+                        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, total // 2)
+                        ret, frame = cap.read()
+                        cap.release()
+                        if ret:
+                            frame_tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg',
+                                                                     dir=str(resolve_path('poc/data')))
+                            cv2.imwrite(frame_tmp.name, frame)
+                            frame_tmp.close()
+                            tmp_path = frame_tmp.name
+                    except Exception:
+                        pass
+
+                # 添加用户消息
+                chat_history.append({'role': 'user', 'content': f'[上传图片搜索] {name}'})
+                thinking_msg = {'role': 'thinking', 'content': '', 'lines': ['正在编码图片并检索...']}
+                chat_history.append(thinking_msg)
+                _refresh_chat()
+
+                # 编码 + 检索
+                import lancedb as _ldb
+                lancedb_dir = resolve_path(config.get("paths", {}).get("lancedb_dir", "poc/data/lancedb"))
+                db = _ldb.connect(str(lancedb_dir))
+                table = db.open_table("embeddings")
+                mgr = get_model_manager()
+
+                query_vec = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: mgr.encode_image(tmp_path).astype("float32"))
+
+                results_df = hybrid_search(table, query_vec, top_k=10)
+
+                # 转为 list[dict]
+                search_results = []
+                for _, row in results_df.iterrows():
+                    item = {}
+                    for col in results_df.columns:
+                        if col == "vector" or (col.startswith("_") and col != "_distance"):
+                            continue
+                        val = row[col]
+                        if hasattr(val, 'item'):
+                            val = val.item()
+                        item[col] = val
+                    search_results.append(item)
+
+                result = {
+                    'status': 'success',
+                    'intent': 'search',
+                    'sql': '',
+                    'sql_params': [],
+                    'answer': {
+                        'type': 'search',
+                        'value': search_results,
+                        'message': f'为您找到 {len(search_results)} 张相似图片',
+                    },
+                    '_thinking_lines': thinking_msg['lines'],
+                }
+
+                chat_history.pop()
+                chat_history.append({
+                    'role': 'agent', 'question': f'[图片搜索] {name}', 'result': result
+                })
+                _refresh_chat()
+                ui.notify(f'找到 {len(search_results)} 张相似图片', type='positive')
+
+            except Exception as ex:
+                chat_history.pop()
+                chat_history.append({
+                    'role': 'agent', 'question': f'[图片搜索] {name}',
+                    'result': {'status': 'error', 'error': str(ex), 'intent': 'search'}
+                })
+                _refresh_chat()
+                traceback.print_exc()
+
         # ── 底部输入区 ──
         with ui.row().classes('w-full gap-2 items-center mt-2'):
-            question_input = ui.input(placeholder='输入问题，如：按街道统计最近30天各类告警数量') \
+            question_input = ui.input(placeholder='输入问题，如：按街道统计最近30天各类告警数量 / 找红色挖掘机的图片') \
                 .classes('flex-1').props('outlined dense rounded')
             question_input.on('keydown.enter', lambda: do_ask())
+            ui.upload(on_upload=handle_image_upload, auto_upload=True, max_files=1) \
+                .props('accept=".jpg,.jpeg,.png,.bmp,.mp4,.avi" flat dense icon=image color=blue-6') \
+                .classes('w-10 h-10')
             ui.button(icon='send', on_click=lambda: do_ask()) \
                 .props('unelevated color=blue-6 round').classes('ml-1')
 
