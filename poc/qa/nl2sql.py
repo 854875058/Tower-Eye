@@ -109,10 +109,52 @@ _QUERY_KEYWORDS = [
     "最近", "今天", "昨天", "本月", "本周",
 ]
 
+# 结构化查询强信号 — 命中则强制走 SQL，不走向量检索
+_STRUCTURED_KEYWORDS = [
+    "统计", "多少", "数量", "总数", "分布", "TOP", "top", "排名",
+    "按街道", "按设备", "按类型", "按区", "按算法", "GROUP", "group",
+]
+
+# 视觉/内容描述关键词 — 命中则倾向走向量检索
+_VISUAL_KEYWORDS = [
+    # 颜色
+    "红色", "蓝色", "白色", "黑色", "黄色", "绿色", "灰色", "橙色", "棕色",
+    # 物体
+    "挖掘机", "卡车", "轿车", "货车", "吊车", "推土机", "铲车", "摩托", "自行车",
+    "人", "行人", "工人", "安全帽", "围栏", "塔吊", "电线杆", "铁塔",
+    # 场景描述
+    "沙地", "土坡", "工地", "草地", "马路", "停车场", "河边", "树林",
+    # 动作/状态
+    "停在", "停放", "行驶", "施工", "挖掘", "倒塌", "倾斜",
+    # 搜图意图
+    "找图", "找图片", "搜图", "类似的", "相似的", "像这样", "长什么样",
+    "有没有", "有什么图", "图片", "照片",
+]
+
+# 向量检索触发短语 — 整句匹配
+_SEARCH_PHRASES = [
+    "找", "搜", "有没有", "有什么", "长什么样", "什么样的",
+]
+
+
+def _is_visual_query(text: str) -> bool:
+    """判断是否为视觉内容描述类查询，应走向量检索"""
+    # 有结构化强信号 → 不走向量
+    if any(k in text for k in _STRUCTURED_KEYWORDS):
+        return False
+    # 命中视觉关键词
+    visual_hits = sum(1 for k in _VISUAL_KEYWORDS if k in text)
+    if visual_hits >= 1:
+        return True
+    return False
+
 
 def _parse_intent(text: str) -> str:
     t = text.strip()
-    # 先检查是否命中查询关键词（优先级最高）
+    # 先检查是否是视觉内容描述（走向量检索）
+    if _is_visual_query(t):
+        return "search"
+    # 再检查是否命中查询关键词（优先级最高）
     if any(k in t for k in _QUERY_KEYWORDS):
         if any(k in t for k in ["多少", "统计", "数量", "总数", "分布", "TOP", "top", "排名"]):
             return "count"
@@ -187,6 +229,11 @@ def parse_question(text: str) -> QueryPlan:
     # 闲聊意图：不生成 SQL
     if intent == "chat":
         return QueryPlan(intent="chat", sql="", params=[], filters={})
+
+    # 向量检索意图：不生成 SQL，由 Agent 走 hybrid_search
+    if intent == "search":
+        top_k = _parse_top_k(text, default=10)
+        return QueryPlan(intent="search", sql="", params=[], filters={"query_text": text, "top_k": top_k})
 
     event_type = None
     for key, value in SCENE_KEYWORDS.items():
@@ -449,6 +496,11 @@ def build_query_plan(text: str, config: Dict) -> QueryPlan:
     # 闲聊意图直接返回，不调 LLM
     if rule_plan.intent == "chat":
         print("[build_query_plan] 识别为闲聊，跳过 LLM")
+        return rule_plan
+
+    # 向量检索意图直接返回，不调 LLM
+    if rule_plan.intent == "search":
+        print("[build_query_plan] 识别为视觉内容检索，跳过 LLM")
         return rule_plan
 
     if mode == "rule":

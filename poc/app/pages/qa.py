@@ -71,6 +71,8 @@ def _build_suggestions(result: dict, answer_data) -> List[str]:
                         suggestions.append(f"查询最近20条{gv}的详细信息")
         if not suggestions:
             suggestions.append("查询最近20条告警的详细信息")
+    elif intent == "search":
+        suggestions = ["找红色挖掘机的图片", "找工地上有卡车的图片", "按告警类型统计数量"]
     else:
         suggestions = ["按告警类型统计数量", "按街道统计告警分布", "按设备统计告警次数TOP10"]
     return suggestions
@@ -304,6 +306,46 @@ def _render_media_panel(panel_id: str, file_path: str, img_src: str,
                 sib_el.on('click', dlg4.open)
 
 
+def _render_search_results(results: list, question: str):
+    """渲染向量检索结果为图片卡片网格（在聊天气泡内）"""
+    with ui.row().classes('flex-wrap gap-3 w-full'):
+        for idx, item in enumerate(results[:20]):
+            fp = item.get('file_path', '')
+            img_name = _Path(fp).name if fp else ''
+            img_url = f'/warning_img/{img_name}' if img_name else ''
+            score = item.get('hybrid_score', item.get('_distance', 0))
+            if 0 < score < 1.0:
+                score = 1.0 / (1.0 + score)
+
+            with ui.card().classes('w-56 shadow-sm hover:shadow-md transition-shadow'):
+                if img_url:
+                    card_img = ui.image(img_url).classes('w-full h-36 object-cover')
+                    with ui.dialog() as dlg:
+                        with ui.card().classes('p-2'):
+                            ui.image(img_url).classes('max-w-[80vw] max-h-[80vh]')
+                            ui.button('关闭', on_click=dlg.close).props('flat color=grey')
+                    card_img.on('click', dlg.open)
+                else:
+                    with ui.element('div').classes('w-full h-36 bg-slate-100 flex items-center justify-center'):
+                        ui.icon('image_not_supported').classes('text-3xl text-slate-300')
+
+                with ui.column().classes('p-2 gap-0.5'):
+                    if score > 0:
+                        ui.label(f'相似度: {score:.3f}').classes('text-xs text-blue-600 font-semibold')
+                    et = item.get('event_type', '')
+                    if et:
+                        ui.label(et).classes('text-xs text-slate-800 font-medium truncate')
+                    at = item.get('alarm_time', '')
+                    if at:
+                        ui.label(str(at)[:19]).classes('text-xs text-slate-400')
+                    summary = item.get('summary', '')
+                    if summary:
+                        ui.label(summary[:50] + ('...' if len(summary) > 50 else '')).classes('text-xs text-slate-500')
+                    addr = item.get('address', '')
+                    if addr:
+                        ui.label(addr[:30]).classes('text-xs text-slate-400 truncate')
+
+
 # ── 页面 ──────────────────────────────────────────────────────────────────
 
 @ui.page('/qa')
@@ -497,6 +539,11 @@ def qa_page():
                         # ── chat 类型：纯文本回复 ──
                         if answer.get("type") == "chat":
                             ui.markdown(str(answer_data)).classes('text-sm text-slate-700')
+
+                        # ── search 类型：向量检索结果（图片卡片网格） ──
+                        elif answer.get("type") == "search" and isinstance(answer_data, list) and len(answer_data) > 0:
+                            ui.label(answer.get("message", "")).classes('text-sm text-blue-600 mb-1')
+                            _render_search_results(answer_data, question)
 
                         # ── list 类型：表格 + 媒体 ──
                         elif isinstance(answer_data, list) and len(answer_data) > 0 and isinstance(answer_data[0], dict):

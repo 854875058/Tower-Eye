@@ -6,9 +6,12 @@
 2. 支持 SQL 自我修正（执行失败后重新生成）
 3. 支持多轮对话和上下文记忆
 4. 可视化执行流程
+5. 支持向量检索（视觉内容描述类查询）
 
 状态流转：
 START → PARSE_QUESTION → GENERATE_SQL → VALIDATE_SQL → EXECUTE_SQL → SUCCESS
+                ↓ (search intent)
+            VECTOR_SEARCH → FORMAT_ANSWER → END
                                 ↓ (validation failed)
                             FIX_SQL ← (execution failed)
                                 ↓ (max retries)
@@ -86,6 +89,89 @@ def parse_question_node(state: AgentState) -> AgentState:
             "content": f"解析失败: {str(e)}"
         })
         print(f"[parse_question_node] 解析失败: {e}")
+
+    return state
+
+
+def vector_search_node(state: AgentState) -> AgentState:
+    """
+    节点: 向量检索（视觉内容描述类查询）
+
+    功能：
+    - 使用 ModelManager 将查询文本编码为向量
+    - 调用 hybrid_search 执行混合检索
+    - 将检索结果格式化为与 SQL 查询兼容的结构
+    """
+    question = state["question"]
+    config = state["config"]
+    filters = state.get("filters") or {}
+    top_k = filters.get("top_k", 10)
+
+    print(f"[vector_search_node] 执行向量检索: {question}")
+
+    try:
+        from poc.search.model_manager import ModelManager
+        from poc.search.query import hybrid_search
+        import lancedb as _ldb
+
+        lancedb_dir = resolve_path(
+            config.get("paths", {}).get("lancedb_dir", "poc/data/lancedb")
+        )
+        db = _ldb.connect(str(lancedb_dir))
+        table = db.open_table("embeddings")
+
+        mgr = ModelManager(config)
+        query_vec = mgr.encode_text(question).astype("float32")
+
+        results_df = hybrid_search(
+            table, query_vec, query_text=question,
+            top_k=top_k, vector_weight=0.7, keyword_weight=0.3,
+        )
+
+        # 转为 list[dict] 格式，与 SQL 结果兼容
+        search_results = []
+        for _, row in results_df.iterrows():
+            item = {}
+            for col in results_df.columns:
+                if col == "vector" or col.startswith("_"):
+                    if col == "_distance":
+                        item["_distance"] = float(row[col])
+                    continue
+                val = row[col]
+                # numpy/pandas 类型转 Python 原生类型
+                if hasattr(val, 'item'):
+                    val = val.item()
+                item[col] = val
+            if "hybrid_score" in results_df.columns:
+                item["hybrid_score"] = float(row["hybrid_score"])
+            search_results.append(item)
+
+        state["sql_result"] = search_results
+        state["error_message"] = None
+
+        state["execution_history"].append({
+            "type": "vector_search",
+            "query": question,
+            "result_count": len(search_results),
+            "status": "success"
+        })
+
+        state["messages"].append({
+            "role": "system",
+            "content": f"向量检索成功，返回 {len(search_results)} 条结果"
+        })
+
+        print(f"[vector_search_node] 检索成功，返回 {len(search_results)} 条结果")
+
+    except Exception as e:
+        state["error_message"] = f"向量检索失败: {str(e)}"
+        state["messages"].append({
+            "role": "system",
+            "content": f"向量检索失败: {str(e)}"
+        })
+        print(f"[vector_search_node] 检索失败: {e}")
+        import traceback
+        traceback.print_exc()
 
     return state
 
@@ -264,6 +350,27 @@ def format_answer_node(state: AgentState) -> AgentState:
             "message": reply,
         }
 
+    elif state["intent"] == "search":
+        # 向量检索结果
+        if state.get("error_message"):
+            state["final_answer"] = {
+                "type": "search",
+                "value": [],
+                "message": f"向量检索失败: {state['error_message']}",
+            }
+        elif state["sql_result"]:
+            state["final_answer"] = {
+                "type": "search",
+                "value": state["sql_result"],
+                "message": f"为您找到 {len(state['sql_result'])} 条相关结果",
+            }
+        else:
+            state["final_answer"] = {
+                "type": "search",
+                "value": [],
+                "message": "未找到相关内容",
+            }
+
     elif state["intent"] == "count":
         # 统计类查询 — 兼容 cnt / 数量 / COUNT(*) 等各种别名
         if state["sql_result"]:
@@ -323,12 +430,14 @@ def should_retry(state: AgentState) -> Literal["fix_sql", "error"]:
         return "error"
 
 
-def should_continue_after_parse(state: AgentState) -> Literal["validate_sql", "format_answer", "error"]:
+def should_continue_after_parse(state: AgentState) -> Literal["validate_sql", "format_answer", "vector_search", "error"]:
     """路由函数：解析后是否继续"""
     if state.get("error_message"):
         return "error"
     if state.get("intent") == "chat":
         return "format_answer"
+    if state.get("intent") == "search":
+        return "vector_search"
     return "validate_sql"
 
 
@@ -352,16 +461,17 @@ def build_agent_graph() -> StateGraph:
 
     状态流转：
     START → parse_question → validate_sql → execute_sql → format_answer → END
-                ↓ error          ↓ error         ↓ error
-              ERROR            fix_sql ←──────────┘
-                                 ↓ (retry)
-                            validate_sql
+                ↓ search        ↓ error         ↓ error
+            vector_search    fix_sql ←──────────┘
+                ↓               ↓ (retry)
+            format_answer   validate_sql
     """
     # 创建状态图
     workflow = StateGraph(AgentState)
 
     # 添加节点
     workflow.add_node("parse_question", parse_question_node)
+    workflow.add_node("vector_search", vector_search_node)
     workflow.add_node("validate_sql", validate_sql_node)
     workflow.add_node("execute_sql", execute_sql_node)
     workflow.add_node("fix_sql", fix_sql_node)
@@ -374,10 +484,13 @@ def build_agent_graph() -> StateGraph:
         should_continue_after_parse,
         {
             "validate_sql": "validate_sql",
+            "vector_search": "vector_search",
             "format_answer": "format_answer",
             "error": END
         }
     )
+    # vector_search 完成后直接到 format_answer
+    workflow.add_edge("vector_search", "format_answer")
     workflow.add_conditional_edges(
         "validate_sql",
         should_continue_after_validate,
