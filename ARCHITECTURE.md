@@ -177,7 +177,33 @@ print(f"平均耗时: {stats['avg_duration_ms']} ms")
 
 ---
 
-### 5. **语义层 Tool** (`poc/qa/tools.py`)
+### 5. **智能问答媒体增强** (`poc/app/pages/qa.py`)
+
+**功能**：查询详情展开后，右侧以 Tabs 分页展示多维度媒体预览。
+
+**Tab 页**：
+| Tab | 数据来源 | 说明 |
+|------|------|------|
+| 告警图片 | `file_path` | 告警截图，点击弹窗大图 |
+| 原图 | `img_src_path` | 原始高清图（逗号分隔多张） |
+| 视频 | `video_path` | 告警视频播放 |
+| 标注 | `extra_json.detections` | YOLO 检测框叠加图 + 检测列表 |
+| 关联 | `video_path` stem → DuckDB | 同源视频的所有帧缩略图 |
+
+**核心函数**：
+- `_draw_yolo_boxes()` — cv2 绘制检测框，降级为文本列表
+- `_parse_detections()` — 从 extra_json 解析检测结果
+- `_find_sibling_images()` — DuckDB 查询同源视频关联图片
+- `_render_media_panel()` — 统一渲染各类媒体面板
+
+**设计要点**：
+- 只展示有数据的 Tab，无数据不渲染
+- 单 Tab 时不显示 Tab 栏，直接展示内容
+- 所有图片支持点击弹窗全屏预览（`ui.dialog`）
+
+---
+
+### 6. **语义层 Tool** (`poc/qa/tools.py`)
 
 **功能**：将复杂的 SQL 查询封装成语义化的函数，隐藏底层实现。
 
@@ -385,4 +411,4 @@ def handle_user_query(question: str, user_id: str):
 
 **架构设计**: AI 架构师
 **技术栈**: Python 3.8+, LangGraph, DeepSeek, LanceDB, DuckDB
-**最后更新**: 2026-02-23
+**最后更新**: 2026-02-24
