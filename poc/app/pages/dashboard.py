@@ -90,8 +90,10 @@ graph LR
 
     subgraph QA_Flow["智能问答 · LangGraph Agent"]
         direction LR
-        NL["自然语言输入"] --> NL2SQL["NL2SQL · DeepSeek"] --> SQLGen["SQL生成 · 护栏校验"]
-        SQLGen --> Exec["DuckDB执行"]
+        NL["自然语言输入"] --> Cache{"SQL缓存池"}
+        Cache -->|命中| Exec["DuckDB执行"]
+        Cache -->|未命中| NL2SQL["NL2SQL · DeepSeek"] --> SQLGen["SQL生成 · 护栏校验"]
+        SQLGen --> Exec
         Exec -->|成功| Fmt["结果格式化"]
         Exec -.->|失败x3| Fix["自我修正"] -.-> SQLGen
     end
@@ -167,7 +169,8 @@ graph LR
             capabilities = [
                 ('智能问答', 'chat', 'blue', 'LangGraph Agent 驱动的对话式数据分析', [
                     'NL2SQL — DeepSeek Chat 自然语言转 DuckDB SQL',
-                    'LangGraph 状态机 — 解析->验证->执行->格式化',
+                    'SQL 缓存池 — 相似问题复用历史 SQL 模板，跳过 LLM 调用',
+                    'LangGraph 状态机 — 解析->缓存->验证->执行->格式化',
                     '自我修正 — SQL 失败自动分析错误，LLM 重写重试（max 3次）',
                     '安全护栏 — SQL 注入防护 / 表白名单 / 危险操作拦截',
                     '实体提取 — 时间/地区/场景关键词自动识别',
@@ -249,6 +252,7 @@ graph LR
                     ('向量化速度', '~80 张/秒', 'API 远程推理', 'bolt', 'amber'),
                     ('检索延迟', '< 100ms', 'LanceDB 亚秒级', 'timer', 'blue'),
                     ('问答准确率', '> 95%', 'Agent 自我修正', 'verified', 'emerald'),
+                    ('SQL缓存', '< 50ms', '命中时跳过 LLM 调用', 'cached', 'sky'),
                     ('数据规模', '百万级', '可水平扩展', 'database', 'purple'),
                     ('分布式', 'Ray + Daft', 'TB 级批量管线', 'cloud_sync', 'rose'),
                 ]
