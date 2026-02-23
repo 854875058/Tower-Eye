@@ -95,6 +95,7 @@ graph LR
         Cache -->|未命中| NL2SQL["NL2SQL · DeepSeek"] --> SQLGen["SQL生成 · 护栏校验"]
         SQLGen --> Exec
         Exec -->|成功| Fmt["结果格式化"]
+        Fmt -.->|写入缓存| Cache
         Exec -.->|失败x3| Fix["自我修正"] -.-> SQLGen
     end
 
@@ -169,7 +170,7 @@ graph LR
             capabilities = [
                 ('智能问答', 'chat', 'blue', 'LangGraph Agent 驱动的对话式数据分析', [
                     'NL2SQL — DeepSeek Chat 自然语言转 DuckDB SQL',
-                    'SQL 缓存池 — 相似问题复用历史 SQL 模板，跳过 LLM 调用',
+                    'SQL 缓存池 — 相似问题复用历史 SQL 模板，成功查询自动入缓存',
                     'LangGraph 状态机 — 解析->缓存->验证->执行->格式化',
                     '自我修正 — SQL 失败自动分析错误，LLM 重写重试（max 3次）',
                     '安全护栏 — SQL 注入防护 / 表白名单 / 危险操作拦截',
