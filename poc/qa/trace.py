@@ -197,6 +197,18 @@ class TraceManager:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # SQL 缓存池 — 独立表，按 question_hash 去重
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sql_cache (
+                question_hash TEXT PRIMARY KEY,
+                question_sample TEXT NOT NULL,
+                intent TEXT NOT NULL,
+                sql TEXT NOT NULL,
+                hit_count INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_hit_at TIMESTAMP
+            )
+        """)
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_timestamp ON query_traces(timestamp)
         """)
@@ -222,6 +234,9 @@ class TraceManager:
         # 保存到数据库
         if self.db_path:
             self._save_to_db(trace)
+            # 成功查询自动写入 SQL 缓存池
+            if trace.status == "success" and trace.sql:
+                self._save_to_cache(trace)
 
         # 保存到文件
         if self.enable_file_log:
@@ -262,28 +277,57 @@ class TraceManager:
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(trace.to_json() + "\n")
 
+    def _save_to_cache(self, trace: QueryTrace):
+        """将成功查询写入 sql_cache 表（INSERT OR REPLACE，按 hash 去重）"""
+        q_hash = question_hash(trace.question)
+        now = datetime.now().isoformat()
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.execute("""
+                INSERT INTO sql_cache (question_hash, question_sample, intent, sql, hit_count, created_at, last_hit_at)
+                VALUES (?, ?, ?, ?, 0, ?, NULL)
+                ON CONFLICT(question_hash) DO UPDATE SET
+                    intent = excluded.intent,
+                    sql = excluded.sql,
+                    question_sample = excluded.question_sample
+            """, (q_hash, trace.question, trace.intent, trace.sql, now))
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass  # 缓存写入失败不影响主流程
+
     def lookup_sql_cache(self, q_text: str) -> Optional[Tuple[str, str]]:
         """根据问题查找 SQL 缓存。
 
-        在 query_traces 中查找 question_hash 匹配且 status=success 的最新记录，
+        在 sql_cache 表中查找 question_hash 匹配的记录，
+        命中时更新 hit_count 和 last_hit_at，
         返回 (intent, sql) 元组；未命中返回 None。
         """
         if not self.db_path:
             return None
 
         q_hash = question_hash(q_text)
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        row = conn.execute(
-            "SELECT intent, sql FROM query_traces "
-            "WHERE question_hash = ? AND status = 'success' AND sql IS NOT NULL AND sql != '' "
-            "ORDER BY created_at DESC LIMIT 1",
-            (q_hash,)
-        ).fetchone()
-        conn.close()
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT intent, sql FROM sql_cache WHERE question_hash = ?",
+                (q_hash,)
+            ).fetchone()
 
-        if row and row["sql"]:
-            return (row["intent"], row["sql"])
+            if row and row["sql"]:
+                # 更新命中统计
+                conn.execute(
+                    "UPDATE sql_cache SET hit_count = hit_count + 1, last_hit_at = ? WHERE question_hash = ?",
+                    (datetime.now().isoformat(), q_hash)
+                )
+                conn.commit()
+                conn.close()
+                return (row["intent"], row["sql"])
+
+            conn.close()
+        except Exception:
+            pass  # 缓存查找失败不影响主流程
         return None
 
     def get_trace(self, trace_id: str) -> Optional[QueryTrace]:
