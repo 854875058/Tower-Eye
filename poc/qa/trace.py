@@ -9,15 +9,45 @@
 5. 支持持久化到数据库或文件
 """
 
+import hashlib
 import json
+import re
 import sqlite3
 import time
 import traceback
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
+
+
+def normalize_question(text: str) -> str:
+    """将用户问题归一化，用于缓存匹配。
+
+    规则：
+    - 去除首尾空白
+    - 统一为小写
+    - 移除具体数字（"最近30天" → "最近N天"，"20条" → "N条"）
+    - 移除多余空格
+    """
+    t = text.strip().lower()
+    # "最近30天" → "最近N天"，"近7小时" → "近N小时"
+    t = re.sub(r'(\d+)\s*(天|小时|月|周|年)', r'N\2', t)
+    # "20条" → "N条"，"前10" → "前N"
+    t = re.sub(r'(\d+)\s*(条|个|件|次|项)', r'N\2', t)
+    t = re.sub(r'(前|top|TOP)\s*\d+', r'\1N', t, flags=re.IGNORECASE)
+    # 精确日期 "2026-01-01" → "DATE"
+    t = re.sub(r'\d{4}-\d{2}-\d{2}', 'DATE', t)
+    # 压缩空格
+    t = re.sub(r'\s+', ' ', t).strip()
+    return t
+
+
+def question_hash(text: str) -> str:
+    """对归一化后的问题计算 MD5 哈希"""
+    normalized = normalize_question(text)
+    return hashlib.md5(normalized.encode("utf-8")).hexdigest()
 
 
 @dataclass
@@ -152,6 +182,7 @@ class TraceManager:
             CREATE TABLE IF NOT EXISTS query_traces (
                 trace_id TEXT PRIMARY KEY,
                 question TEXT NOT NULL,
+                question_hash TEXT,
                 timestamp TEXT NOT NULL,
                 user_id TEXT,
                 session_id TEXT,
@@ -175,6 +206,14 @@ class TraceManager:
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_user_id ON query_traces(user_id)
         """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_question_hash ON query_traces(question_hash)
+        """)
+        # 兼容旧表：如果 question_hash 列不存在则添加
+        try:
+            conn.execute("SELECT question_hash FROM query_traces LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE query_traces ADD COLUMN question_hash TEXT")
         conn.commit()
         conn.close()
 
@@ -191,14 +230,16 @@ class TraceManager:
     def _save_to_db(self, trace: QueryTrace):
         """保存到数据库"""
         conn = sqlite3.connect(self.db_path)
+        q_hash = question_hash(trace.question) if trace.question else None
         conn.execute("""
             INSERT OR REPLACE INTO query_traces
-            (trace_id, question, timestamp, user_id, session_id, intent, sql, sql_params,
+            (trace_id, question, question_hash, timestamp, user_id, session_id, intent, sql, sql_params,
              result_count, status, total_duration_ms, error_message, trace_data)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             trace.trace_id,
             trace.question,
+            q_hash,
             trace.timestamp,
             trace.user_id,
             trace.session_id,
@@ -220,6 +261,30 @@ class TraceManager:
         log_file = self.log_dir / f"trace_{date_str}.jsonl"
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(trace.to_json() + "\n")
+
+    def lookup_sql_cache(self, q_text: str) -> Optional[Tuple[str, str]]:
+        """根据问题查找 SQL 缓存。
+
+        在 query_traces 中查找 question_hash 匹配且 status=success 的最新记录，
+        返回 (intent, sql) 元组；未命中返回 None。
+        """
+        if not self.db_path:
+            return None
+
+        q_hash = question_hash(q_text)
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT intent, sql FROM query_traces "
+            "WHERE question_hash = ? AND status = 'success' AND sql IS NOT NULL AND sql != '' "
+            "ORDER BY created_at DESC LIMIT 1",
+            (q_hash,)
+        ).fetchone()
+        conn.close()
+
+        if row and row["sql"]:
+            return (row["intent"], row["sql"])
+        return None
 
     def get_trace(self, trace_id: str) -> Optional[QueryTrace]:
         """根据ID获取追踪记录"""

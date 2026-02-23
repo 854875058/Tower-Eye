@@ -404,6 +404,36 @@ def _auto_correct_intent(plan: QueryPlan) -> QueryPlan:
     return plan
 
 
+def _try_sql_cache(text: str, rule_plan: QueryPlan) -> Optional[QueryPlan]:
+    """尝试从 trace DB 的 SQL 缓存中命中历史查询。
+
+    命中后复用 SQL 模板（intent + sql 结构），但 params 由规则引擎
+    根据当前时间重新提取，避免缓存的时间参数过期。
+    """
+    from poc.qa.trace import get_trace_manager
+
+    manager = get_trace_manager()
+    if not manager:
+        return None
+
+    cached = manager.lookup_sql_cache(text)
+    if not cached:
+        return None
+
+    cached_intent, cached_sql = cached
+
+    # 用规则引擎重新提取 params（时间、地名等实时参数）
+    fresh_plan = parse_question(text)
+
+    print(f"[sql_cache] HIT - intent={cached_intent}, reusing cached SQL template")
+    return QueryPlan(
+        intent=cached_intent,
+        sql=cached_sql,
+        params=fresh_plan.params,
+        filters=fresh_plan.filters,
+    )
+
+
 def build_query_plan(text: str, config: Dict) -> QueryPlan:
     """构建查询计划: 根据配置选择规则引擎或 DeepSeek LLM。"""
 
@@ -424,13 +454,18 @@ def build_query_plan(text: str, config: Dict) -> QueryPlan:
         return _auto_correct_intent(rule_plan)
 
     if mode in {"llm", "hybrid"}:
+        # 先查 SQL 缓存，命中则跳过 LLM 调用
+        cached_plan = _try_sql_cache(text, rule_plan)
+        if cached_plan:
+            return _auto_correct_intent(cached_plan)
+
         try:
             print(f"[build_query_plan] 调用 LLM ({mode} 模式)...")
             llm_plan = _call_deepseek_nl2sql(text, config, rule_plan)
             print(f"[build_query_plan] LLM 调用成功, intent={llm_plan.intent}")
             return _auto_correct_intent(llm_plan)
         except Exception as e:
-            print(f"[build_query_plan] ⚠️ LLM 调用失败，降级为规则引擎: {e}")
+            print(f"[build_query_plan] LLM 调用失败，降级为规则引擎: {e}")
             return _auto_correct_intent(rule_plan)
 
     return _auto_correct_intent(rule_plan)
