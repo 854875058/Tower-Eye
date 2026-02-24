@@ -163,7 +163,14 @@
       "Bash(del _test_media.py)",
       "Bash(findstr /C:\"ensure_systems\" logsapp.log)",
       "Bash(findstr /V \"GET\")",
-      "Bash(findstr \"ensure_systems\")"
+      "Bash(findstr \"ensure_systems\")",
+      "Bash(dir \"E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔\\\\.venv\\\\Scripts\\\\ray*\")",
+      "Bash(cmd /c \"dir E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔\\\\.venv\\\\Scripts\\\\ray*\")",
+      "Bash(.venvScriptspython.exe -c \"import ray; print\\(ray.__version__\\); print\\(ray.__file__\\)\")",
+      "Bash(cmd /c \"E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔\\\\.venv\\\\Scripts\\\\python.exe -c \"\"import ray; print\\(ray.__version__\\); print\\(ray.__file__\\)\"\"\")",
+      "Bash(cmd /c \"E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔\\\\.venv\\\\Scripts\\\\python.exe -c \"\"import ray; print\\(ray.__version__\\)\"\" 2>&1\")",
+      "Bash(powershell -Command \"Get-ChildItem ''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔\\\\.venv\\\\Scripts\\\\ray*'' | Select-Object Name\")",
+      "Bash(powershell -Command \"& ''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔\\\\.venv\\\\Scripts\\\\pip.exe'' install pandas 2>&1\")"
     ]
   },
   "hooks": {

@@ -60,6 +60,20 @@ def get_python():
     return sys.executable
 
 
+def get_ray_cli():
+    """返回 ray CLI 可执行文件路径（优先 venv 内的 ray）"""
+    if IS_WIN:
+        venv_ray = ROOT / ".venv" / "Scripts" / "ray.exe"
+        if venv_ray.exists():
+            return str(venv_ray)
+    else:
+        venv_ray = ROOT / ".venv" / "bin" / "ray"
+        if venv_ray.exists():
+            return str(venv_ray)
+    # fallback: 依赖 PATH 中的 ray
+    return "ray"
+
+
 def stop_ray():
     """停止 Ray 集群（如果正在运行）"""
     try:
@@ -72,7 +86,7 @@ def stop_ray():
     # 同时用 CLI 停止后台 Ray 进程
     try:
         r = subprocess.run(
-            [get_python(), "-m", "ray", "stop"],
+            [get_ray_cli(), "stop"],
             capture_output=True, text=True, timeout=15,
         )
         if r.returncode == 0:
@@ -116,7 +130,7 @@ def start_ray():
                 try:
                     # 先尝试启动本地 Ray head node
                     r = subprocess.run(
-                        [get_python(), "-m", "ray", "start", "--head",
+                        [get_ray_cli(), "start", "--head",
                          "--num-gpus", str(num_gpus),
                          "--dashboard-port", str(ray_cfg.get("dashboard_port", 8265))],
                         capture_output=True, text=True, timeout=30,
