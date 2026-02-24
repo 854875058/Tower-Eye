@@ -109,7 +109,11 @@ def search_page():
                                 ret, frame = cap.read(); cap.release()
                                 if ret:
                                     frame_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg", dir=str(resolve_path('poc/data')))
-                                    cv2.imwrite(frame_tmp.name, frame); frame_tmp.close()
+                                    # cv2.imwrite 不支持中文路径，改用 imencode + 手动写入
+                                    _ok, _buf = cv2.imencode('.jpg', frame)
+                                    if _ok:
+                                        frame_tmp.write(_buf.tobytes())
+                                    frame_tmp.close()
                                     state['uploaded_path'] = frame_tmp.name
                                     _upload_ref.clear(); _upload_ref.append(frame_tmp.name)
                                     _log.info(f"[handle_upload] video frame saved: {frame_tmp.name}")

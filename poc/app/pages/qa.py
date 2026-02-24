@@ -1088,7 +1088,10 @@ def qa_page():
                         if ret:
                             frame_tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg',
                                                                      dir=str(resolve_path('poc/data')))
-                            cv2.imwrite(frame_tmp.name, frame)
+                            # cv2.imwrite 不支持中文路径，改用 imencode + 手动写入
+                            _ok, _buf = cv2.imencode('.jpg', frame)
+                            if _ok:
+                                frame_tmp.write(_buf.tobytes())
                             frame_tmp.close()
                             _Path(tmp_path).unlink(missing_ok=True)  # 删除原始视频临时文件
                             tmp_path = frame_tmp.name
