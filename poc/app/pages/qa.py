@@ -583,7 +583,16 @@ def qa_page():
 
                         # ── list 类型：表格 + 媒体 ──
                         elif isinstance(answer_data, list) and len(answer_data) > 0 and isinstance(answer_data[0], dict):
-                            ui.label(f'共 {len(answer_data)} 条记录').classes('text-sm text-blue-600')
+                            # 语义融合信息
+                            _sem_scores = answer.get("semantic_scores") or {}
+                            _vec_only = answer.get("vector_only_results") or []
+                            with ui.row().classes('gap-2 items-center'):
+                                ui.label(f'共 {len(answer_data)} 条记录').classes('text-sm text-blue-600')
+                                if _sem_scores:
+                                    _matched = sum(1 for r in answer_data
+                                                   if r.get("file_path") and _Path(r["file_path"]).name in _sem_scores)
+                                    ui.badge(f'语义匹配 {_matched}/{len(answer_data)}',
+                                             color='purple').props('outline')
                             cols_raw = list(answer_data[0].keys())
                             # 表格隐藏 extra_json（太长影响阅读）
                             tbl_cols_filtered = [c for c in cols_raw if c != 'extra_json']
@@ -628,8 +637,19 @@ def qa_page():
                                         title_parts.append(str(row['event_type'])[:15])
                                     if row.get('alarm_time'):
                                         title_parts.append(str(row['alarm_time'])[:19])
+                                    # 语义匹配分数
+                                    _row_fp = row.get('file_path', '')
+                                    _row_fname = _Path(_row_fp).name if _row_fp else ''
+                                    _row_score = _sem_scores.get(_row_fname)
+                                    _score_tag = f' [语义 {_row_score:.0%}]' if _row_score else ''
                                     title = ' | '.join(title_parts) if title_parts else f'记录 {ri+1}'
-                                    with ui.expansion(f'第 {ri+1} 条 — {title}', icon='description').classes('w-full').props('dense'):
+                                    with ui.expansion(f'第 {ri+1} 条 — {title}{_score_tag}', icon='description').classes('w-full').props('dense'):
+                                        # VL 图像理解摘要
+                                        _summary = row.get('summary', '')
+                                        if _summary and str(_summary).strip():
+                                            with ui.row().classes('w-full gap-2 items-start mb-1 bg-purple-50 rounded p-2'):
+                                                ui.icon('visibility').classes('text-purple-400 text-sm mt-0.5')
+                                                ui.label(str(_summary)).classes('text-xs text-purple-700 italic')
                                         with ui.row().classes('w-full gap-4 items-start'):
                                             # 左侧：完整字段
                                             with ui.column().classes('flex-1 gap-0.5 min-w-0'):
@@ -718,6 +738,35 @@ def qa_page():
                                                                                 lambda e, fn=_load_related, tid='related': fn() if (isinstance(e.args, str) and e.args == tid) or (hasattr(e, 'value') and e.value == tid) else None)
                                                                     else:
                                                                         _render_media_panel(_tid, _file_path, _img_src, _img_icon, _video_path, _detections, [], ri)
+
+                            # 语义融合：向量检索独有结果推荐
+                            if _vec_only:
+                                with ui.expansion(f'您可能还感兴趣 ({len(_vec_only)})', icon='auto_awesome').classes('w-full').props('dense'):
+                                    ui.label('以下结果来自图像语义检索，与您的查询在视觉内容上相关').classes('text-xs text-purple-500 mb-1')
+                                    for vi, vr in enumerate(_vec_only):
+                                        _vr_fp = vr.get('file_path', '')
+                                        _vr_fname = _Path(_vr_fp).name if _vr_fp else ''
+                                        _vr_score = vr.get('hybrid_score', 0)
+                                        _vr_summary = vr.get('summary', '')
+                                        _vr_etype = vr.get('event_type', '')
+                                        _vr_time = str(vr.get('alarm_time', ''))[:19]
+                                        _vr_title = f'{_vr_etype} | {_vr_time}' if _vr_etype else f'推荐 {vi+1}'
+                                        with ui.row().classes('w-full gap-3 items-start p-2 bg-purple-50 rounded mb-1'):
+                                            if _vr_fname:
+                                                _vr_url = f'/warning_img/{_vr_fname}'
+                                                vr_el = ui.image(_vr_url).classes('w-24 h-18 object-cover rounded cursor-pointer flex-shrink-0')
+                                                with ui.dialog() as vr_dlg:
+                                                    with ui.card().classes('p-2'):
+                                                        ui.image(_vr_url).classes('max-w-[80vw] max-h-[80vh]')
+                                                        ui.button('关闭', on_click=vr_dlg.close).props('flat color=grey')
+                                                vr_el.on('click', vr_dlg.open)
+                                            with ui.column().classes('flex-1 gap-0.5 min-w-0'):
+                                                with ui.row().classes('gap-2 items-center'):
+                                                    ui.label(_vr_title).classes('text-xs font-semibold text-slate-700')
+                                                    if _vr_score:
+                                                        ui.badge(f'语义 {_vr_score:.0%}', color='purple').props('outline')
+                                                if _vr_summary:
+                                                    ui.label(str(_vr_summary)[:100]).classes('text-xs text-slate-500 italic')
 
                             # count 类型 → 查看明细按钮
                             if result.get("intent") == "count":

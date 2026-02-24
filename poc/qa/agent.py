@@ -7,15 +7,14 @@
 3. 支持多轮对话和上下文记忆
 4. 可视化执行流程
 5. 支持向量检索（视觉内容描述类查询）
+6. 双路融合：list 查询在 SQL 执行后自动做语义增强（向量检索补充）
 
 状态流转：
-START → PARSE_QUESTION → GENERATE_SQL → VALIDATE_SQL → EXECUTE_SQL → SUCCESS
-                ↓ (search intent)
+START → PARSE_QUESTION → VALIDATE_SQL → EXECUTE_SQL → SEMANTIC_ENHANCE → FORMAT_ANSWER → END
+                ↓ (search intent)                       (list only)
             VECTOR_SEARCH → FORMAT_ANSWER → END
-                                ↓ (validation failed)
-                            FIX_SQL ← (execution failed)
-                                ↓ (max retries)
-                            ERROR
+                                ↓ (validation/execution failed)
+                            FIX_SQL (自我修正, max retries → ERROR)
 """
 
 from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict
@@ -51,6 +50,10 @@ class AgentState(TypedDict):
     error_message: Optional[str]  # 错误信息
     retry_count: int  # 重试次数
     max_retries: int  # 最大重试次数
+
+    # 语义增强（双路融合）
+    semantic_scores: Optional[Dict]  # file_path -> hybrid_score
+    vector_only_results: Optional[List[Dict]]  # 向量检索独有结果
 
     # 历史记录（用于自我修正）
     messages: Annotated[List[Dict], add_messages]  # 对话历史
@@ -311,6 +314,128 @@ def execute_sql_node(state: AgentState) -> AgentState:
     return state
 
 
+def semantic_enhance_node(state: AgentState) -> AgentState:
+    """
+    节点: 语义增强（双路融合）
+
+    在 SQL 查询成功后，对 list 类结果做一次向量检索：
+    1. 用用户问题编码向量，在 LanceDB 中检索
+    2. 通过 file_path 匹配 SQL 结果，附加语义相似度分数
+    3. 向量检索独有的结果作为"您可能还感兴趣"推荐
+    非 list intent 或 SQL 无结果时直接跳过。
+    """
+    intent = state.get("intent")
+    sql_result = state.get("sql_result") or []
+
+    # 仅对 list intent 且有结果时增强
+    if intent != "list" or not sql_result:
+        state["semantic_scores"] = {}
+        state["vector_only_results"] = []
+        return state
+
+    question = state["question"]
+    config = state["config"]
+
+    print(f"[semantic_enhance] 开始语义增强，SQL 结果 {len(sql_result)} 条")
+
+    try:
+        import re as _re
+        from poc.search.model_manager import ModelManager
+        from poc.search.query import hybrid_search
+        import lancedb as _ldb
+
+        # 清理筛选前缀
+        clean_q = _re.sub(r'\[筛选条件:.*?\]\s*', '', question)
+
+        lancedb_dir = resolve_path(
+            config.get("paths", {}).get("lancedb_dir", "poc/data/lancedb")
+        )
+        db = _ldb.connect(str(lancedb_dir))
+        tables = db.table_names() if hasattr(db, 'table_names') else db.list_tables()
+        if "embeddings" not in tables:
+            print("[semantic_enhance] LanceDB embeddings 表不存在，跳过")
+            state["semantic_scores"] = {}
+            state["vector_only_results"] = []
+            return state
+
+        table = db.open_table("embeddings")
+        mgr = ModelManager(config)
+        query_vec = mgr.encode_text(clean_q).astype("float32")
+
+        top_k = max(len(sql_result) * 2, 20)
+        results_df = hybrid_search(
+            table, query_vec, query_text=clean_q,
+            top_k=top_k, vector_weight=0.7, keyword_weight=0.3,
+        )
+
+        # 构建 file_path -> hybrid_score 映射
+        semantic_scores = {}
+        vector_results_map = {}
+        for _, row in results_df.iterrows():
+            fp = row.get("file_path", "")
+            if not fp:
+                continue
+            from pathlib import Path as _P
+            fname = _P(fp).name
+            score = float(row.get("hybrid_score", 0)) if "hybrid_score" in results_df.columns else 0
+            semantic_scores[fname] = score
+            # 保存完整行数据用于推荐
+            item = {}
+            for col in results_df.columns:
+                if col == "vector" or (col.startswith("_") and col != "_distance"):
+                    continue
+                val = row[col]
+                if hasattr(val, 'item'):
+                    val = val.item()
+                item[col] = val
+            vector_results_map[fname] = item
+
+        # 匹配 SQL 结果
+        sql_fnames = set()
+        for r in sql_result:
+            fp = r.get("file_path", "")
+            if fp:
+                from pathlib import Path as _P2
+                sql_fnames.add(_P2(fp).name)
+
+        # 向量检索独有结果（SQL 中没有的）
+        vector_only = []
+        for fname, item in vector_results_map.items():
+            if fname not in sql_fnames:
+                vector_only.append(item)
+        vector_only = vector_only[:5]  # 最多推荐 5 条
+
+        state["semantic_scores"] = semantic_scores
+        state["vector_only_results"] = vector_only
+
+        matched = sum(1 for r in sql_result
+                      if r.get("file_path") and
+                      _P(r["file_path"]).name in semantic_scores)
+
+        state["execution_history"].append({
+            "type": "semantic_enhance",
+            "vector_candidates": len(results_df),
+            "matched": matched,
+            "vector_only": len(vector_only),
+            "status": "success"
+        })
+
+        print(f"[semantic_enhance] 完成: 向量候选 {len(results_df)}, "
+              f"匹配 SQL {matched}, 独有推荐 {len(vector_only)}")
+
+    except Exception as e:
+        print(f"[semantic_enhance] 语义增强失败（不影响主流程）: {e}")
+        state["semantic_scores"] = {}
+        state["vector_only_results"] = []
+        state["execution_history"].append({
+            "type": "semantic_enhance",
+            "error": str(e),
+            "status": "skipped"
+        })
+
+    return state
+
+
 def fix_sql_node(state: AgentState) -> AgentState:
     """
     节点4：修复 SQL（自我修正）
@@ -454,7 +579,9 @@ def format_answer_node(state: AgentState) -> AgentState:
         state["final_answer"] = {
             "type": "list",
             "value": state["sql_result"],
-            "message": f"查询结果：返回 {len(state['sql_result'])} 条记录"
+            "message": f"查询结果：返回 {len(state['sql_result'])} 条记录",
+            "semantic_scores": state.get("semantic_scores") or {},
+            "vector_only_results": state.get("vector_only_results") or [],
         }
 
     state["messages"].append({
@@ -501,10 +628,13 @@ def should_continue_after_validate(state: AgentState) -> Literal["execute_sql", 
     return "execute_sql"
 
 
-def should_continue_after_execute(state: AgentState) -> Literal["format_answer", "fix_sql"]:
+def should_continue_after_execute(state: AgentState) -> Literal["semantic_enhance", "format_answer", "fix_sql"]:
     """路由函数：执行后是否继续"""
     if state.get("error_message"):
         return "fix_sql"
+    # list intent → 走语义增强
+    if state.get("intent") == "list" and state.get("sql_result"):
+        return "semantic_enhance"
     return "format_answer"
 
 
@@ -513,8 +643,8 @@ def build_agent_graph() -> StateGraph:
     构建 Agent 状态图
 
     状态流转：
-    START → parse_question → validate_sql → execute_sql → format_answer → END
-                ↓ search        ↓ error         ↓ error
+    START → parse_question → validate_sql → execute_sql → semantic_enhance → format_answer → END
+                ↓ search        ↓ error         ↓ error        (list only)
             vector_search    fix_sql ←──────────┘
                 ↓               ↓ (retry)
             format_answer   validate_sql
@@ -527,6 +657,7 @@ def build_agent_graph() -> StateGraph:
     workflow.add_node("vector_search", vector_search_node)
     workflow.add_node("validate_sql", validate_sql_node)
     workflow.add_node("execute_sql", execute_sql_node)
+    workflow.add_node("semantic_enhance", semantic_enhance_node)
     workflow.add_node("fix_sql", fix_sql_node)
     workflow.add_node("format_answer", format_answer_node)
 
@@ -556,10 +687,12 @@ def build_agent_graph() -> StateGraph:
         "execute_sql",
         should_continue_after_execute,
         {
+            "semantic_enhance": "semantic_enhance",
             "format_answer": "format_answer",
             "fix_sql": "fix_sql"
         }
     )
+    workflow.add_edge("semantic_enhance", "format_answer")
     workflow.add_conditional_edges(
         "fix_sql",
         should_retry,
@@ -604,6 +737,8 @@ class QueryAgent:
             "filters": None,
             "sql_result": None,
             "final_answer": None,
+            "semantic_scores": None,
+            "vector_only_results": None,
             "error_message": None,
             "retry_count": 0,
             "max_retries": self.max_retries,
