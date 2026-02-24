@@ -88,13 +88,15 @@ graph LR
         Monitor_Page["系统监控"]
     end
 
-    subgraph QA_Flow["智能问答 · LangGraph Agent"]
+    subgraph QA_Flow["智能问答 · LangGraph Agent · 双路融合"]
         direction LR
         NL["自然语言输入"] --> Cache{"SQL缓存池"}
         Cache -->|命中| Exec["DuckDB执行"]
         Cache -->|未命中| NL2SQL["NL2SQL · DeepSeek"] --> SQLGen["SQL生成 · 护栏校验"]
         SQLGen --> Exec
-        Exec -->|成功| Fmt["结果格式化"]
+        Exec -->|成功| SemEnhance["语义增强"]
+        SemEnhance -->|向量检索| VecMatch["LanceDB匹配"]
+        VecMatch --> Fmt["结果融合 · 格式化"]
         Fmt -.->|写入缓存| Cache
         Exec -.->|失败x3| Fix["自我修正"] -.-> SQLGen
     end
@@ -145,6 +147,8 @@ graph LR
 
     QA_Flow --> DS
     QA_Flow --> DuckDB
+    QA_Flow --> LDB
+    QA_Flow --> QwenEmbed
     Search_Flow --> QwenEmbed
     Search_Flow --> QwenRerank
     Search_Flow --> LDB
@@ -168,10 +172,11 @@ graph LR
         # ── 四大核心能力 ──
         with ui.grid(columns=2).classes('w-full gap-5 mb-6'):
             capabilities = [
-                ('智能问答', 'chat', 'blue', 'LangGraph Agent 驱动的对话式数据分析', [
+                ('智能问答', 'chat', 'blue', 'LangGraph Agent 驱动的对话式数据分析 · 双路融合', [
                     'NL2SQL — DeepSeek Chat 自然语言转 DuckDB SQL',
                     'SQL 缓存池 — 相似问题复用历史 SQL 模板，成功查询自动入缓存',
-                    'LangGraph 状态机 — 解析->缓存->验证->执行->格式化',
+                    'LangGraph 状态机 — 解析->缓存->验证->执行->语义增强->格式化',
+                    '双路融合 — SQL 结果 + LanceDB 向量检索交叉匹配，附加语义分数',
                     '自我修正 — SQL 失败自动分析错误，LLM 重写重试（max 3次）',
                     '安全护栏 — SQL 注入防护 / 表白名单 / 危险操作拦截',
                     '实体提取 — 时间/地区/场景关键词自动识别',
