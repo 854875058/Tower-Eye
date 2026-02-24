@@ -330,20 +330,23 @@ def render_map_picker(state_dict: dict, lat_key: str = 'lat', lon_key: str = 'lo
                 state_dict[lon_key] = str(lon_val)
                 ui.notify(f'解析成功: {formatted}', type='positive')
                 # 更新地图中心
-                await ui.run_javascript(f'''
-                    if (window._mapPicker_{map_id}) {{
-                        var center = new AMap.LngLat({lon_val}, {lat_val});
-                        window._mapPicker_{map_id}.setCenter(center);
-                        if (window._mapMarker_{map_id}) {{
-                            window._mapMarker_{map_id}.setPosition(center);
-                        }} else {{
-                            window._mapMarker_{map_id} = new AMap.Marker({{position: center, map: window._mapPicker_{map_id}}});
+                try:
+                    await ui.run_javascript(f'''
+                        if (window._mapPicker_{map_id}) {{
+                            var center = new AMap.LngLat({lon_val}, {lat_val});
+                            window._mapPicker_{map_id}.setCenter(center);
+                            if (window._mapMarker_{map_id}) {{
+                                window._mapMarker_{map_id}.setPosition(center);
+                            }} else {{
+                                window._mapMarker_{map_id} = new AMap.Marker({{position: center, map: window._mapPicker_{map_id}}});
+                            }}
+                            if (window._mapCircle_{map_id}) {{
+                                window._mapCircle_{map_id}.setCenter(center);
+                            }}
                         }}
-                        if (window._mapCircle_{map_id}) {{
-                            window._mapCircle_{map_id}.setCenter(center);
-                        }}
-                    }}
-                ''')
+                    ''', timeout=5.0)
+                except (TimeoutError, Exception):
+                    pass
             else:
                 ui.notify('地址解析失败', type='warning')
 
@@ -368,47 +371,49 @@ def render_map_picker(state_dict: dict, lat_key: str = 'lat', lon_key: str = 'lo
     ''')
 
     async def _init_map():
-        await ui.run_javascript(f'''
-        (function() {{
-            if (window._mapPicker_{map_id}) return;
-            var map = new AMap.Map("{map_id}", {{
-                zoom: 12,
-                center: [{init_lon}, {init_lat}],
-                mapStyle: "amap://styles/light"
-            }});
-            window._mapPicker_{map_id} = map;
+        try:
+            await ui.run_javascript(f'''
+            (function() {{
+                if (window._mapPicker_{map_id}) return;
+                var map = new AMap.Map("{map_id}", {{
+                    zoom: 12,
+                    center: [{init_lon}, {init_lat}],
+                    mapStyle: "amap://styles/light"
+                }});
+                window._mapPicker_{map_id} = map;
 
-            var marker = new AMap.Marker({{
-                position: [{init_lon}, {init_lat}],
-                map: map, draggable: true
-            }});
-            window._mapMarker_{map_id} = marker;
+                var marker = new AMap.Marker({{
+                    position: [{init_lon}, {init_lat}],
+                    map: map, draggable: true
+                }});
+                window._mapMarker_{map_id} = marker;
 
-            var circle = new AMap.Circle({{
-                center: [{init_lon}, {init_lat}],
-                radius: {init_radius},
-                strokeColor: "#2563eb", strokeWeight: 2, strokeOpacity: 0.6,
-                fillColor: "#2563eb", fillOpacity: 0.1,
-                map: map
-            }});
-            window._mapCircle_{map_id} = circle;
+                var circle = new AMap.Circle({{
+                    center: [{init_lon}, {init_lat}],
+                    radius: {init_radius},
+                    strokeColor: "#2563eb", strokeWeight: 2, strokeOpacity: 0.6,
+                    fillColor: "#2563eb", fillOpacity: 0.1,
+                    map: map
+                }});
+                window._mapCircle_{map_id} = circle;
 
-            map.on('click', function(e) {{
-                var lng = e.lnglat.getLng();
-                var lat = e.lnglat.getLat();
-                marker.setPosition(e.lnglat);
-                circle.setCenter(e.lnglat);
-                // 回传坐标到 Python
-                emitEvent('map_click_{map_id}', {{lat: lat, lon: lng}});
-            }});
+                map.on('click', function(e) {{
+                    var lng = e.lnglat.getLng();
+                    var lat = e.lnglat.getLat();
+                    marker.setPosition(e.lnglat);
+                    circle.setCenter(e.lnglat);
+                    emitEvent('map_click_{map_id}', {{lat: lat, lon: lng}});
+                }});
 
-            marker.on('dragend', function(e) {{
-                var pos = marker.getPosition();
-                circle.setCenter(pos);
-                emitEvent('map_click_{map_id}', {{lat: pos.getLat(), lon: pos.getLng()}});
-            }});
-        }})();
-        ''')
+                marker.on('dragend', function(e) {{
+                    var pos = marker.getPosition();
+                    circle.setCenter(pos);
+                    emitEvent('map_click_{map_id}', {{lat: pos.getLat(), lon: pos.getLng()}});
+                }});
+            }})();
+            ''', timeout=5.0)
+        except (TimeoutError, Exception):
+            pass  # 地图初始化失败不影响主功能
 
     # 监听地图点击事件
     def _on_map_click(e):
