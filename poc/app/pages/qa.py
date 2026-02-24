@@ -594,13 +594,24 @@ def qa_page():
                                     ui.badge(f'语义匹配 {_matched}/{len(answer_data)}',
                                              color='purple').props('outline')
                             cols_raw = list(answer_data[0].keys())
-                            # 表格隐藏 extra_json（太长影响阅读）
-                            tbl_cols_filtered = [c for c in cols_raw if c != 'extra_json']
-                            tbl_cols = [{"name": c, "label": c.replace('_', ' ').title(), "field": c, "sortable": True} for c in tbl_cols_filtered]
+                            # 默认隐藏的列：路径类长字段、内部ID、编码类字段
+                            _HIDDEN_COLS = {
+                                'extra_json', 'file_path', 'video_path',
+                                'img_src_path', 'img_icon_path',
+                                'event_id', 'warning_order_id', 'warning_type_id',
+                                'channel_code', 'algorithm_code', 'town_code',
+                                'device_code', 'tenant_name',
+                                'province_name', 'city_name',
+                            }
+                            tbl_cols_all = [c for c in cols_raw if c != 'extra_json']
+                            tbl_cols = [{"name": c, "label": c.replace('_', ' ').title(), "field": c, "sortable": True} for c in tbl_cols_all]
+                            visible_cols = [c for c in tbl_cols_all if c not in _HIDDEN_COLS]
                             tbl_rows = [{k: v for k, v in row.items() if k != 'extra_json'} for row in answer_data[:50]]
                             with ui.element('div').classes('w-full overflow-x-auto'):
                                 ui.table(columns=tbl_cols, rows=tbl_rows,
-                                         pagination={"rowsPerPage": 5}).classes('w-full text-xs').props('dense wrap-cells')
+                                         pagination={"rowsPerPage": 5}).classes('w-full text-xs').props(
+                                    f'dense wrap-cells visible-columns={json.dumps(visible_cols)}'
+                                )
 
                             # 媒体预览
                             img_cols, video_col = _detect_media_cols(cols_raw)
