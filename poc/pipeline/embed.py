@@ -413,12 +413,16 @@ def main() -> None:
     db = lancedb.connect(str(lancedb_dir))
 
     table_name = "embeddings"
-    try:
-        existing_tables = db.list_tables() if hasattr(db, 'list_tables') else db.table_names()
-    except AttributeError:
-        existing_tables = []
+    # 兼容不同 LanceDB 版本：list_tables() 可能返回字符串列表或对象列表
+    def _table_exists(db, name):
+        try:
+            names = db.table_names() if hasattr(db, 'table_names') else db.list_tables()
+            # table_names() 返回 [str]，list_tables() 可能返回 [str] 或 [Table]
+            return name in [str(t) for t in names]
+        except Exception:
+            return False
 
-    if args.incremental and table_name in existing_tables:
+    if args.incremental and _table_exists(db, table_name):
         # 增量模式：追加到已有表
         table = db.open_table(table_name)
         if lance_data:
@@ -426,9 +430,12 @@ def main() -> None:
             print(f"增量追加 {len(lance_data)} 条记录")
         n = table.count_rows()
     else:
-        # 全量模式：删除重建
-        if table_name in existing_tables:
+        # 全量模式：删除重建（强制 try drop，防止版本差异导致检测遗漏）
+        try:
             db.drop_table(table_name)
+            print(f"已删除旧表 '{table_name}'")
+        except Exception:
+            pass
         table = db.create_table(table_name, data=lance_data)
         n = len(lance_data)
 

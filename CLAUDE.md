@@ -170,6 +170,18 @@ st.text_area("SQL", value=new_sql, key=f"sql_editor_v{version}")
 - **检查 LanceDB 表是否存在时，使用 API 而非文件系统路径**
 - 不同版本的 LanceDB 内部目录结构可能不同（`.lance` vs 其他格式）
 
+### LanceDB 全量写入 "Table already exists" 错误（Bug 记录）
+
+**Bug 现象**：`embed.py` 全量模式下，`db.create_table("embeddings", data=lance_data)` 抛出 `ValueError: Table 'embeddings' already exists`，即使代码中有 `if table_name in existing_tables: db.drop_table()` 的逻辑。
+
+**根因**：不同版本的 LanceDB 中 `list_tables()` 和 `table_names()` 返回类型不一致——有的返回字符串列表，有的返回 Table 对象列表。`table_name in existing_tables` 做字符串比较时匹配失败，导致 `drop_table` 被跳过。
+
+**修复方案**：全量模式下不依赖 `in` 检查，直接 `try: db.drop_table(name) except: pass`，然后 `create_table`。增量模式用 `_table_exists()` 辅助函数，对列表元素做 `str()` 转换后再比较。
+
+**规则总结**：
+- **LanceDB 全量重建表时，用 try/except 无条件 drop，不要依赖 list_tables 的返回值做条件判断**
+- `list_tables()` / `table_names()` 的返回类型在不同版本间不稳定，做 `in` 检查前必须 `str()` 转换
+
 ---
 
-*最后更新: 2026-02-12*
+*最后更新: 2026-02-24*
