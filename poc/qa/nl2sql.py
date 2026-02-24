@@ -457,6 +457,9 @@ def _try_sql_cache(text: str, rule_plan: QueryPlan) -> Optional[QueryPlan]:
 
     命中后复用 SQL 模板（intent + sql 结构），但 params 由规则引擎
     根据当前时间重新提取，避免缓存的时间参数过期。
+
+    安全校验：缓存 SQL 的占位符数量必须与新 params 数量一致，
+    否则跳过缓存（避免 LLM SQL 模板与规则引擎 params 结构不匹配）。
     """
     from poc.qa.trace import get_trace_manager
 
@@ -472,6 +475,15 @@ def _try_sql_cache(text: str, rule_plan: QueryPlan) -> Optional[QueryPlan]:
 
     # 用规则引擎重新提取 params（时间、地名等实时参数）
     fresh_plan = parse_question(text)
+
+    # 校验占位符数量与 params 数量是否匹配
+    dollar_count = len(re.findall(r'\$\d+', cached_sql))
+    qmark_count = cached_sql.count('?')
+    placeholder_count = max(dollar_count, qmark_count)
+
+    if placeholder_count != len(fresh_plan.params):
+        print(f"[sql_cache] SKIP - placeholder count ({placeholder_count}) != param count ({len(fresh_plan.params)}), falling through to LLM")
+        return None
 
     print(f"[sql_cache] HIT - intent={cached_intent}, reusing cached SQL template")
     return QueryPlan(

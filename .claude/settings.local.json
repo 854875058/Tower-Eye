@@ -170,7 +170,10 @@
       "Bash(cmd /c \"E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔\\\\.venv\\\\Scripts\\\\python.exe -c \"\"import ray; print\\(ray.__version__\\); print\\(ray.__file__\\)\"\"\")",
       "Bash(cmd /c \"E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔\\\\.venv\\\\Scripts\\\\python.exe -c \"\"import ray; print\\(ray.__version__\\)\"\" 2>&1\")",
       "Bash(powershell -Command \"Get-ChildItem ''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔\\\\.venv\\\\Scripts\\\\ray*'' | Select-Object Name\")",
-      "Bash(powershell -Command \"& ''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔\\\\.venv\\\\Scripts\\\\pip.exe'' install pandas 2>&1\")"
+      "Bash(powershell -Command \"& ''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔\\\\.venv\\\\Scripts\\\\pip.exe'' install pandas 2>&1\")",
+      "Bash(powershell -Command \"& ''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔\\\\.venv\\\\Scripts\\\\python.exe'' -c \"\"import ast; ast.parse\\(open\\(r''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔\\\\poc\\\\qa\\\\nl2sql.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\"\" 2>&1\")",
+      "Bash(powershell -Command \"& ''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔\\\\.venv\\\\Scripts\\\\python.exe'' -c \"\"\nimport lancedb\ndb = lancedb.connect\\(r''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔\\\\poc\\\\data\\\\lancedb''\\)\nt = db.open_table\\(''embeddings''\\)\nimport pyarrow.compute as pc\ncol = t.to_arrow\\(\\).column\\(''event_type''\\)\nuniq = pc.unique\\(col\\).to_pylist\\(\\)\nfor v in sorted\\(set\\(str\\(x\\) for x in uniq if x\\)\\):\n    print\\(v\\)\n\"\" 2>&1\")",
+      "Bash(powershell -Command \"& ''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔\\\\.venv\\\\Scripts\\\\python.exe'' -c \"\"\nimport sys, io; sys.stdout = io.TextIOWrapper\\(sys.stdout.buffer, encoding=''utf-8''\\)\nimport lancedb, pyarrow.compute as pc\ndb = lancedb.connect\\(r''E:\\\\朗驰\\\\软研院\\\\AI数据集项目开发\\\\结构化数据与非结构化数据融合\\\\多模态检索-铁塔\\\\poc\\\\data\\\\lancedb''\\)\nt = db.open_table\\(''embeddings''\\)\ncol = t.to_arrow\\(\\).column\\(''event_type''\\)\nfor v in sorted\\(set\\(str\\(x\\) for x in pc.unique\\(col\\).to_pylist\\(\\) if x\\)\\):\n    print\\(v\\)\n\"\" 2>&1\")"
     ]
   },
   "hooks": {
