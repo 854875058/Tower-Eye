@@ -284,13 +284,7 @@ def parse_question(text: str) -> QueryPlan:
         )
     else:
         sql = (
-            "SELECT event_type AS 告警类型, alarm_time AS 告警时间, "
-            "address AS 地址, town_name AS 街道, "
-            "device_name AS 设备名称, algorithm_name AS 算法, "
-            "order_status AS 工单状态, confidence_level AS 置信度, "
-            "file_path AS 图片路径, video_path AS 视频路径, "
-            "img_src_path, img_icon_path, extra_json "
-            "FROM events"
+            "SELECT * FROM events"
             + where_sql
             + " ORDER BY alarm_time DESC LIMIT ?"
         )

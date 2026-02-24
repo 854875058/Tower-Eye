@@ -101,11 +101,19 @@ def _detect_media_cols(cols_raw: List[str]):
 def _render_detail_fields(row: dict, cols_raw: list, img_cols: list, video_col):
     """渲染记录的完整字段信息（优先字段 + 剩余字段 + extra_json 展开）"""
     PRIORITY = [
-        ('event_type', '事件类型'), ('alarm_level', '告警等级'),
-        ('alarm_time', '告警时间'), ('address', '地址'),
-        ('device_name', '设备名称'), ('device_code', '设备编码'),
-        ('algorithm_name', '算法名称'), ('algorithm_code', '算法编码'),
-        ('order_status', '工单状态'), ('confidence_level', '置信度'),
+        ('event_id', '事件ID'), ('event_type', '事件类型'),
+        ('alarm_level', '告警等级'), ('alarm_time', '告警时间'),
+        ('alarm_source', '告警来源'), ('alarm_body', '告警主体'),
+        ('address', '地址'), ('province_name', '省份'),
+        ('city_name', '城市'), ('county_name', '区县'),
+        ('town_name', '街道'), ('device_name', '设备名称'),
+        ('device_code', '设备编码'), ('channel_name', '通道名称'),
+        ('channel_code', '通道编码'), ('algorithm_name', '算法名称'),
+        ('algorithm_code', '算法编码'), ('order_status', '工单状态'),
+        ('confidence_level', '置信度'), ('confidence_level_max', '最大置信度'),
+        ('importance_level', '重要等级'), ('emergency_level', '紧急等级'),
+        ('tenant_name', '租户'), ('warning_order_id', '工单ID'),
+        ('warning_type_id', '告警类型ID'),
         ('summary', '摘要'), ('description', '描述'),
     ]
     skip = {cols_raw[ic] for ic in img_cols}
@@ -277,7 +285,7 @@ def _render_media_panel(panel_id: str, file_path: str, img_src: str,
 
     elif panel_id == 'video' and video_path:
         vn = _Path(str(video_path).split(",")[0].strip()).name
-        ui.video(f'/warning_file/{vn}').classes('w-full rounded')
+        ui.video(f'/warning_file/{vn}').classes('w-full rounded').props('controls')
 
     elif panel_id == 'yolo' and detections and file_path:
         annotated_uri = _draw_yolo_boxes(file_path, detections)
@@ -652,11 +660,11 @@ def qa_page():
 
                                             has_media = bool(_file_path or _img_src or _video_path)
                                             if has_media or _detections or _has_video or (_img_icon and not _icon_is_same):
-                                                with ui.column().classes('gap-1 flex-shrink-0').style('width:320px'):
+                                                with ui.column().classes('gap-1 flex-shrink-0').style('width:400px'):
                                                     # 构建动态 tabs
                                                     tab_defs = []
                                                     if _file_path:
-                                                        tab_defs.append(('alert_img', 'photo', '告警图片'))
+                                                        tab_defs.append(('alert_img', 'photo', '原图'))
                                                     if _img_icon and not _icon_is_same:
                                                         tab_defs.append(('icon_img', 'crop_square', '标注框图'))
                                                     if _video_path:
