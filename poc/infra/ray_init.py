@@ -5,12 +5,23 @@ Ray 集群初始化与状态管理
 - get_ray_status()  — 获取集群状态（用于监控页面展示）
 - create_actors(config) — 创建 GPU Actor 实例
 """
+import signal
+
 try:
     import ray
     _RAY_AVAILABLE = True
 except ImportError:
     ray = None
     _RAY_AVAILABLE = False
+
+
+def _restore_sigterm():
+    """Ray 会注册自己的 SIGTERM handler (sys.exit(15))，
+    在 Web 进程中需要恢复默认行为，否则 Ray 集群波动会杀掉 NiceGUI。"""
+    try:
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    except (OSError, ValueError):
+        pass  # Windows 主线程限制等
 
 
 def _get_ray_config(config: dict) -> dict:
@@ -53,6 +64,7 @@ def init_ray(config: dict) -> bool:
     if address == "auto":
         try:
             ray.init(address="auto", namespace=namespace, ignore_reinit_error=True)
+            _restore_sigterm()
             print(f"[Ray] 已连接到现有 Ray 集群 (namespace={namespace})")
             return True
         except ConnectionError:
@@ -82,6 +94,7 @@ def init_ray(config: dict) -> bool:
             init_kwargs["address"] = address
 
         ray.init(**init_kwargs)
+        _restore_sigterm()
         print(f"[Ray] 初始化成功 -- address={address}, namespace={namespace}")
         return True
 
