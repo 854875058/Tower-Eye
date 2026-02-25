@@ -412,7 +412,8 @@ def search_page():
                 top_k = int(state['top_k'])
                 search_cfg = config.get("search", {})
                 reranker_enabled = search_cfg.get("reranker_enabled", False)
-                fetch_k = top_k * 3 if reranker_enabled and has_text else top_k
+                reranker_top_k = int(search_cfg.get("reranker_top_k", 20))
+                fetch_k = min(reranker_top_k, top_k * 3) if reranker_enabled and has_text else top_k
 
                 query_vec = None
                 if use_file_search:
