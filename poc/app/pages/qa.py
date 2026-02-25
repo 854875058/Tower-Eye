@@ -560,9 +560,15 @@ def qa_page():
                                     res["intent"] = new_intent
                                     res["status"] = "success"
                                     _refresh_chat()
-                                    ui.notify('SQL 重新执行成功', type='positive')
+                                    try:
+                                        ui.notify('SQL 重新执行成功', type='positive')
+                                    except RuntimeError:
+                                        pass
                                 except Exception as e:
-                                    ui.notify(f'SQL 执行失败: {e}', type='negative')
+                                    try:
+                                        ui.notify(f'SQL 执行失败: {e}', type='negative')
+                                    except RuntimeError:
+                                        pass
 
                             ui.button('重新执行', icon='refresh', on_click=rerun_sql) \
                                 .props('outline color=blue-6 rounded no-caps size=xs').classes('mt-1')
