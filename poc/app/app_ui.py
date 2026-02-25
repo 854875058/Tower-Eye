@@ -33,5 +33,6 @@ if __name__ in {"__main__", "__mp_main__"}:
         favicon="🏗️",
         storage_secret="Tower-Eye",
         reload=False,
+        reconnect_timeout=30.0,  # WebSocket 重连超时（默认3s太短，服务器负载高时容易断）
     )
 
