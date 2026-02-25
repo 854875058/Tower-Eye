@@ -162,7 +162,11 @@ def hybrid_search(
         混合检索结果 DataFrame
     """
     # 先获取更多候选结果（用于重排序）
-    candidate_k = min(top_k * 5, 100)
+    # 有 filter 时加大候选池，因为 filter 会大幅缩减结果
+    if filter_str:
+        candidate_k = top_k * 10
+    else:
+        candidate_k = top_k * 5
 
     # 执行向量搜索
     query = table.search(query_vec.tolist()).limit(candidate_k)

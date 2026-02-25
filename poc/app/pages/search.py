@@ -470,18 +470,21 @@ def search_page():
 
                     lance_filter = None; post_filter_ids = None
                     if pre_filtered_ids is not None:
-                        if len(pre_filtered_ids) <= 100:
+                        if len(pre_filtered_ids) <= 1000:
                             lance_filter = build_asset_id_filter(pre_filtered_ids)
                         else:
-                            post_filter_ids = set(pre_filtered_ids); fetch_k *= 3
+                            post_filter_ids = set(pre_filtered_ids); fetch_k = max(fetch_k * 5, top_k * 10)
 
+                    # hybrid_search / 普通向量检索都传 lance_filter，
+                    # post_filter 路径下不提前截断，截断放到 post-filter 之后
+                    actual_fetch_k = fetch_k if post_filter_ids is None else fetch_k
                     if q and state['enable_hybrid']:
-                        results_df = hybrid_search(table, query_vec, query_text=q, top_k=fetch_k,
+                        results_df = hybrid_search(table, query_vec, query_text=q, top_k=actual_fetch_k,
                                                    filter_str=lance_filter,
                                                    vector_weight=state['vector_weight'],
                                                    keyword_weight=round(1.0 - state['vector_weight'], 1))
                     else:
-                        query_builder = table.search(query_vec.tolist()).limit(fetch_k)
+                        query_builder = table.search(query_vec.tolist()).limit(actual_fetch_k)
                         if lance_filter: query_builder = query_builder.where(lance_filter)
                         results_df = query_builder.to_pandas()
 
