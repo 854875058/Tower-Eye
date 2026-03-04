@@ -98,6 +98,16 @@ def ensure_systems():
         print(f"[ensure_systems] tool_registry 初始化失败: {e}")
         import traceback; traceback.print_exc()
 
+    # 初始化 metrics collector
+    try:
+        metrics_db = Path(config.get("paths", {}).get("metrics_db_path", "logs/metrics.db"))
+        metrics_db.parent.mkdir(parents=True, exist_ok=True)
+        init_metrics_collector(db_path=metrics_db)
+        print(f"[ensure_systems] metrics_collector 初始化成功: {metrics_db}")
+    except Exception as e:
+        print(f"[ensure_systems] metrics_collector 初始化失败: {e}")
+        import traceback; traceback.print_exc()
+
     # 初始化 Ray（如果配置启用）
     try:
         from poc.infra.ray_init import init_ray, create_actors
