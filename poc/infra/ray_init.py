@@ -90,30 +90,17 @@ def init_ray(config: dict) -> bool:
             traceback.print_exc()
             return False
 
+    # 连接远程集群
     try:
         init_kwargs = {
+            "address": address,
             "namespace": namespace,
             "ignore_reinit_error": True,
         }
 
-        if address == "auto":
-            # 本地单机模式：启动新集群
-            init_kwargs["num_gpus"] = num_gpus
-            # dashboard 需要额外依赖，缺失时自动跳过
-            try:
-                import importlib
-                importlib.import_module("ray.dashboard")
-                init_kwargs["dashboard_port"] = dashboard_port
-                init_kwargs["include_dashboard"] = True
-            except (ImportError, ModuleNotFoundError):
-                init_kwargs["include_dashboard"] = False
-        else:
-            # 连接远程集群
-            init_kwargs["address"] = address
-
         ray.init(**init_kwargs)
         _restore_sigterm()
-        print(f"[Ray] 初始化成功 -- address={address}, namespace={namespace}")
+        print(f"[Ray] 已连接到远程集群 -- address={address}, namespace={namespace}")
         return True
 
     except Exception as e:
