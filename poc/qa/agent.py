@@ -71,7 +71,8 @@ def parse_question_node(state: AgentState) -> AgentState:
     print(f"[parse_question_node] 解析问题: {state['question']}")
 
     try:
-        plan = build_query_plan(state["question"], state["config"])
+        trace_id = state.get("trace_id")
+        plan = build_query_plan(state["question"], state["config"], trace_id=trace_id)
 
         state["intent"] = plan.intent
         state["sql"] = plan.sql
