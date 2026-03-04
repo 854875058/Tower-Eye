@@ -450,6 +450,7 @@ def fix_sql_node(state: AgentState) -> AgentState:
     state["retry_count"] += 1
 
     try:
+        trace_id = state.get("trace_id")
         # 优先尝试 LLM 修正（带错误上下文）
         plan = call_llm_fix_sql(
             question=state["question"],
@@ -457,6 +458,7 @@ def fix_sql_node(state: AgentState) -> AgentState:
             error_msg=state.get("error_message", ""),
             config=state["config"],
             db_path=state["db_path"],
+            trace_id=trace_id,
         )
 
         state["sql"] = plan.sql
@@ -475,7 +477,8 @@ def fix_sql_node(state: AgentState) -> AgentState:
         print(f"[fix_sql_node] LLM 修正失败: {llm_err}，降级到规则引擎")
 
         try:
-            plan = build_query_plan(state["question"], state["config"])
+            trace_id = state.get("trace_id")
+            plan = build_query_plan(state["question"], state["config"], trace_id=trace_id)
             state["sql"] = plan.sql
             state["sql_params"] = plan.params
             state["error_message"] = None
