@@ -136,7 +136,8 @@ def vector_search_node(state: AgentState) -> AgentState:
 
     try:
         from poc.search.model_manager import ModelManager
-        from poc.search.query import hybrid_search, build_asset_id_filter
+        from poc.search.query import build_asset_id_filter
+        from poc.search.hybrid_search import enhanced_hybrid_search, explain_search_strategy
         import lancedb as _ldb
 
         lancedb_dir = resolve_path(
@@ -181,28 +182,34 @@ def vector_search_node(state: AgentState) -> AgentState:
                     })
                     return state
 
-        results_df = hybrid_search(
-            table, query_vec, query_text=clean_question,
-            top_k=top_k, filter_str=lance_filter,
-            vector_weight=0.7, keyword_weight=0.3,
+        # 检查是否启用 Reranker
+        use_reranker = config.get("search", {}).get("use_reranker", False)
+        reranker = None
+        if use_reranker:
+            try:
+                from poc.search.qwen_reranker import Qwen3VLReranker
+                reranker_url = config.get("search", {}).get("reranker_url", "http://10.132.19.82:8011")
+                reranker = Qwen3VLReranker(api_url=reranker_url)
+                print(f"[vector_search_node] 启用 Reranker: {reranker_url}")
+            except Exception as e:
+                print(f"[vector_search_node] Reranker 初始化失败: {e}")
+                use_reranker = False
+
+        # 使用增强的混合检索
+        search_results, metadata = enhanced_hybrid_search(
+            table=table,
+            query_vec=query_vec,
+            query_text=clean_question,
+            top_k=top_k,
+            filter_str=lance_filter,
+            use_reranker=use_reranker,
+            reranker=reranker,
+            strategy="auto"  # 自动选择策略
         )
 
-        # 转为 list[dict] 格式，与 SQL 结果兼容
-        search_results = []
-        for _, row in results_df.iterrows():
-            item = {}
-            for col in results_df.columns:
-                if col == "vector" or col.startswith("_"):
-                    if col == "_distance":
-                        item["_distance"] = float(row[col])
-                    continue
-                val = row[col]
-                if hasattr(val, 'item'):
-                    val = val.item()
-                item[col] = val
-            if "hybrid_score" in results_df.columns:
-                item["hybrid_score"] = float(row["hybrid_score"])
-            search_results.append(item)
+        # 打印检索策略说明
+        strategy_explanation = explain_search_strategy(metadata)
+        print(f"[vector_search_node] {strategy_explanation}")
 
         state["sql_result"] = search_results
         state["error_message"] = None
