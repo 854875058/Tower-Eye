@@ -325,8 +325,12 @@ def _get_llm_config(config: Dict):
 
 
 def _call_llm_chat(api_key: str, url: str, model: str, timeout: int,
-                   system_prompt: str, user_prompt: str) -> str:
+                   system_prompt: str, user_prompt: str, purpose: str = "unknown",
+                   trace_id: Optional[str] = None) -> str:
     """通用 LLM 调用，返回 content 文本"""
+    import time
+    start_time = time.time()
+
     payload = {
         "model": model,
         "messages": [
@@ -342,7 +346,36 @@ def _call_llm_chat(api_key: str, url: str, model: str, timeout: int,
     response = requests.post(url, headers=headers, json=payload, timeout=timeout)
     response.raise_for_status()
     data = response.json()
-    return data["choices"][0]["message"]["content"].strip()
+    content = data["choices"][0]["message"]["content"].strip()
+
+    # 记录 LLM 调用指标
+    latency_ms = (time.time() - start_time) * 1000
+    try:
+        from poc.infra.metrics import get_metrics_collector, LLMCallMetrics, estimate_llm_cost
+        usage = data.get("usage", {})
+        prompt_tokens = usage.get("prompt_tokens", 0)
+        completion_tokens = usage.get("completion_tokens", 0)
+        total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
+        cost_usd = estimate_llm_cost(model, prompt_tokens, completion_tokens)
+
+        mc = get_metrics_collector()
+        if mc:
+            metrics = LLMCallMetrics(
+                model_name=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                cost_usd=cost_usd,
+                latency_ms=latency_ms,
+                timestamp=datetime.now().isoformat(),
+                trace_id=trace_id or "",
+                purpose=purpose
+            )
+            mc.record_llm_call(metrics)
+    except Exception:
+        pass  # 指标记录失败不影响主流程
+
+    return content
 
 
 def _parse_llm_json(content: str) -> dict:
