@@ -733,15 +733,31 @@ class QueryAgent:
         Args:
             question: 用户问题
             user_id: 用户ID（可选）
-            session_id: 会话ID（可选）
+            session_id: 会话ID（可选，用于多轮对话）
             trace_id: 追踪ID（可选，用于指标收集）
 
         Returns:
             查询结果字典
         """
+        # 处理多轮对话上下文
+        resolved_question = question
+        conversation = None
+
+        if session_id and user_id:
+            try:
+                from poc.qa.conversation import get_conversation_manager, resolve_context_question
+                conv_mgr = get_conversation_manager()
+                if conv_mgr:
+                    conversation = conv_mgr.get_or_create_session(session_id, user_id)
+                    resolved_question = resolve_context_question(question, conversation)
+                    if resolved_question != question:
+                        print(f"[QueryAgent] 上下文补全: {question} -> {resolved_question}")
+            except Exception as e:
+                print(f"[QueryAgent] 对话上下文处理失败: {e}")
+
         # 初始化状态
         initial_state: AgentState = {
-            "question": question,
+            "question": resolved_question,
             "config": self.config,
             "db_path": self.config.get("paths", {}).get("db_path", "poc/data/metadata.db"),
             "trace_id": trace_id,
@@ -756,7 +772,7 @@ class QueryAgent:
             "error_message": None,
             "retry_count": 0,
             "max_retries": self.max_retries,
-            "messages": [{"role": "user", "content": question}],
+            "messages": [{"role": "user", "content": resolved_question}],
             "execution_history": []
         }
 
