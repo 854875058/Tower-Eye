@@ -440,7 +440,7 @@ def _build_nl2sql_system_prompt(schema_prompt: str) -> str:
     )
 
 
-def _call_deepseek_nl2sql(question: str, config: Dict, fallback: QueryPlan) -> QueryPlan:
+def _call_deepseek_nl2sql(question: str, config: Dict, fallback: QueryPlan, trace_id: Optional[str] = None) -> QueryPlan:
     from poc.qa.schema_meta import build_schema_prompt
 
     api_key, url, model, timeout = _get_llm_config(config)
@@ -450,7 +450,8 @@ def _call_deepseek_nl2sql(question: str, config: Dict, fallback: QueryPlan) -> Q
     system_prompt = _build_nl2sql_system_prompt(schema_prompt)
     user_prompt = f"问题: {question}\n请直接输出 JSON。"
 
-    content = _call_llm_chat(api_key, url, model, timeout, system_prompt, user_prompt)
+    content = _call_llm_chat(api_key, url, model, timeout, system_prompt, user_prompt,
+                             purpose="nl2sql", trace_id=trace_id)
     obj = _parse_llm_json(content)
 
     intent = obj.get("intent") or fallback.intent
