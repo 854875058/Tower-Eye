@@ -60,40 +60,65 @@ def init_ray(config: dict) -> bool:
     num_gpus = ray_cfg.get("num_gpus", None)
     dashboard_port = ray_cfg.get("dashboard_port", 8265)
 
-    # 如果是 auto 模式，强制启动新的本地集群
+    # 如果是 auto 模式，需要判断是启动新集群还是连接现有集群
     if address == "auto":
-        print("[Ray] 启动本地 Ray 集群...")
+        # 检查是否有现有集群正在运行
+        import subprocess
         try:
-            # 先确保之前的 Ray 进程已清理
+            result = subprocess.run(
+                ["ray", "status"],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            cluster_exists = result.returncode == 0
+        except:
+            cluster_exists = False
+
+        if cluster_exists:
+            # 连接现有集群（不能传 num_gpus）
+            print("[Ray] 检测到现有 Ray 集群，正在连接...")
             try:
-                ray.shutdown()
-            except:
-                pass
-
-            init_kwargs = {
-                "namespace": namespace,
-                "ignore_reinit_error": True,
-                "num_gpus": num_gpus,
-            }
-
-            # dashboard 需要额外依赖，缺失时自动跳过
+                init_kwargs = {
+                    "address": "auto",
+                    "namespace": namespace,
+                    "ignore_reinit_error": True,
+                }
+                ray.init(**init_kwargs)
+                _restore_sigterm()
+                print(f"[Ray] 已连接到现有集群 (namespace={namespace})")
+                return True
+            except Exception as e:
+                print(f"[Ray] 连接现有集群失败: {e}")
+                return False
+        else:
+            # 启动新的本地集群
+            print("[Ray] 未检测到现有集群，启动新的本地 Ray 集群...")
             try:
-                import importlib
-                importlib.import_module("ray.dashboard")
-                init_kwargs["dashboard_port"] = dashboard_port
-                init_kwargs["include_dashboard"] = True
-            except (ImportError, ModuleNotFoundError):
-                init_kwargs["include_dashboard"] = False
+                init_kwargs = {
+                    "namespace": namespace,
+                    "ignore_reinit_error": True,
+                    "num_gpus": num_gpus,
+                }
 
-            ray.init(**init_kwargs)
-            _restore_sigterm()
-            print(f"[Ray] 本地集群启动成功 (namespace={namespace}, num_gpus={num_gpus})")
-            return True
-        except Exception as e:
-            print(f"[Ray] 本地集群启动失败: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
+                # dashboard 需要额外依赖，缺失时自动跳过
+                try:
+                    import importlib
+                    importlib.import_module("ray.dashboard")
+                    init_kwargs["dashboard_port"] = dashboard_port
+                    init_kwargs["include_dashboard"] = True
+                except (ImportError, ModuleNotFoundError):
+                    init_kwargs["include_dashboard"] = False
+
+                ray.init(**init_kwargs)
+                _restore_sigterm()
+                print(f"[Ray] 本地集群启动成功 (namespace={namespace}, num_gpus={num_gpus})")
+                return True
+            except Exception as e:
+                print(f"[Ray] 本地集群启动失败: {e}")
+                import traceback
+                traceback.print_exc()
+                return False
 
     # 连接远程集群
     try:
