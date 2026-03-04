@@ -719,7 +719,7 @@ class QueryAgent:
         self.max_retries = max_retries
         self.graph = build_agent_graph().compile()
 
-    def query(self, question: str, user_id: Optional[str] = None, session_id: Optional[str] = None) -> Dict:
+    def query(self, question: str, user_id: Optional[str] = None, session_id: Optional[str] = None, trace_id: Optional[str] = None) -> Dict:
         """
         执行查询
 
@@ -727,6 +727,7 @@ class QueryAgent:
             question: 用户问题
             user_id: 用户ID（可选）
             session_id: 会话ID（可选）
+            trace_id: 追踪ID（可选，用于指标收集）
 
         Returns:
             查询结果字典
@@ -736,6 +737,7 @@ class QueryAgent:
             "question": question,
             "config": self.config,
             "db_path": self.config.get("paths", {}).get("db_path", "poc/data/metadata.db"),
+            "trace_id": trace_id,
             "intent": None,
             "sql": None,
             "sql_params": None,
