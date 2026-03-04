@@ -565,7 +565,7 @@ def build_query_plan(text: str, config: Dict) -> QueryPlan:
 
 
 def call_llm_fix_sql(question: str, failed_sql: str, error_msg: str,
-                     config: Dict, db_path: str) -> QueryPlan:
+                     config: Dict, db_path: str, trace_id: Optional[str] = None) -> QueryPlan:
     """
     调用 LLM 修正失败的 SQL。
 
