@@ -130,13 +130,20 @@ def ensure_systems():
         print(f"[ensure_systems] conversation_manager 初始化失败: {e}")
         import traceback; traceback.print_exc()
 
-    # 初始化 Ray（如果配置启用）
+    # 初始化 Ray（必选，每次启动都初始化）
     try:
         from poc.infra.ray_init import init_ray, create_actors
+        print(f"[ensure_systems] 正在初始化 Ray...")
         if init_ray(config):
             create_actors(config)
+            print(f"[ensure_systems] Ray 初始化成功")
+        else:
+            print(f"[ensure_systems] Ray 初始化失败（init_ray 返回 False）")
     except Exception as e:
-        print(f"[Ray] 初始化跳过: {e}")
+        print(f"[ensure_systems] Ray 初始化失败: {e}")
+        import traceback; traceback.print_exc()
+        # Ray 是必选的，初始化失败时抛出异常
+        raise RuntimeError(f"Ray 初始化失败，应用无法启动: {e}") from e
 
     _systems_inited = True
 
