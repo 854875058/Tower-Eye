@@ -952,7 +952,7 @@ def qa_page():
                 result_holder: List = []
                 error_holder: List = []
 
-                # 生成 trace_id
+                # 生成 trace_id 和 session_id
                 from poc.qa.trace import get_trace_manager
                 trace_mgr = get_trace_manager()
                 trace_id = None
@@ -961,11 +961,17 @@ def qa_page():
                     trace = QueryTrace(question=agent_question, user_id="nicegui_user")
                     trace_id = trace.trace_id
 
+                # 使用客户端 ID 作为 session_id（NiceGUI 会为每个客户端分配唯一 ID）
+                import uuid
+                session_id = str(uuid.uuid4())  # 简单起见，每次生成新的 session_id
+                # TODO: 可以改为使用 app.storage.user 来持久化 session_id
+
                 def _run_agent():
                     old_stdout = sys.stdout
                     sys.stdout = _StdoutCapture(old_stdout, log_q)
                     try:
-                        r = agent.query(agent_question, user_id="nicegui_user", trace_id=trace_id)
+                        r = agent.query(agent_question, user_id="nicegui_user",
+                                       session_id=session_id, trace_id=trace_id)
                         result_holder.append(r)
                     except Exception as e:
                         error_holder.append(e)
