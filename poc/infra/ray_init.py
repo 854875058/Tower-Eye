@@ -60,17 +60,23 @@ def init_ray(config: dict) -> bool:
     num_gpus = ray_cfg.get("num_gpus", None)
     dashboard_port = ray_cfg.get("dashboard_port", 8265)
 
-    # 先尝试连接已有集群
+    # 先尝试连接已有集群（设置短超时）
     if address == "auto":
         try:
-            ray.init(address="auto", namespace=namespace, ignore_reinit_error=True)
+            # 设置短超时，避免长时间等待
+            ray.init(address="auto", namespace=namespace, ignore_reinit_error=True,
+                    _redis_max_retries=1, _redis_retry_interval_ms=1000)
             _restore_sigterm()
             print(f"[Ray] 已连接到现有 Ray 集群 (namespace={namespace})")
             return True
-        except ConnectionError:
-            print("[Ray] 未发现运行中的 Ray 集群，将启动新集群...")
-        except Exception:
-            print("[Ray] 连接现有集群失败，将启动新集群...")
+        except (ConnectionError, TimeoutError, Exception) as e:
+            print(f"[Ray] 未发现运行中的 Ray 集群 ({type(e).__name__})，将启动新集群...")
+            # 确保清理失败的连接
+            try:
+                if ray.is_initialized():
+                    ray.shutdown()
+            except:
+                pass
 
     try:
         init_kwargs = {
