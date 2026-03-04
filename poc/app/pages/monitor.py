@@ -87,6 +87,120 @@ def monitor_page():
         else:
             ui.label('追踪系统未启用').classes('text-slate-400 mb-8')
 
+        # LLM 成本追踪
+        ui.label('LLM 调用成本（最近24小时）').classes('font-bold text-lg text-slate-800 mb-3 mt-8')
+        mc = get_metrics_collector()
+        if mc:
+            try:
+                cost_summary = mc.get_llm_cost_summary(hours=24)
+                with ui.grid(columns=4).classes('w-full gap-4 mb-4'):
+                    for lbl, val in [("总调用次数", f"{cost_summary['total_calls']:,}"),
+                                      ("总Token数", f"{cost_summary['total_tokens']:,}"),
+                                      ("总成本", f"${cost_summary['total_cost_usd']:.4f}"),
+                                      ("平均延迟", f"{cost_summary['avg_latency_ms']:.0f}ms")]:
+                        with ui.element('div').classes('kpi-card text-center'):
+                            ui.label(val).classes('text-xl font-bold text-slate-800')
+                            ui.label(lbl).classes('text-sm text-slate-500')
+
+                # 按模型分组
+                by_model = cost_summary.get("by_model", {})
+                if by_model:
+                    ui.label('按模型分组').classes('font-semibold text-slate-700 mb-2')
+                    model_rows = [{"模型": k, "调用次数": v["calls"], "Token数": v["tokens"],
+                                   "成本($)": f"${v['cost_usd']:.4f}"} for k, v in by_model.items()]
+                    ui.table(columns=[{"name": c, "label": c, "field": c} for c in ["模型", "调用次数", "Token数", "成本($)"]],
+                             rows=model_rows).classes('w-full mb-4')
+
+                # 按用途分组
+                by_purpose = cost_summary.get("by_purpose", {})
+                if by_purpose:
+                    ui.label('按用途分组').classes('font-semibold text-slate-700 mb-2')
+                    purpose_rows = [{"用途": k, "调用次数": v["calls"], "Token数": v["tokens"],
+                                     "成本($)": f"${v['cost_usd']:.4f}"} for k, v in by_purpose.items()]
+                    ui.table(columns=[{"name": c, "label": c, "field": c} for c in ["用途", "调用次数", "Token数", "成本($)"]],
+                             rows=purpose_rows).classes('w-full mb-4')
+            except Exception as e:
+                ui.label(f'成本统计失败: {e}').classes('text-slate-400')
+        else:
+            ui.label('指标收集器未启用').classes('text-slate-400 mb-4')
+
+        # 检索质量指标
+        ui.label('检索质量指标（最近24小时）').classes('font-bold text-lg text-slate-800 mb-3 mt-8')
+        if mc:
+            try:
+                retrieval_quality = mc.get_retrieval_quality(hours=24)
+                with ui.grid(columns=4).classes('w-full gap-4 mb-4'):
+                    for lbl, val in [("总查询数", str(retrieval_quality['total_queries'])),
+                                      ("平均精确率", f"{retrieval_quality['avg_precision']:.1%}"),
+                                      ("平均召回率", f"{retrieval_quality['avg_recall']:.1%}"),
+                                      ("平均MRR", f"{retrieval_quality['avg_mrr']:.3f}")]:
+                        with ui.element('div').classes('kpi-card text-center'):
+                            ui.label(val).classes('text-xl font-bold text-slate-800')
+                            ui.label(lbl).classes('text-sm text-slate-500')
+
+                ui.label('响应时间分布').classes('font-semibold text-slate-700 mb-2')
+                with ui.grid(columns=4).classes('w-full gap-4 mb-4'):
+                    for lbl, val in [("平均", f"{retrieval_quality['avg_latency_ms']:.0f}ms"),
+                                      ("P50", f"{retrieval_quality['p50_latency_ms']:.0f}ms"),
+                                      ("P95", f"{retrieval_quality['p95_latency_ms']:.0f}ms"),
+                                      ("P99", f"{retrieval_quality['p99_latency_ms']:.0f}ms")]:
+                        with ui.element('div').classes('kpi-card text-center'):
+                            ui.label(val).classes('text-lg font-bold text-slate-800')
+                            ui.label(lbl).classes('text-sm text-slate-500')
+            except Exception as e:
+                ui.label(f'检索质量统计失败: {e}').classes('text-slate-400')
+        else:
+            ui.label('指标收集器未启用').classes('text-slate-400 mb-4')
+
+        # 热点问题 Top 10
+        ui.label('热点问题 Top 10（最近24小时）').classes('font-bold text-lg text-slate-800 mb-3 mt-8')
+        if mc:
+            try:
+                hot_queries = mc.get_hot_queries(limit=10, hours=24)
+                if hot_queries:
+                    hot_rows = [{"排名": i+1, "问题（归一化）": q, "查询次数": cnt}
+                                for i, (q, cnt) in enumerate(hot_queries)]
+                    ui.table(columns=[{"name": c, "label": c, "field": c} for c in ["排名", "问题（归一化）", "查询次数"]],
+                             rows=hot_rows).classes('w-full mb-4')
+                else:
+                    ui.label('暂无热点问题').classes('text-slate-400')
+            except Exception as e:
+                ui.label(f'热点问题统计失败: {e}').classes('text-slate-400')
+        else:
+            ui.label('指标收集器未启用').classes('text-slate-400 mb-4')
+
+        # 失败 case 分析
+        ui.label('失败 Case 分析（最近24小时）').classes('font-bold text-lg text-slate-800 mb-3 mt-8')
+        if mc:
+            try:
+                failure_analysis = mc.get_failure_analysis(hours=24)
+                with ui.grid(columns=3).classes('w-full gap-4 mb-4'):
+                    for lbl, val in [("总失败数", str(failure_analysis['total_failures'])),
+                                      ("失败率", f"{failure_analysis['failure_rate']:.1f}%"),
+                                      ("错误类型数", str(len(failure_analysis['by_error_type'])))]:
+                        with ui.element('div').classes('kpi-card text-center'):
+                            ui.label(val).classes('text-xl font-bold text-slate-800')
+                            ui.label(lbl).classes('text-sm text-slate-500')
+
+                # 按错误类型分组
+                by_error = failure_analysis.get("by_error_type", {})
+                if by_error:
+                    ui.label('错误类型分布').classes('font-semibold text-slate-700 mb-2')
+                    error_rows = [{"错误类型": k, "次数": v} for k, v in by_error.items()]
+                    ui.table(columns=[{"name": c, "label": c, "field": c} for c in ["错误类型", "次数"]],
+                             rows=error_rows).classes('w-full mb-4')
+
+                # 最近失败 case
+                recent_failures = failure_analysis.get("recent_failures", [])
+                if recent_failures:
+                    ui.label('最近失败 Case').classes('font-semibold text-slate-700 mb-2')
+                    ui.table(columns=[{"name": c, "label": c, "field": c} for c in ["时间", "问题", "错误", "trace_id"]],
+                             rows=recent_failures, pagination={"rowsPerPage": 10}).classes('w-full mb-4')
+            except Exception as e:
+                ui.label(f'失败分析失败: {e}').classes('text-slate-400')
+        else:
+            ui.label('指标收集器未启用').classes('text-slate-400 mb-4')
+
         # Tool 注册中心
         ui.label('Tool 注册中心').classes('font-bold text-lg text-slate-800 mb-3')
         tr = get_tool_registry()
