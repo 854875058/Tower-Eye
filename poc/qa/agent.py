@@ -790,6 +790,7 @@ class QueryAgent:
         # 构建返回结果
         result = {
             "question": question,
+            "resolved_question": resolved_question,
             "intent": final_state.get("intent"),
             "sql": final_state.get("sql"),
             "sql_params": final_state.get("sql_params"),
@@ -801,6 +802,45 @@ class QueryAgent:
             "execution_history": final_state.get("execution_history"),
             "messages": final_state.get("messages")
         }
+
+        # 保存对话历史
+        if conversation and session_id and user_id:
+            try:
+                from poc.qa.conversation import ConversationTurn, extract_context_from_question
+
+                # 计算结果数量
+                result_count = 0
+                if final_state.get("sql_result"):
+                    result_count = len(final_state["sql_result"])
+
+                # 创建对话轮次
+                turn = ConversationTurn(
+                    turn_id=len(conversation.turns) + 1,
+                    timestamp=datetime.now().isoformat(),
+                    user_question=question,
+                    resolved_question=resolved_question,
+                    intent=final_state.get("intent", "unknown"),
+                    sql=final_state.get("sql"),
+                    result_count=result_count,
+                    status=result["status"],
+                    error=final_state.get("error_message")
+                )
+
+                # 添加到会话
+                conversation.add_turn(turn)
+
+                # 提取并更新上下文
+                context = extract_context_from_question(
+                    resolved_question,
+                    final_state.get("intent", ""),
+                    final_state.get("filters", {})
+                )
+                for key, value in context.items():
+                    conversation.update_context(key, value)
+
+                print(f"[QueryAgent] 对话历史已保存: session={session_id}, turn={turn.turn_id}")
+            except Exception as e:
+                print(f"[QueryAgent] 保存对话历史失败: {e}")
 
         return result
 
