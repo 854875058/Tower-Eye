@@ -110,6 +110,14 @@ def ensure_systems():
         print(f"[ensure_systems] metrics_collector 初始化失败: {e}")
         import traceback; traceback.print_exc()
 
+    # 初始化 conversation manager
+    try:
+        init_conversation_manager(max_sessions=100, max_turns_per_session=50)
+        print(f"[ensure_systems] conversation_manager 初始化成功")
+    except Exception as e:
+        print(f"[ensure_systems] conversation_manager 初始化失败: {e}")
+        import traceback; traceback.print_exc()
+
     # 初始化 Ray（如果配置启用）
     try:
         from poc.infra.ray_init import init_ray, create_actors
