@@ -60,23 +60,35 @@ def init_ray(config: dict) -> bool:
     num_gpus = ray_cfg.get("num_gpus", None)
     dashboard_port = ray_cfg.get("dashboard_port", 8265)
 
-    # 先尝试连接已有集群（设置短超时）
+    # 如果是 auto 模式，直接启动本地集群，不尝试连接
+    # 这样可以避免长时间等待连接超时
     if address == "auto":
+        print("[Ray] 启动本地 Ray 集群...")
         try:
-            # 设置短超时，避免长时间等待
-            ray.init(address="auto", namespace=namespace, ignore_reinit_error=True,
-                    _redis_max_retries=1, _redis_retry_interval_ms=1000)
-            _restore_sigterm()
-            print(f"[Ray] 已连接到现有 Ray 集群 (namespace={namespace})")
-            return True
-        except (ConnectionError, TimeoutError, Exception) as e:
-            print(f"[Ray] 未发现运行中的 Ray 集群 ({type(e).__name__})，将启动新集群...")
-            # 确保清理失败的连接
+            init_kwargs = {
+                "namespace": namespace,
+                "ignore_reinit_error": True,
+                "num_gpus": num_gpus,
+            }
+
+            # dashboard 需要额外依赖，缺失时自动跳过
             try:
-                if ray.is_initialized():
-                    ray.shutdown()
-            except:
-                pass
+                import importlib
+                importlib.import_module("ray.dashboard")
+                init_kwargs["dashboard_port"] = dashboard_port
+                init_kwargs["include_dashboard"] = True
+            except (ImportError, ModuleNotFoundError):
+                init_kwargs["include_dashboard"] = False
+
+            ray.init(**init_kwargs)
+            _restore_sigterm()
+            print(f"[Ray] 本地集群启动成功 (namespace={namespace}, num_gpus={num_gpus})")
+            return True
+        except Exception as e:
+            print(f"[Ray] 本地集群启动失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
 
     try:
         init_kwargs = {
