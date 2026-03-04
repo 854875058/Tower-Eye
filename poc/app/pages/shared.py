@@ -27,6 +27,7 @@ try:
     from poc.qa.agent import create_agent
     from poc.qa.trace import init_trace_manager, get_trace_manager, QueryTrace
     from poc.qa.tools import init_tool_registry, get_tool_registry
+    from poc.qa.conversation import init_conversation_manager, get_conversation_manager
     from poc.search.model_manager import ModelManager
     from poc.search.query import hybrid_search, build_asset_id_filter
     from poc.search.duckdb_engine import get_duckdb_engine
@@ -36,6 +37,7 @@ except ImportError as _ie:
     config = {}
     ModelManager = None  # type: ignore
     get_metrics_collector = lambda: None  # type: ignore
+    get_conversation_manager = lambda: None  # type: ignore
     print(f"Warning: backend import failed: {_ie}")
 
 
