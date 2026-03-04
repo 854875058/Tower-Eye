@@ -24,7 +24,9 @@ import poc.app.pages.monitor     # noqa: F401  /monitor
 if __name__ in {"__main__", "__mp_main__"}:
     @app.on_startup
     async def _startup_init():
+        print("[app_ui] 应用启动，初始化系统组件...")
         ensure_systems()
+        print("[app_ui] 系统组件初始化完成")
 
     ui.run(
         host="0.0.0.0",
