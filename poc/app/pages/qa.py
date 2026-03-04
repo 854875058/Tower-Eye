@@ -952,11 +952,20 @@ def qa_page():
                 result_holder: List = []
                 error_holder: List = []
 
+                # 生成 trace_id
+                from poc.qa.trace import get_trace_manager
+                trace_mgr = get_trace_manager()
+                trace_id = None
+                if trace_mgr:
+                    from poc.qa.trace import QueryTrace
+                    trace = QueryTrace(question=agent_question, user_id="nicegui_user")
+                    trace_id = trace.trace_id
+
                 def _run_agent():
                     old_stdout = sys.stdout
                     sys.stdout = _StdoutCapture(old_stdout, log_q)
                     try:
-                        r = agent.query(agent_question, user_id="nicegui_user")
+                        r = agent.query(agent_question, user_id="nicegui_user", trace_id=trace_id)
                         result_holder.append(r)
                     except Exception as e:
                         error_holder.append(e)
