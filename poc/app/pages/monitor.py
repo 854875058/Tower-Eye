@@ -6,6 +6,11 @@ from poc.app.pages.shared import (
     get_trace_manager, get_tool_registry,
 )
 
+try:
+    from poc.infra.metrics import get_metrics_collector
+except ImportError:
+    get_metrics_collector = lambda: None
+
 
 @ui.page('/monitor')
 def monitor_page():
