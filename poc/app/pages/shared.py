@@ -38,6 +38,18 @@ except ImportError as _ie:
     ModelManager = None  # type: ignore
     get_metrics_collector = lambda: None  # type: ignore
     get_conversation_manager = lambda: None  # type: ignore
+    get_trace_manager = lambda: None  # type: ignore
+    get_tool_registry = lambda: None  # type: ignore
+    QueryTrace = None  # type: ignore
+    create_agent = lambda *args, **kwargs: None  # type: ignore
+    init_trace_manager = lambda *args, **kwargs: None  # type: ignore
+    init_tool_registry = lambda *args, **kwargs: None  # type: ignore
+    init_conversation_manager = lambda *args, **kwargs: None  # type: ignore
+    init_metrics_collector = lambda *args, **kwargs: None  # type: ignore
+    resolve_path = lambda x: Path(x)  # type: ignore
+    hybrid_search = lambda *args, **kwargs: None  # type: ignore
+    build_asset_id_filter = lambda *args, **kwargs: None  # type: ignore
+    get_duckdb_engine = lambda *args, **kwargs: None  # type: ignore
     print(f"Warning: backend import failed: {_ie}")
 
 
