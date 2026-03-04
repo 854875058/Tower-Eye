@@ -35,6 +35,7 @@ class AgentState(TypedDict):
     question: str  # 用户问题
     config: Dict  # 配置
     db_path: str  # 数据库路径
+    trace_id: Optional[str]  # 追踪ID（用于指标收集）
 
     # 中间状态
     intent: Optional[str]  # 查询意图
