@@ -30,10 +30,12 @@ try:
     from poc.search.model_manager import ModelManager
     from poc.search.query import hybrid_search, build_asset_id_filter
     from poc.search.duckdb_engine import get_duckdb_engine
+    from poc.infra.metrics import init_metrics_collector, get_metrics_collector
     config = load_yaml("poc/config/poc.yaml")
 except ImportError as _ie:
     config = {}
     ModelManager = None  # type: ignore
+    get_metrics_collector = lambda: None  # type: ignore
     print(f"Warning: backend import failed: {_ie}")
 
 
