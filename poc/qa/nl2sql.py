@@ -611,7 +611,8 @@ def call_llm_fix_sql(question: str, failed_sql: str, error_msg: str,
         "请修正 SQL 并直接输出 JSON。"
     )
 
-    content = _call_llm_chat(api_key, url, model, timeout, system_prompt, user_prompt)
+    content = _call_llm_chat(api_key, url, model, timeout, system_prompt, user_prompt,
+                             purpose="fix_sql", trace_id=trace_id)
     obj = _parse_llm_json(content)
 
     intent = obj.get("intent", "list")
