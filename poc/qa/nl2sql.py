@@ -522,7 +522,7 @@ def _try_sql_cache(text: str, rule_plan: QueryPlan) -> Optional[QueryPlan]:
     )
 
 
-def build_query_plan(text: str, config: Dict) -> QueryPlan:
+def build_query_plan(text: str, config: Dict, trace_id: Optional[str] = None) -> QueryPlan:
     """构建查询计划: 根据配置选择规则引擎或 DeepSeek LLM。"""
 
     llm_cfg = config.get("llm", {})
@@ -554,7 +554,7 @@ def build_query_plan(text: str, config: Dict) -> QueryPlan:
 
         try:
             print(f"[build_query_plan] 调用 LLM ({mode} 模式)...")
-            llm_plan = _call_deepseek_nl2sql(text, config, rule_plan)
+            llm_plan = _call_deepseek_nl2sql(text, config, rule_plan, trace_id=trace_id)
             print(f"[build_query_plan] LLM 调用成功, intent={llm_plan.intent}")
             return _auto_correct_intent(llm_plan)
         except Exception as e:
