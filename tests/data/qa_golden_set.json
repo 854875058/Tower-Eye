@@ -1,0 +1,82 @@
+[
+  {
+    "id": 1,
+    "question": "按街道统计最近30天各类告警数量",
+    "expected_intent": "count",
+    "expected_sql_pattern": "SELECT.*GROUP BY.*town_name",
+    "expected_has_time_filter": true,
+    "category": "统计分析"
+  },
+  {
+    "id": 2,
+    "question": "查询最近20条车辆闯入告警的详细信息",
+    "expected_intent": "list",
+    "expected_sql_pattern": "SELECT.*LIMIT 20",
+    "expected_has_time_filter": false,
+    "category": "详细查询"
+  },
+  {
+    "id": 3,
+    "question": "统计各设备触发告警次数最多的TOP10",
+    "expected_intent": "count",
+    "expected_sql_pattern": "SELECT.*COUNT.*GROUP BY.*device_name.*LIMIT 10",
+    "expected_has_time_filter": false,
+    "category": "统计分析"
+  },
+  {
+    "id": 4,
+    "question": "查询置信度大于0.9的高置信告警",
+    "expected_intent": "list",
+    "expected_sql_pattern": "WHERE.*confidence_level.*>.*0.9",
+    "expected_has_time_filter": false,
+    "category": "详细查询"
+  },
+  {
+    "id": 5,
+    "question": "找红色挖掘机的图片",
+    "expected_intent": "search",
+    "expected_sql_pattern": null,
+    "expected_has_time_filter": false,
+    "category": "视觉搜索"
+  },
+  {
+    "id": 6,
+    "question": "按告警类型统计最近7天的数量分布",
+    "expected_intent": "count",
+    "expected_sql_pattern": "SELECT.*event_type.*COUNT.*GROUP BY",
+    "expected_has_time_filter": true,
+    "category": "统计分析"
+  },
+  {
+    "id": 7,
+    "question": "查询最近24小时的所有告警",
+    "expected_intent": "list",
+    "expected_sql_pattern": "WHERE.*alarm_time",
+    "expected_has_time_filter": true,
+    "category": "详细查询"
+  },
+  {
+    "id": 8,
+    "question": "按区县统计告警数量排名",
+    "expected_intent": "count",
+    "expected_sql_pattern": "SELECT.*county_name.*COUNT.*GROUP BY.*ORDER BY",
+    "expected_has_time_filter": false,
+    "category": "统计分析"
+  },
+  {
+    "id": 9,
+    "question": "找工地上有卡车的图片",
+    "expected_intent": "search",
+    "expected_sql_pattern": null,
+    "expected_has_time_filter": false,
+    "category": "视觉搜索"
+  },
+  {
+    "id": 10,
+    "question": "查询今天的车辆闯入告警",
+    "expected_intent": "list",
+    "expected_sql_pattern": "WHERE.*event_type.*车辆闯入.*alarm_time",
+    "expected_has_time_filter": true,
+    "category": "详细查询"
+  }
+]
