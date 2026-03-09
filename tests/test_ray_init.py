@@ -238,3 +238,44 @@ def test_init_ray_starts_local_cluster_when_no_existing_cluster(monkeypatch):
         "include_dashboard": False,
     }]
     assert restored == [True]
+
+
+def test_init_ray_starts_local_cluster_with_dashboard_when_module_available(monkeypatch):
+    dummy_ray = DummyRay()
+    monkeypatch.setattr(ray_init, "ray", dummy_ray)
+    monkeypatch.setattr(ray_init, "_RAY_AVAILABLE", True)
+    monkeypatch.setattr(
+        ray_init,
+        "probe_existing_ray_cluster",
+        lambda: ray_init.RayClusterProbeResult(exists=False, reason="cli_missing"),
+    )
+    restored = []
+    monkeypatch.setattr(ray_init, "_restore_sigterm", lambda: restored.append(True))
+
+    imported = []
+
+    def fake_import_module(name):
+        imported.append(name)
+        assert name == "ray.dashboard"
+        return object()
+
+    monkeypatch.setattr(ray_init.importlib, "import_module", fake_import_module)
+
+    ok = ray_init.init_ray({"ray": {
+        "enabled": True,
+        "address": "auto",
+        "namespace": "tower-eye",
+        "num_gpus": 2,
+        "dashboard_port": 9999,
+    }})
+
+    assert ok is True
+    assert imported == ["ray.dashboard"]
+    assert dummy_ray.init_calls == [{
+        "namespace": "tower-eye",
+        "ignore_reinit_error": True,
+        "num_gpus": 2,
+        "include_dashboard": True,
+        "dashboard_port": 9999,
+    }]
+    assert restored == [True]
