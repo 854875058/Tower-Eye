@@ -162,7 +162,10 @@ def init_ray(config: dict) -> bool:
             except Exception as e:
                 print(f"[Ray] 连接现有集群失败: {e}")
                 print("[Ray] 回退启动新的本地 Ray 集群...")
-                return _init_local_ray_cluster(namespace, num_gpus, dashboard_port)
+                ok = _init_local_ray_cluster(namespace, num_gpus, dashboard_port)
+                if not ok:
+                    print("[Ray] 自动连接与本地回退均失败，Ray 初始化终止")
+                return ok
         else:
             reason_messages = {
                 "cli_missing": "ray CLI 未安装或不可用",
