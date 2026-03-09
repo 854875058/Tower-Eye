@@ -5,7 +5,9 @@ Ray 集群初始化与状态管理
 - get_ray_status()  — 获取集群状态（用于监控页面展示）
 - create_actors(config) — 创建 GPU Actor 实例
 """
+import importlib
 import signal
+import subprocess
 
 try:
     import ray
@@ -27,6 +29,24 @@ def _restore_sigterm():
 def _get_ray_config(config: dict) -> dict:
     """从 poc.yaml 提取 ray 配置段"""
     return config.get("ray", {})
+
+
+_RAY_STATUS_TIMEOUT_SECONDS = 2
+
+
+def _detect_existing_ray_cluster() -> bool:
+    try:
+        result = subprocess.run(
+            ["ray", "status"],
+            capture_output=True,
+            text=True,
+            timeout=_RAY_STATUS_TIMEOUT_SECONDS,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+    except Exception:
+        return False
+    return result.returncode == 0
 
 
 def init_ray(config: dict) -> bool:
@@ -62,20 +82,7 @@ def init_ray(config: dict) -> bool:
 
     # 如果是 auto 模式，需要判断是启动新集群还是连接现有集群
     if address == "auto":
-        # 检查是否有现有集群正在运行
-        import subprocess
-        try:
-            result = subprocess.run(
-                ["ray", "status"],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-            cluster_exists = result.returncode == 0
-        except:
-            cluster_exists = False
-
-        if cluster_exists:
+        if _detect_existing_ray_cluster():
             # 连接现有集群（不能传 num_gpus）
             print("[Ray] 检测到现有 Ray 集群，正在连接...")
             try:
@@ -103,7 +110,6 @@ def init_ray(config: dict) -> bool:
 
                 # dashboard 需要额外依赖，缺失时自动跳过
                 try:
-                    import importlib
                     importlib.import_module("ray.dashboard")
                     init_kwargs["dashboard_port"] = dashboard_port
                     init_kwargs["include_dashboard"] = True
