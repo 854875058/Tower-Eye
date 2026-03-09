@@ -9,12 +9,15 @@ class DummyRay:
     def __init__(self):
         self.init_calls = []
         self._initialized = False
+        self.failures = []
 
     def is_initialized(self):
         return self._initialized
 
     def init(self, **kwargs):
         self.init_calls.append(kwargs)
+        if self.failures:
+            raise self.failures.pop(0)
         self._initialized = True
 
     def shutdown(self):
@@ -109,6 +112,52 @@ def test_init_ray_connects_existing_cluster(monkeypatch):
         "ignore_reinit_error": True,
     }]
     assert restored == [True]
+
+
+def test_init_ray_falls_back_to_local_cluster_when_auto_connect_fails(monkeypatch, capsys):
+    dummy_ray = DummyRay()
+    dummy_ray.failures = [RuntimeError("auto connect boom")]
+    monkeypatch.setattr(ray_init, "ray", dummy_ray)
+    monkeypatch.setattr(ray_init, "_RAY_AVAILABLE", True)
+    monkeypatch.setattr(
+        ray_init,
+        "probe_existing_ray_cluster",
+        lambda: ray_init.RayClusterProbeResult(exists=True, reason="ok"),
+    )
+    restored = []
+    monkeypatch.setattr(ray_init, "_restore_sigterm", lambda: restored.append(True))
+
+    def fake_import_module(name):
+        raise ModuleNotFoundError(name)
+
+    monkeypatch.setattr(ray_init.importlib, "import_module", fake_import_module)
+
+    ok = ray_init.init_ray({"ray": {
+        "enabled": True,
+        "address": "auto",
+        "namespace": "tower-eye",
+        "num_gpus": 2,
+        "dashboard_port": 9999,
+    }})
+
+    assert ok is True
+    assert dummy_ray.init_calls == [
+        {
+            "address": "auto",
+            "namespace": "tower-eye",
+            "ignore_reinit_error": True,
+        },
+        {
+            "namespace": "tower-eye",
+            "ignore_reinit_error": True,
+            "num_gpus": 2,
+            "include_dashboard": False,
+        },
+    ]
+    assert restored == [True]
+    captured = capsys.readouterr()
+    assert "连接现有集群失败" in captured.out
+    assert "回退启动新的本地 Ray 集群" in captured.out
 
 
 def test_init_ray_starts_local_cluster_when_no_existing_cluster(monkeypatch):
