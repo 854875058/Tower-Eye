@@ -1,5 +1,4 @@
 import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -22,7 +21,7 @@ class DummyRay:
         self._initialized = False
 
 
-def test_detect_existing_ray_cluster_found(monkeypatch):
+def test_probe_existing_ray_cluster_found(monkeypatch):
     calls = []
 
     def fake_run(cmd, capture_output, text, timeout):
@@ -30,24 +29,74 @@ def test_detect_existing_ray_cluster_found(monkeypatch):
         return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
 
     monkeypatch.setattr(ray_init.subprocess, "run", fake_run)
-    assert ray_init._detect_existing_ray_cluster() is True
+
+    result = ray_init.probe_existing_ray_cluster()
+
+    assert result == ray_init.RayClusterProbeResult(
+        exists=True,
+        reason="ok",
+        returncode=0,
+        stdout="ok",
+        stderr="",
+    )
     assert calls == [(["ray", "status"], ray_init._RAY_STATUS_TIMEOUT_SECONDS)]
 
 
-@pytest.mark.parametrize("exc", [FileNotFoundError(), subprocess.TimeoutExpired(cmd=["ray", "status"], timeout=2)])
-def test_detect_existing_ray_cluster_handles_missing_cli_and_timeout(monkeypatch, exc):
+@pytest.mark.parametrize(
+    ("exc", "reason"),
+    [
+        (FileNotFoundError(), "cli_missing"),
+        (subprocess.TimeoutExpired(cmd=["ray", "status"], timeout=2), "timeout"),
+        (RuntimeError("boom"), "exception:RuntimeError"),
+    ],
+)
+def test_probe_existing_ray_cluster_handles_failures(monkeypatch, exc, reason):
     def fake_run(cmd, capture_output, text, timeout):
         raise exc
 
     monkeypatch.setattr(ray_init.subprocess, "run", fake_run)
-    assert ray_init._detect_existing_ray_cluster() is False
+
+    result = ray_init.probe_existing_ray_cluster()
+
+    assert result.exists is False
+    assert result.reason == reason
+
+
+def test_probe_existing_ray_cluster_handles_nonzero_exit(monkeypatch):
+    def fake_run(cmd, capture_output, text, timeout):
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="cluster not found")
+
+    monkeypatch.setattr(ray_init.subprocess, "run", fake_run)
+
+    result = ray_init.probe_existing_ray_cluster()
+
+    assert result == ray_init.RayClusterProbeResult(
+        exists=False,
+        reason="nonzero_exit",
+        returncode=1,
+        stdout="",
+        stderr="cluster not found",
+    )
+
+
+def test_detect_existing_ray_cluster_delegates_to_probe(monkeypatch):
+    monkeypatch.setattr(
+        ray_init,
+        "probe_existing_ray_cluster",
+        lambda: ray_init.RayClusterProbeResult(exists=True, reason="ok"),
+    )
+    assert ray_init._detect_existing_ray_cluster() is True
 
 
 def test_init_ray_connects_existing_cluster(monkeypatch):
     dummy_ray = DummyRay()
     monkeypatch.setattr(ray_init, "ray", dummy_ray)
     monkeypatch.setattr(ray_init, "_RAY_AVAILABLE", True)
-    monkeypatch.setattr(ray_init, "_detect_existing_ray_cluster", lambda: True)
+    monkeypatch.setattr(
+        ray_init,
+        "probe_existing_ray_cluster",
+        lambda: ray_init.RayClusterProbeResult(exists=True, reason="ok"),
+    )
     restored = []
     monkeypatch.setattr(ray_init, "_restore_sigterm", lambda: restored.append(True))
 
@@ -66,7 +115,11 @@ def test_init_ray_starts_local_cluster_when_no_existing_cluster(monkeypatch):
     dummy_ray = DummyRay()
     monkeypatch.setattr(ray_init, "ray", dummy_ray)
     monkeypatch.setattr(ray_init, "_RAY_AVAILABLE", True)
-    monkeypatch.setattr(ray_init, "_detect_existing_ray_cluster", lambda: False)
+    monkeypatch.setattr(
+        ray_init,
+        "probe_existing_ray_cluster",
+        lambda: ray_init.RayClusterProbeResult(exists=False, reason="cli_missing"),
+    )
     restored = []
     monkeypatch.setattr(ray_init, "_restore_sigterm", lambda: restored.append(True))
 

@@ -8,6 +8,7 @@ Ray 集群初始化与状态管理
 import importlib
 import signal
 import subprocess
+from dataclasses import dataclass
 
 try:
     import ray
@@ -15,6 +16,15 @@ try:
 except ImportError:
     ray = None
     _RAY_AVAILABLE = False
+
+
+@dataclass(frozen=True)
+class RayClusterProbeResult:
+    exists: bool
+    reason: str
+    returncode: int | None = None
+    stdout: str = ""
+    stderr: str = ""
 
 
 def _restore_sigterm():
@@ -34,7 +44,8 @@ def _get_ray_config(config: dict) -> dict:
 _RAY_STATUS_TIMEOUT_SECONDS = 2
 
 
-def _detect_existing_ray_cluster() -> bool:
+def probe_existing_ray_cluster() -> RayClusterProbeResult:
+    """探测当前环境里是否存在可连接的 Ray 集群。"""
     try:
         result = subprocess.run(
             ["ray", "status"],
@@ -42,11 +53,35 @@ def _detect_existing_ray_cluster() -> bool:
             text=True,
             timeout=_RAY_STATUS_TIMEOUT_SECONDS,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
-    except Exception:
-        return False
-    return result.returncode == 0
+    except FileNotFoundError:
+        return RayClusterProbeResult(exists=False, reason="cli_missing")
+    except subprocess.TimeoutExpired:
+        return RayClusterProbeResult(exists=False, reason="timeout")
+    except Exception as exc:
+        return RayClusterProbeResult(exists=False, reason=f"exception:{type(exc).__name__}")
+
+    stdout = (result.stdout or "").strip()
+    stderr = (result.stderr or "").strip()
+    if result.returncode == 0:
+        return RayClusterProbeResult(
+            exists=True,
+            reason="ok",
+            returncode=result.returncode,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    return RayClusterProbeResult(
+        exists=False,
+        reason="nonzero_exit",
+        returncode=result.returncode,
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+
+def _detect_existing_ray_cluster() -> bool:
+    return probe_existing_ray_cluster().exists
 
 
 def init_ray(config: dict) -> bool:
@@ -82,7 +117,8 @@ def init_ray(config: dict) -> bool:
 
     # 如果是 auto 模式，需要判断是启动新集群还是连接现有集群
     if address == "auto":
-        if _detect_existing_ray_cluster():
+        probe = probe_existing_ray_cluster()
+        if probe.exists:
             # 连接现有集群（不能传 num_gpus）
             print("[Ray] 检测到现有 Ray 集群，正在连接...")
             try:
@@ -99,8 +135,15 @@ def init_ray(config: dict) -> bool:
                 print(f"[Ray] 连接现有集群失败: {e}")
                 return False
         else:
-            # 启动新的本地集群
-            print("[Ray] 未检测到现有集群，启动新的本地 Ray 集群...")
+            reason_messages = {
+                "cli_missing": "ray CLI 未安装或不可用",
+                "timeout": f"ray status 超时({ _RAY_STATUS_TIMEOUT_SECONDS }s)",
+                "nonzero_exit": f"ray status 返回非 0 ({probe.returncode})",
+            }
+            detail = reason_messages.get(probe.reason, f"探测异常: {probe.reason}")
+            if probe.stderr:
+                detail = f"{detail}; stderr={probe.stderr}"
+            print(f"[Ray] 未检测到现有集群（{detail}），启动新的本地 Ray 集群...")
             try:
                 init_kwargs = {
                     "namespace": namespace,
