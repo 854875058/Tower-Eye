@@ -3,9 +3,17 @@
 /logs
 *.db
 *.log
-__pycache__
+__pycache__/
 *.pyc
+*.pyo
+*.pyd
 .DS_Store
+
+# 虚拟环境
+venv/
+.venv/
+env/
+ENV/
 *.pt
 *.pth
 *.onnx
@@ -41,11 +49,17 @@ __pycache__
 .idea/
 .vscode/
 *.iml
+*.swo
 
 # 临时文件
 *.cache
 *.tmp
 *.swp
+
+# 测试和覆盖率
+.pytest_cache/
+.coverage
+htmlcov/
 
 # 含敏感信息的配置文件（使用 poc.yaml.example 作为模板）
 poc/config/poc.yaml
