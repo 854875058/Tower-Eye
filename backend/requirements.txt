@@ -1,8 +1,12 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
-python-multipart==0.0.6
-numpy==1.24.3
-sentence-transformers==2.2.2
-lancedb==0.3.3
-Pillow==10.1.0
+# Backend 最小依赖子集
+# 仅包含 FastAPI 后端服务运行所需的核心依赖
+# 完整依赖请参考根目录 requirements.txt
+
+fastapi>=0.111.0
+uvicorn>=0.30.0
+pydantic>=2.5.0
+python-multipart>=0.0.9
+numpy<2
+sentence-transformers
+lancedb>=0.6.0
+pillow

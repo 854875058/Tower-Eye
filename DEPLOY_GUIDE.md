@@ -45,11 +45,13 @@ git clone <your-repo-url> multimodal-search
 cd multimodal-search
 ```
 
-#### 4. 安装后端依赖
+#### 4. 安装依赖
 ```bash
-cd backend
+# 安装完整依赖（推荐，包含所有功能）
 pip3 install -r requirements.txt
-cd ..
+
+# 或仅安装后端最小依赖（仅 API 服务）
+pip3 install -r backend/requirements.txt
 ```
 
 #### 5. 安装前端依赖
@@ -244,8 +246,11 @@ sudo chown -R $USER:$USER ~/multimodal-search
 
 ### 3. 依赖安装失败
 ```bash
-# Python 依赖
+# Python 依赖（完整版）
 pip3 install --upgrade pip
+pip3 install -r requirements.txt --no-cache-dir
+
+# Python 依赖（后端最小版）
 pip3 install -r backend/requirements.txt --no-cache-dir
 
 # Node.js 依赖

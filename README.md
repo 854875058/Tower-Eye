@@ -106,8 +106,11 @@ python -m venv .venv
 # Linux/Mac
 source .venv/bin/activate
 
-# 安装依赖
+# 安装完整依赖（推荐）
 pip install -r requirements.txt
+
+# 或仅安装后端最小依赖
+pip install -r backend/requirements.txt
 ```
 
 ### 配置

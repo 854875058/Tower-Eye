@@ -1,20 +1,41 @@
-python-docx>=1.1.0
-PyYAML>=6.0.1
-requests>=2.31.0
+# Tower-Eye 项目完整依赖配置
+# 包含所有模块（前端、后端、数据处理、AI 模型）的依赖
+
+# === 核心 Web 框架 ===
 fastapi>=0.111.0
 uvicorn>=0.30.0
-jinja2>=3.1.3
 python-multipart>=0.0.9
+jinja2>=3.1.3
+
+# === 数据处理 ===
 numpy<2
-pillow
+pandas>=2.0.0
+PyYAML>=6.0.1
+python-docx>=1.1.0
+requests>=2.31.0
+
+# === 数据库与向量存储 ===
+lancedb>=0.6.0
+duckdb>=1.0.0
+faiss-cpu
+
+# === AI 模型与嵌入 ===
+sentence-transformers
 ultralytics
 opencv-python
-sentence-transformers
-faiss-cpu
-streamlit
+pillow
+
+# === Agent 编排 ===
 langgraph>=0.2.0
+
+# === UI 框架 ===
 nicegui>=1.4.0
+streamlit
+
+# === 分布式计算 ===
 ray[default]>=2.10.0
 getdaft>=0.3.0
-duckdb>=1.0.0
-lancedb>=0.6.0
+
+# === 开发与测试 ===
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
