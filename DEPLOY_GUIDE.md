@@ -61,11 +61,11 @@ cd ..
 
 #### 6. 启动服务
 ```bash
-# 给脚本添加执行权限
-chmod +x start_all.sh
+# 使用统一运维脚本启动
+python3 bin/manage.py start
 
-# 一键启动（使用 tmux 或 screen）
-./start_all.sh
+# 或使用部署脚本准备生产环境
+bash bin/deploy.sh
 ```
 
 #### 7. 访问应用
@@ -184,21 +184,19 @@ sudo ufw enable
 
 ```bash
 # 启动服务
-./start_all.sh
+python3 bin/manage.py start
 
 # 停止服务
-./stop_all.sh
+python3 bin/manage.py stop
 
-# 查看后端日志
-tail -f logs/backend.log
+# 重启服务
+python3 bin/manage.py restart
 
-# 查看前端日志
-tail -f logs/frontend.log
+# 查看状态
+python3 bin/manage.py status
 
-# 查看 tmux 会话
-tmux ls
-tmux attach -t multimodal-backend
-tmux attach -t multimodal-frontend
+# 查看日志
+tail -f logs/app.log
 ```
 
 ### 生产环境

@@ -70,49 +70,36 @@
 ### 方式一：一键启动（推荐）
 
 ```bash
-# 给脚本添加执行权限（首次运行）
-chmod +x start_all.sh
+# 使用统一运维脚本启动
+python3 bin/manage.py start
 
-# 一键启动前后端服务
-./start_all.sh
+# 停止服务
+python3 bin/manage.py stop
 
-# 停止所有服务
-./stop_all.sh
+# 查看状态
+python3 bin/manage.py status
 ```
 
-### 方式二：分别启动
+### 方式二：生产环境部署
 
-**启动后端：**
+**使用部署脚本：**
 ```bash
-# 给脚本添加执行权限（首次运行）
-chmod +x start_backend.sh
+# 准备生产环境配置
+bash bin/deploy.sh
 
-# 启动后端服务
-./start_backend.sh
+# 按照提示完成 systemd 服务配置
+```
 
-# 或者手动启动
-cd backend
+**手动启动：**
+```bash
+# 确保配置文件存在
+cp poc/config/poc.yaml.example poc/config/poc.yaml
+
+# 安装依赖
 pip3 install -r requirements.txt
-python3 main.py
 
-# 服务将运行在 http://localhost:8000
-# API 文档: http://localhost:8000/docs
-```
-
-**启动前端：**
-```bash
-# 给脚本添加执行权限（首次运行）
-chmod +x start_frontend.sh
-
-# 启动前端应用
-./start_frontend.sh
-
-# 或者手动启动
-cd frontend
-npm install
-npm start
-
-# 应用将运行在 http://localhost:3000
+# 启动应用
+python3 poc/app/app_ui.py
 ```
 
 ### 3. 访问应用
@@ -121,38 +108,22 @@ npm start
 
 ### 4. 服务管理
 
-**使用 tmux（推荐）：**
+**使用统一运维脚本：**
 ```bash
-# 查看后端服务
-tmux attach -t multimodal-backend
-
-# 查看前端服务
-tmux attach -t multimodal-frontend
+# 启动服务
+python3 bin/manage.py start
 
 # 停止服务
-./stop_all.sh
-```
+python3 bin/manage.py stop
 
-**使用 screen：**
-```bash
-# 查看后端服务
-screen -r multimodal-backend
+# 重启服务
+python3 bin/manage.py restart
 
-# 查看前端服务
-screen -r multimodal-frontend
+# 查看状态
+python3 bin/manage.py status
 
-# 停止服务
-./stop_all.sh
-```
-
-**后台运行：**
-```bash
 # 查看日志
-tail -f logs/backend.log
-tail -f logs/frontend.log
-
-# 停止服务
-./stop_all.sh
+tail -f logs/app.log
 ```
 
 ## 📝 API 接口文档
@@ -265,11 +236,8 @@ const api = axios.create({
 ### 方式一：自动化部署（推荐）
 
 ```bash
-# 给部署脚本添加执行权限
-chmod +x deploy.sh
-
-# 运行部署脚本（会自动安装依赖、构建前端、配置服务）
-sudo ./deploy.sh
+# 运行部署脚本（会自动安装依赖、配置服务）
+bash bin/deploy.sh
 
 # 按照脚本提示完成后续配置
 ```
