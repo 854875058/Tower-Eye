@@ -112,6 +112,12 @@ pip install -r requirements.txt
 
 ### 配置
 
+复制配置模板并编辑：
+
+```bash
+cp poc/config/poc.yaml.example poc/config/poc.yaml
+```
+
 编辑 `poc/config/poc.yaml`：
 
 ```yaml
