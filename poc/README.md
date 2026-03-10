@@ -12,6 +12,15 @@
 - `poc/docs/` 文档与报告
 
 ## 快速开始
+
+### 配置准备
+首次使用前，需要复制配置模板并根据实际环境修改：
+```bash
+cp poc/config/poc.yaml.example poc/config/poc.yaml
+```
+然后编辑 `poc/config/poc.yaml`，配置数据路径、模型服务地址、API Key 等参数。
+
+### 数据处理流程
 1. 准备离线样本
    - 图片：`poc/data/raw/images/`
    - 视频：`poc/data/raw/videos/`
