@@ -58,7 +58,7 @@ def auto_detect_batch_size() -> int:
             return 64
         else:
             return 128  # 24GB+显存
-    except:
+    except Exception:
         return 32  # 默认值
 
 
