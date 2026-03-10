@@ -109,7 +109,7 @@ def load_model(model_name: str, cache_dir: Optional[str] = None, hf_mirror: Opti
             # 如果返回 None，通过编码一个测试样本获取维度
             test_vec = model.encode("test", convert_to_numpy=True)
             dims = test_vec.shape[0]
-    except:
+    except Exception:
         # 备用方案：编码测试样本
         test_vec = model.encode("test", convert_to_numpy=True)
         dims = test_vec.shape[0]
@@ -174,7 +174,8 @@ def embed_images(model, images: List[Path], batch_size: int = 32) -> List[tuple]
                     image = Image.open(path).convert("RGB")
                     vec = model.encode(image, convert_to_numpy=True, normalize_embeddings=True)
                     outputs.append((path, vec))
-                except:
+                except Exception:
+                    print(f"  跳过失败图片: {path}")
                     continue
 
         # 显示进度
