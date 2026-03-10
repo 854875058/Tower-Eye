@@ -190,3 +190,23 @@ cd frontend && npm install && npm start
 ## License
 
 MIT
+
+## 开发与测试
+
+### 配置模板完整性检查
+
+为确保 `poc/config/poc.yaml.example` 配置模板与代码实际需要的配置项保持同步，项目提供了自动化检查脚本：
+
+```bash
+# 检查配置模板完整性
+python3 bin/check_config_template.py
+
+# 严格模式（发现缺失项立即退出，返回非零状态码）
+python3 bin/check_config_template.py --strict
+
+# 运行 pytest 测试
+python3 tests/test_config_template.py
+```
+
+建议在 CI 流程中集成此检查，确保配置模板始终与代码保持一致。
+
