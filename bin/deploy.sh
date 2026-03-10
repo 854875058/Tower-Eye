@@ -1,5 +1,16 @@
 #!/bin/bash
 
+# 检查配置文件是否存在
+if [ ! -f "poc/config/poc.yaml" ]; then
+    echo "错误: 配置文件不存在"
+    echo ""
+    echo "请先复制并配置 poc.yaml："
+    echo "  cp poc/config/poc.yaml.example poc/config/poc.yaml"
+    echo ""
+    echo "然后编辑 poc/config/poc.yaml，填写必要的配置项（如 API 密钥、模型路径等）"
+    exit 1
+fi
+
 echo "========================================"
 echo "多模态检索系统 - 生产环境部署"
 echo "========================================"
