@@ -3,6 +3,9 @@
 # 一键部署到服务器 10.132.19.82
 # 使用方法: ./deploy_to_server.sh
 
+# 切换到项目根目录
+cd "$(dirname "$0")/.." || exit 1
+
 # 检查配置文件是否存在
 if [ ! -f "poc/config/poc.yaml" ]; then
     echo "错误: 配置文件不存在"

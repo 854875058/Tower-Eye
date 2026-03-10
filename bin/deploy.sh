@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# 切换到项目根目录
+cd "$(dirname "$0")/.." || exit 1
+
 # 检查配置文件是否存在
 if [ ! -f "poc/config/poc.yaml" ]; then
     echo "错误: 配置文件不存在"
