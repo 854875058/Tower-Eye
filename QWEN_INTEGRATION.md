@@ -1,83 +1,58 @@
-# Qwen3-VL 接入方案
+# Qwen3-VL 集成说明
 
-## 1. 技术选型
+当前仓库中的 Qwen3-VL 集成已经落在 `poc/` 主系统里，不再依赖已移除的 `backend/` 或 `frontend/` 壳层。
 
-### Qwen3-VL-Embedding
-- **模型**: Qwen/Qwen2-VL-7B-Instruct 或 Qwen/Qwen2-VL-2B-Instruct
-- **用途**: 生成图像和文本的向量表示
-- **优势**:
-  - 更强的中文理解能力
-  - 更好的细粒度特征提取
-  - 支持高分辨率图像
+## 代码位置
 
-### Qwen3-VL-Reranker
-- **用途**: 对初步检索结果进行重排序
-- **优势**: 提高检索准确率
+- `poc/search/qwen_embedding.py`
+- `poc/search/qwen_reranker.py`
+- `poc/search/model_manager.py`
+- `poc/infra/ray_actors.py`
+- `poc/app/pages/search.py`
+- `poc/qa/agent.py`
 
-## 2. 架构设计
+## 配置项
 
-```
-查询流程：
-1. 用户输入文本/图像
-2. Qwen3-VL-Embedding 生成查询向量
-3. LanceDB 向量检索（召回 top-100）
-4. 应用空间+时序过滤
-5. Qwen3-VL-Reranker 重排序（精排 top-20）
-6. 返回最终结果
-```
+在 `poc/config/poc.yaml` 中配置：
 
-## 3. 实施步骤
-
-### 步骤1：安装依赖
-```bash
-pip install transformers>=4.37.0
-pip install torch torchvision
-pip install qwen-vl-utils
-```
-
-### 步骤2：下载模型
-```bash
-# 使用 HuggingFace 镜像
-export HF_ENDPOINT=https://hf-mirror.com
-
-# 下载 Qwen2-VL-2B（较小，适合测试）
-huggingface-cli download Qwen/Qwen2-VL-2B-Instruct --local-dir models/Qwen2-VL-2B-Instruct
-```
-
-### 步骤3：创建 Embedding 服务
-创建 `poc/search/qwen_embedding.py`
-
-### 步骤4：创建 Reranker 服务
-创建 `poc/search/qwen_reranker.py`
-
-### 步骤5：修改检索流程
-更新 `backend/main.py` 的检索接口
-
-## 4. 性能对比
-
-| 模型 | 向量维度 | 速度 | 准确率 | 显存占用 |
-|------|---------|------|--------|---------|
-| CLIP-ViT-L-14 | 768 | 快 | 中 | ~2GB |
-| Qwen2-VL-2B | 1536 | 中 | 高 | ~8GB |
-| Qwen2-VL-7B | 3584 | 慢 | 很高 | ~16GB |
-
-## 5. 兼容性方案
-
-支持两种模式：
-- **CLIP 模式**（默认）：快速、轻量
-- **Qwen3-VL 模式**：高精度、重量级
-
-通过配置文件切换：
 ```yaml
 search:
-  embedding_model: "qwen"  # 或 "clip"
+  embedding_model: "qwen"
+  qwen_api_url: "http://<host>:8010"
+  qwen_timeout: 30
   reranker_enabled: true
+  reranker_api_url: "http://<host>:8011"
+  reranker_timeout: 60
 ```
 
-## 6. 预期效果
+## 工作方式
 
-- ✅ 中文查询准确率提升 20-30%
-- ✅ 细粒度特征识别能力增强
-- ✅ 支持更复杂的场景理解
-- ⚠️ 检索速度降低 2-3 倍
-- ⚠️ 显存需求增加 4-8 倍
+### Embedding
+
+- 文本检索时，由 `ModelManager` 选择 Qwen3-VL Embedding 客户端
+- 图像检索时，上传图片或视频抽帧后生成向量
+- 向量最终写入 LanceDB 的 `embeddings` 表
+
+### Reranker
+
+- 检索召回完成后，可选使用 Qwen3-VL Reranker 做二阶段精排
+- 精排逻辑主要接在 `poc/search/hybrid_search.py` 和搜索页面流程中
+
+### Agent
+
+- 对视觉描述类问题，Agent 会走向量检索路径
+- 对结构化统计或明细问题，Agent 走 DuckDB / NL2SQL 路径
+- list 查询完成后，还会做语义增强，补充向量匹配结果
+
+## 运行前检查
+
+- `qwen_api_url` 可访问
+- `reranker_api_url` 可访问
+- `poc/config/poc.yaml` 已创建
+- `python -m poc.pipeline.embed --config poc/config/poc.yaml` 已跑完
+
+## 建议
+
+- 不要把服务地址、密钥或 token 直接写死到代码中
+- 统一通过 `poc/config/poc.yaml` 或环境变量注入
+- 如果没有 Qwen 服务，可把 `embedding_model` 切回 `clip`
