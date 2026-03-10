@@ -37,7 +37,8 @@ def encode_image(image_path: str) -> str:
 
 def vllm_request(messages: List[Dict], max_tokens: int = 4096) -> str:
     """发送请求到VLLM API"""
-    url = f"{VLLM_BASE_URL}/v1/chat/completions"
+    # 使用新的 /v1/responses 协议路径，避免触发旧版兼容错误
+    url = f"{VLLM_BASE_URL}/v1/responses"
     headers = {
         "Authorization": f"Bearer {VLLM_API_KEY}",
         "Content-Type": "application/json"

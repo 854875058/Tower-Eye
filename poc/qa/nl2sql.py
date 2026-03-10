@@ -318,7 +318,8 @@ def _get_llm_config(config: Dict):
 
     base_url = os.getenv("DEEPSEEK_BASE_URL", llm_cfg.get("base_url", "https://api.deepseek.com"))
     model = os.getenv("DEEPSEEK_MODEL", llm_cfg.get("model", "deepseek-chat"))
-    url = base_url.rstrip("/") + "/v1/chat/completions"
+    # 使用新的 /v1/responses 协议路径，避免触发旧版兼容错误
+    url = base_url.rstrip("/") + "/v1/responses"
     timeout = llm_cfg.get("timeout", 30)
 
     return api_key, url, model, timeout
