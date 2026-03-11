@@ -23,10 +23,18 @@ def load_config() -> Dict[str, Any]:
         return yaml.safe_load(f)
 
 
-# VLLM配置
-VLLM_BASE_URL = os.environ.get("VLLM_BASE_URL", "https://uu663794-9881-faf0a188.bjb2.seetacloud.com:8443")
-VLLM_API_KEY = os.environ.get("VLLM_API_KEY", "sk-8fA3kP2QxR7mJ9WZC6dE0T1B4yH5VnL")
-VLLM_MODEL = os.environ.get("VLLM_MODEL", "/root/autodl-tmp/models/Qwen/Qwen3-VL-8B-Instruct")
+# VLLM配置 - 从环境变量读取
+VLLM_BASE_URL = os.environ.get("VLLM_BASE_URL")
+VLLM_API_KEY = os.environ.get("VLLM_API_KEY")
+VLLM_MODEL = os.environ.get("VLLM_MODEL")
+
+# 验证必需的环境变量
+if not VLLM_BASE_URL:
+    raise ValueError("环境变量 VLLM_BASE_URL 未设置，请在 .env 或系统环境中配置")
+if not VLLM_API_KEY:
+    raise ValueError("环境变量 VLLM_API_KEY 未设置，请在 .env 或系统环境中配置")
+if not VLLM_MODEL:
+    raise ValueError("环境变量 VLLM_MODEL 未设置，请在 .env 或系统环境中配置")
 
 
 def encode_image(image_path: str) -> str:
