@@ -115,6 +115,29 @@ pip install -r backend/requirements.txt
 
 ### 配置
 
+#### 1. 环境变量配置
+
+复制环境变量模板并编辑：
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env` 文件，配置 VLLM 服务（用于 VL 场景描述和自动标注功能）：
+
+```bash
+# VLLM 服务地址
+VLLM_BASE_URL=http://your-vllm-server:8000
+
+# VLLM API 密钥
+VLLM_API_KEY=your-api-key-here
+
+# VLLM 模型名称
+VLLM_MODEL=Qwen/Qwen2-VL-7B-Instruct
+```
+
+#### 2. 应用配置
+
 复制配置模板并编辑：
 
 ```bash

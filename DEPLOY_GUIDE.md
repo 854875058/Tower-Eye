@@ -45,7 +45,23 @@ git clone <your-repo-url> multimodal-search
 cd multimodal-search
 ```
 
-#### 4. 安装依赖
+#### 4. 配置环境变量
+```bash
+# 复制环境变量模板
+cp .env.example .env
+
+# 编辑环境变量文件
+nano .env
+```
+
+配置 VLLM 服务（用于 VL 场景描述和自动标注功能）：
+```bash
+VLLM_BASE_URL=http://your-vllm-server:8000
+VLLM_API_KEY=your-api-key-here
+VLLM_MODEL=Qwen/Qwen2-VL-7B-Instruct
+```
+
+#### 5. 安装依赖
 ```bash
 # 安装完整依赖（推荐，包含所有功能）
 pip3 install -r requirements.txt
@@ -54,14 +70,14 @@ pip3 install -r requirements.txt
 pip3 install -r backend/requirements.txt
 ```
 
-#### 5. 安装前端依赖
+#### 6. 安装前端依赖
 ```bash
 cd frontend
 npm install
 cd ..
 ```
 
-#### 6. 启动服务
+#### 7. 启动服务
 ```bash
 # 使用统一运维脚本启动
 python3 bin/manage.py start
@@ -70,7 +86,7 @@ python3 bin/manage.py start
 bash bin/deploy.sh
 ```
 
-#### 7. 访问应用
+#### 8. 访问应用
 - 前端: http://10.132.19.82:3000
 - 后端 API: http://10.132.19.82:8000
 - API 文档: http://10.132.19.82:8000/docs
