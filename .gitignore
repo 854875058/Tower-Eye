@@ -66,6 +66,11 @@ poc/config/poc.yaml
 .env
 nul
 
+# 前端环境变量文件（使用 frontend/.env.example 作为模板）
+frontend/.env.local
+frontend/.env.development
+frontend/.env.production
+
 # Qwen3-VL 模型文件和服务（部署在 GPU 服务器上）
 /qwen3-vl/models/
 /qwen3-vl/*.txt
