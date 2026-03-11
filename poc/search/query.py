@@ -53,7 +53,6 @@ def load_model(model_name: str, cache_dir: Optional[str] = None, hf_mirror: Opti
 
     # 加载模型
     if cache_dir:
-        from pathlib import Path
         cache_path = Path(cache_dir)
         cache_path.mkdir(parents=True, exist_ok=True)
         model = SentenceTransformer(model_name, cache_folder=str(cache_path), device=device)
