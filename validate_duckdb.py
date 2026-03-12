@@ -9,7 +9,7 @@ from poc.search.duckdb_engine import get_duckdb_engine
 from poc.pipeline.utils import resolve_path, load_yaml
 
 config = load_yaml("poc/config/poc.yaml")
-lancedb_dir = resolve_path(config.get("paths", {}).get("lancedb_dir", "poc/data/lancedb"))
+lancedb_dir = resolve_path(config.get("paths", {}).get("lancedb_dir", "data/lancedb"))
 engine = get_duckdb_engine(str(lancedb_dir))
 
 passed = 0
@@ -105,3 +105,4 @@ if failed == 0:
 else:
     print("[WARN] Some tests failed")
     sys.exit(1)
+

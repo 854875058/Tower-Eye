@@ -24,6 +24,15 @@ import webbrowser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from poc.infra.ray_init import (
+    clear_ray_bootstrap_info,
+    get_ray_bootstrap_info,
+    write_ray_bootstrap_info,
+)
+
 IS_WIN = platform.system() == "Windows"
 APP_PORT = int(os.environ.get("APP_PORT", 8080))
 PID_FILE = ROOT / "logs" / "app.pid"
@@ -51,6 +60,33 @@ def banner(title):
     print("=" * 48)
     print()
 
+
+def safe_console_text(text: str) -> str:
+    """将文本转换为当前终端可安全输出的编码。"""
+    encoding = sys.stdout.encoding or "utf-8"
+    return text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+
+
+def load_runtime_config():
+    """读取运行配置，缺失时返回空字典。"""
+    if not CONFIG.exists():
+        return {}
+    try:
+        import yaml
+        with open(CONFIG, encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+
+
+def resolve_config_path(config: dict, key: str, default: str) -> Path:
+    """按配置解析路径，默认相对仓库根目录。"""
+    value = config.get("paths", {}).get(key, default)
+    path = Path(value)
+    if not path.is_absolute():
+        path = ROOT / path
+    return path
+
 def get_python():
     """返回当前应该使用的 Python 解释器路径"""
     if IS_WIN:
@@ -74,8 +110,15 @@ def get_ray_cli():
     return "ray"
 
 
+def get_local_ray_address(ray_cfg: dict) -> str:
+    """返回本地 Ray head 的 connect 地址。"""
+    port = int(ray_cfg.get("port", 6379))
+    return f"127.0.0.1:{port}"
+
+
 def stop_ray():
     """停止 Ray 集群（如果正在运行）"""
+    clear_ray_bootstrap_info()
     try:
         import ray
         if ray.is_initialized():
@@ -101,7 +144,8 @@ def stop_ray():
 
 
 def start_ray():
-    """启动 Ray 集群（如果配置启用）"""
+    """启动或解析 Ray 集群连接地址。"""
+    clear_ray_bootstrap_info()
     try:
         import yaml
         cfg_path = ROOT / "poc" / "config" / "poc.yaml"
@@ -115,47 +159,52 @@ def start_ray():
         else:
             return
     except Exception:
-        return
+        return None
+
+    ray_address = str(ray_cfg.get("address", "auto") or "auto").strip()
+    namespace = ray_cfg.get("namespace", "multimodal")
+    num_gpus = ray_cfg.get("num_gpus", 0)
+    info(f"启动 Ray (address={ray_address}, namespace={namespace})...")
+
+    if ray_address not in {"auto", "local"}:
+        info(f"Ray 使用外部地址: {ray_address}")
+        return ray_address
+
+    local_address = get_local_ray_address(ray_cfg)
+    cmd = [
+        get_ray_cli(), "start", "--head",
+        "--port", str(ray_cfg.get("port", 6379)),
+        "--num-gpus", str(num_gpus),
+    ]
+    if ray_cfg.get("dashboard_port") is not None:
+        cmd.extend(["--dashboard-port", str(ray_cfg.get("dashboard_port", 8265))])
 
     try:
-        import ray
-        if not ray.is_initialized():
-            ray_address = ray_cfg.get("address", "auto")
-            namespace = ray_cfg.get("namespace", "multimodal")
-            num_gpus = ray_cfg.get("num_gpus", 0)
-            info(f"启动 Ray (address={ray_address}, namespace={namespace})...")
-
-            # address=auto 时需要先启动本地 Ray 集群
-            if ray_address == "auto":
-                try:
-                    # 先尝试启动本地 Ray head node
-                    r = subprocess.run(
-                        [get_ray_cli(), "start", "--head",
-                         "--num-gpus", str(num_gpus),
-                         "--dashboard-port", str(ray_cfg.get("dashboard_port", 8265))],
-                        capture_output=True, text=True, timeout=30,
-                    )
-                    if r.returncode == 0:
-                        ok("Ray head node 已启动")
-                    else:
-                        # 可能已经在运行
-                        if "already" in r.stderr.lower() or "already" in r.stdout.lower():
-                            info("Ray head node 已在运行")
-                        else:
-                            warn(f"Ray head node 启动异常: {r.stderr.strip()[:100]}")
-                except subprocess.TimeoutExpired:
-                    warn("Ray head node 启动超时")
-                except FileNotFoundError:
-                    warn("ray CLI 不可用")
-
-            ray.init(address=ray_address, namespace=namespace, ignore_reinit_error=True)
-            ok("Ray 已连接")
-        else:
-            ok("Ray 已在运行中")
-    except ImportError:
-        warn("ray 未安装，跳过")
+        r = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if r.returncode == 0:
+            ok("Ray head node 已启动")
+            write_ray_bootstrap_info(local_address)
+            ok(f"Ray bootstrap 地址: {local_address}")
+            return local_address
+        if "already" in r.stderr.lower() or "already" in r.stdout.lower():
+            info("Ray head node 已在运行")
+            write_ray_bootstrap_info(local_address)
+            ok(f"Ray bootstrap 地址: {local_address}")
+            return local_address
+        warn(f"Ray head node 启动异常: {r.stderr.strip()[:160]}")
+    except subprocess.TimeoutExpired:
+        warn("Ray head node 启动超时")
+    except FileNotFoundError:
+        warn("ray CLI 不可用")
     except Exception as e:
         warn(f"Ray 启动失败: {e}")
+
+    return None
 # PLACEHOLDER_1
 
 def is_port_in_use(port):
@@ -236,6 +285,32 @@ def health_check(port, timeout=15):
             pass
     return False
 
+
+def find_listener_pids(port):
+    """查找监听指定端口的 PID。"""
+    pids = []
+    try:
+        r = subprocess.run(
+            ["netstat", "-ano"],
+            capture_output=True,
+            text=True,
+        )
+        for line in r.stdout.splitlines():
+            parts = line.split()
+            if len(parts) < 5:
+                continue
+            local_addr = parts[1]
+            state = parts[3] if IS_WIN else parts[-2]
+            pid = parts[-1]
+            if local_addr.endswith(f":{port}") and state.upper() == "LISTENING":
+                try:
+                    pids.append(int(pid))
+                except ValueError:
+                    continue
+    except Exception:
+        pass
+    return sorted(set(pids))
+
 # PLACEHOLDER_2
 
 # ── commands ─────────────────────────────────────────────
@@ -275,6 +350,9 @@ def cmd_start(args):
     os.chdir(ROOT)
     (ROOT / "logs").mkdir(exist_ok=True)
     ensure_deps()
+    cfg = load_runtime_config()
+    ray_cfg = cfg.get("ray", {}) if cfg else {}
+    ray_enabled = ray_cfg.get("enabled", False)
 
     # 检查是否已在运行
     if PID_FILE.exists():
@@ -307,8 +385,14 @@ def cmd_start(args):
     print()
 
     # 启动 Ray（在启动 Web 应用之前）
-    start_ray()
+    ray_connect_address = start_ray()
     print()
+
+    child_env = os.environ.copy()
+    if ray_enabled and ray_connect_address:
+        child_env["TOWER_EYE_RAY_ADDRESS"] = ray_connect_address
+        info(f"应用将以 connect-only 模式连接 Ray: {ray_connect_address}")
+        print()
 
     if IS_WIN:
         # Windows: 后台运行，日志写入 logs/app.log
@@ -319,6 +403,7 @@ def cmd_start(args):
                 cwd=str(ROOT),
                 stdout=log, stderr=log,
                 creationflags=subprocess.CREATE_NO_WINDOW,
+                env=child_env,
             )
         PID_FILE.write_text(str(proc.pid))
 
@@ -353,6 +438,7 @@ def cmd_start(args):
                 cwd=str(ROOT),
                 stdout=log, stderr=log,
                 start_new_session=True,
+                env=child_env,
             )
         PID_FILE.write_text(str(proc.pid))
 
@@ -432,13 +518,15 @@ def cmd_restart(args):
 def cmd_status(args):
     """查看运行状态"""
     banner("状态检查")
+    cfg = load_runtime_config()
+    ray_meta = get_ray_bootstrap_info()
 
     # [1] 进程状态
     print("[1] 进程状态")
     if PID_FILE.exists():
         try:
             pid = int(PID_FILE.read_text().strip())
-            if pid_alive(pid):
+            if pid_alive(pid) or pid in find_listener_pids(APP_PORT):
                 ok(f"运行中 (PID: {pid})")
             else:
                 warn("PID 文件存在但进程不在运行")
@@ -459,17 +547,26 @@ def cmd_status(args):
         try:
             import urllib.request
             code = urllib.request.urlopen(
-                f"http://localhost:{APP_PORT}", timeout=3
+                f"http://127.0.0.1:{APP_PORT}", timeout=3
             ).getcode()
-            ok(f"http://localhost:{APP_PORT} 响应正常 (HTTP {code})")
+            ok(f"http://127.0.0.1:{APP_PORT} 响应正常 (HTTP {code})")
         except Exception:
-            warn(f"http://localhost:{APP_PORT} 无法访问")
+            warn(f"http://127.0.0.1:{APP_PORT} 无法访问")
     else:
         info(f"端口 {APP_PORT} 未被占用")
 
-    # [3] Python 环境
+    # [3] Ray Bootstrap
     print()
-    print("[3] Python 环境")
+    print("[3] Ray Bootstrap")
+    if ray_meta.get("address"):
+        ok(f"connect-only 地址: {ray_meta['address']}")
+        info(f"来源: {ray_meta.get('source', 'unknown')}")
+    else:
+        info("未发现本地 Ray bootstrap 记录")
+
+    # [4] Python 环境
+    print()
+    print("[4] Python 环境")
     info(f"Python: {sys.version.split()[0]} ({sys.executable})")
     info(f"平台: {platform.system()} {platform.release()}")
     for mod in ["nicegui", "lancedb", "numpy", "requests"]:
@@ -479,11 +576,11 @@ def cmd_status(args):
         except ImportError:
             warn(f"{mod} 未安装")
 
-    # [4] 数据文件
+    # [5] 数据文件
     print()
-    print("[4] 数据文件")
-    db_path = ROOT / "poc" / "data" / "metadata.db"
-    lance_dir = ROOT / "poc" / "data" / "lancedb"
+    print("[5] 数据文件")
+    db_path = resolve_config_path(cfg, "db_path", "data/metadata.db")
+    lance_dir = resolve_config_path(cfg, "lancedb_dir", "data/lancedb")
     if db_path.exists():
         size_mb = db_path.stat().st_size / 1024 / 1024
         ok(f"metadata.db ({size_mb:.1f} MB)")
@@ -494,13 +591,13 @@ def cmd_status(args):
     else:
         warn("LanceDB 目录为空或不存在")
 
-    # [5] 最近日志
+    # [6] 最近日志
     print()
-    print("[5] 最近日志")
+    print("[6] 最近日志")
     if LOG_FILE.exists():
         lines = LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
         for line in lines[-10:]:
-            print(f"  {line}")
+            print(f"  {safe_console_text(line)}")
     else:
         info("日志文件不存在")
     print()
@@ -510,6 +607,7 @@ def cmd_status(args):
 def cmd_check(args):
     """检查环境、依赖、数据、远程服务"""
     banner("环境检查")
+    cfg = load_runtime_config()
 
     # [1] Python 环境
     print("[1/4] Python 环境")
@@ -527,7 +625,7 @@ def cmd_check(args):
 
     # [2] 依赖
     print("[2/4] 依赖检查")
-    deps = ["nicegui", "pyyaml", "requests", "numpy", "PIL", "lancedb", "cv2"]
+    deps = ["nicegui", "yaml", "requests", "numpy", "PIL", "lancedb", "cv2"]
     dep_names = ["nicegui", "pyyaml", "requests", "numpy", "pillow", "lancedb", "opencv-python"]
     missing = []
     for mod, name in zip(deps, dep_names):
@@ -544,13 +642,13 @@ def cmd_check(args):
 
     # [3] 数据文件
     print("[3/4] 数据文件")
-    db_path = ROOT / "poc" / "data" / "metadata.db"
-    lance_dir = ROOT / "poc" / "data" / "lancedb"
+    db_path = resolve_config_path(cfg, "db_path", "data/metadata.db")
+    lance_dir = resolve_config_path(cfg, "lancedb_dir", "data/lancedb")
     if db_path.exists():
         ok("metadata.db 存在")
     else:
         warn("metadata.db 不存在")
-        info("从服务器同步: scp -r root@服务器IP:.../poc/data ./poc/")
+        info("从服务器同步: scp -r root@服务器IP:.../data ./data/")
         info("或本地入库: python bin/manage.py ingest")
     if lance_dir.exists() and any(lance_dir.iterdir()):
         ok("LanceDB 向量数据存在")
@@ -560,13 +658,7 @@ def cmd_check(args):
 
     # [4] 远程服务
     print("[4/4] 远程模型服务")
-    try:
-        import yaml
-        with open(CONFIG, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f)
-        search_cfg = cfg.get("search", {})
-    except Exception:
-        search_cfg = {}
+    search_cfg = cfg.get("search", {}) if cfg else {}
 
     services = [
         ("Embedding", search_cfg.get("qwen_api_url", "http://10.132.19.82:8010")),
@@ -588,6 +680,10 @@ def cmd_ingest(args):
     banner("数据入库")
     os.chdir(ROOT)
     python = get_python()
+    cfg = load_runtime_config()
+    db_path = resolve_config_path(cfg, "db_path", "data/metadata.db")
+    lance_dir = resolve_config_path(cfg, "lancedb_dir", "data/lancedb")
+    data_root = db_path.parent
 
     mode = "full"
     if args.incremental:
@@ -612,12 +708,10 @@ def cmd_ingest(args):
     if mode == "full":
         step += 1
         print(f"[{step}/{total}] 清理旧数据...")
-        db_path = ROOT / "poc" / "data" / "metadata.db"
-        lance_dir = ROOT / "poc" / "data" / "lancedb"
         # 备份
         if lance_dir.exists() and any(lance_dir.iterdir()):
             import shutil
-            backup = ROOT / "poc" / "data" / f"backup_{int(time.time())}"
+            backup = data_root / f"backup_{int(time.time())}"
             backup.mkdir(parents=True, exist_ok=True)
             if lance_dir.exists():
                 shutil.copytree(lance_dir, backup / "lancedb", dirs_exist_ok=True)
@@ -666,7 +760,6 @@ def cmd_ingest(args):
         print(f"[{step}/{total}] 保留已有向量数据（增量模式）")
     else:
         print(f"[{step}/{total}] 清理旧向量数据...")
-        lance_dir = ROOT / "poc" / "data" / "lancedb"
         if lance_dir.exists():
             import shutil
             shutil.rmtree(lance_dir, ignore_errors=True)

@@ -15,10 +15,10 @@
 **验证方法**：
 ```bash
 # 查看追踪数据库
-sqlite3 logs/traces.db "SELECT COUNT(*) FROM query_traces;"
+sqlite3 data/traces.db "SELECT COUNT(*) FROM query_traces;"
 
 # 查看最近的查询记录
-sqlite3 logs/traces.db "SELECT question, status, timestamp FROM query_traces ORDER BY timestamp DESC LIMIT 5;"
+sqlite3 data/traces.db "SELECT question, status, timestamp FROM query_traces ORDER BY timestamp DESC LIMIT 5;"
 ```
 
 ---
@@ -27,8 +27,8 @@ sqlite3 logs/traces.db "SELECT question, status, timestamp FROM query_traces ORD
 
 **原因**：
 - 数据库中存储的是相对路径（如 `sample1.png`）
-- 实际图片在 `warning_img/` 目录下
-- 代码直接使用数据库路径，没有尝试 `warning_img/` 目录
+- 实际图片在 `data/warning_img/` 目录下
+- 代码直接使用数据库路径，没有尝试 `data/warning_img/` 目录
 
 **修复方案**：
 修改 `display_media()` 函数，尝试多个可能的路径：
@@ -37,22 +37,22 @@ sqlite3 logs/traces.db "SELECT question, status, timestamp FROM query_traces ORD
 # 对于图片
 possible_paths = [
     Path(img_url),                      # 原始路径
-    Path("warning_img") / Path(img_url).name,  # warning_img/文件名
-    Path("warning_img") / img_url       # warning_img/相对路径
+    Path("data/warning_img") / Path(img_url).name,  # data/warning_img/文件名
+    Path("data/warning_img") / img_url       # data/warning_img/相对路径
 ]
 
 # 对于视频
 possible_paths = [
     Path(video_url),
-    Path("warning_file") / Path(video_url).name,
-    Path("warning_file") / video_url
+    Path("data/warning_file") / Path(video_url).name,
+    Path("data/warning_file") / video_url
 ]
 ```
 
 **支持的路径格式**：
-- ✅ 绝对路径：`/path/to/warning_img/sample1.png`
-- ✅ 相对路径：`sample1.png`（自动在 `warning_img/` 中查找）
-- ✅ 子目录：`subdir/sample1.png`（自动在 `warning_img/` 中查找）
+- ✅ 绝对路径：`/path/to/data/warning_img/sample1.png`
+- ✅ 相对路径：`sample1.png`（自动在 `data/warning_img/` 中查找）
+- ✅ 子目录：`subdir/sample1.png`（自动在 `data/warning_img/` 中查找）
 - ✅ HTTP URL：`https://example.com/image.jpg`
 
 ---
@@ -98,7 +98,7 @@ question = st.text_input(
 
 ```bash
 # 确保图片在正确的目录
-ls warning_img/ | head -5
+ls data/warning_img/ | head -5
 
 # 启动应用
 streamlit run poc/app/app_v2.py
@@ -136,15 +136,15 @@ streamlit run poc/app/app_v2.py
 系统会按以下顺序尝试查找图片：
 
 1. **数据库原始路径**（如果是绝对路径）
-2. **warning_img/文件名**（最常用）
-3. **warning_img/相对路径**（支持子目录）
+2. **data/warning_img/文件名**（最常用）
+3. **data/warning_img/相对路径**（支持子目录）
 4. **HTTP URL**（远程图片）
 
 ### 追踪数据持久化
 
 追踪数据保存在两个地方：
 
-1. **SQLite 数据库**：`logs/traces.db`
+1. **SQLite 数据库**：`data/traces.db`
    - 结构化存储
    - 支持 SQL 查询
    - 用于统计分析
@@ -175,16 +175,16 @@ streamlit run poc/app/app.py
 ### Q: 图片还是显示不出来？
 
 **A**: 检查以下几点：
-1. 图片文件确实在 `warning_img/` 目录下
+1. 图片文件确实在 `data/warning_img/` 目录下
 2. 文件名大小写是否匹配（Linux 区分大小写）
 3. 文件权限是否正确
 
 ```bash
 # 检查图片文件
-ls -lh warning_img/sample1.png
+ls -lh data/warning_img/sample1.png
 
 # 检查数据库中的文件名
-sqlite3 poc/data/metadata.db "SELECT file_name FROM assets LIMIT 5;"
+sqlite3 data/metadata.db "SELECT file_name FROM assets LIMIT 5;"
 ```
 
 ### Q: 追踪统计还是0？
@@ -199,7 +199,7 @@ sqlite3 poc/data/metadata.db "SELECT file_name FROM assets LIMIT 5;"
 mkdir -p logs/traces
 
 # 检查追踪数据库
-sqlite3 logs/traces.db "SELECT * FROM query_traces;"
+sqlite3 data/traces.db "SELECT * FROM query_traces;"
 ```
 
 ### Q: 快速选择还是不工作？
@@ -211,6 +211,49 @@ sqlite3 logs/traces.db "SELECT * FROM query_traces;"
 # 方法3：删除缓存目录
 rm -rf ~/.streamlit/cache
 ```
+
+### Q: `manage.py start` / `restart` 卡在 Ray，或者换端口后还是起不来？
+
+**A**: 先不要继续怀疑端口，优先判断是不是本地 `Ray` 集群脏了。典型日志包括：
+
+- `global_state_accessor.cc:505`
+- `Failed to connect to the default Ray cluster address at 127.0.0.1:6379`
+- 切到 `8097` 等其他端口后仍然启动失败
+
+推荐处理顺序：
+
+```bash
+ray stop
+python bin/manage.py stop
+python bin/manage.py start
+```
+
+如果确实要换端口：
+
+```powershell
+$env:APP_PORT='8097'
+python bin/manage.py start
+```
+
+注意：先清理 `Ray`，再换端口；不要在脏 `Ray` 状态下反复切端口。
+
+### Q: 为什么明明问过同一个问题，`sql_cache` 还是没有复用？
+
+**A**: 先看日志是不是下面这句：
+
+```text
+[sql_cache] SKIP - placeholder count (0) != param count (1)
+```
+
+这不表示“没有缓存”，而是“命中了旧坏模板”。典型场景是缓存里的 SQL 被历史版本写成了 `LIMIT 10` 常量，而当前规则引擎仍然会带 `params=[10]`，于是缓存模板不能直接复用。
+
+另外，命令行模式默认不会自动启用 trace / cache。需要显式使用：
+
+```bash
+python -m poc.qa.agent_query --enable-trace --question "统计各设备触发告警次数最多的TOP10"
+```
+
+否则你会看到查询能跑通，但 `data/traces.db` 和 `sql_cache` 都不会自动积累。
 
 ---
 
@@ -233,7 +276,7 @@ rm -rf ~/.streamlit/cache
 ## 下一步建议
 
 1. **数据入库时保存完整路径**
-   - 修改 `ingest.py`，将 `warning_img/文件名` 作为完整路径保存
+   - 修改 `ingest.py`，将 `data/warning_img/文件名` 作为完整路径保存
    - 这样就不需要在显示时猜测路径
 
 2. **统一媒体文件管理**

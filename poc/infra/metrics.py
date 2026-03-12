@@ -62,7 +62,7 @@ class MetricsCollector:
             if trace_mgr and trace_mgr.db_path:
                 db_path = trace_mgr.db_path.parent / "metrics.db"
             else:
-                db_path = Path("poc/data/metrics.db")
+                db_path = Path("data/metrics.db")
 
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -426,3 +426,4 @@ def estimate_llm_cost(model_name: str, prompt_tokens: int, completion_tokens: in
 
     # 默认使用 DeepSeek 价格
     return round((prompt_tokens * 0.14 + completion_tokens * 0.28) / 1_000_000, 6)
+

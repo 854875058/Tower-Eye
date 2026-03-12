@@ -13,6 +13,13 @@ import re
 from pathlib import Path
 from datetime import datetime
 
+from poc.pipeline.utils import load_yaml, resolve_path
+
+
+DEFAULT_RAW_IMAGES_DIR = "data/warning_img"
+DEFAULT_RAW_VIDEOS_DIR = "data/warning_file"
+DEFAULT_DB_PATH = "data/metadata.db"
+
 
 # events 表需要的新增列（用于 ALTER TABLE 兼容旧数据库）
 NEW_COLUMNS = [
@@ -88,12 +95,21 @@ def ensure_columns(cursor):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_county ON events(county_name)")
 
 
-def url_to_local_path(url: str, media_type: str = "image") -> str:
+def normalize_relative_dir(path_str: str) -> str:
+    return path_str.replace("\\", "/").rstrip("/")
+
+
+def url_to_local_path(
+    url: str,
+    media_type: str = "image",
+    image_dir: str = DEFAULT_RAW_IMAGES_DIR,
+    video_dir: str = DEFAULT_RAW_VIDEOS_DIR,
+) -> str:
     """将 URL 路径转换为本地路径
 
-    图片: /12000000034/ThirdAlarm/pic/xxx.jpg -> warning_img/xxx.jpg
-          https://slw-base-video.obs...xxx.jpg -> warning_img/xxx.jpg
-    视频: /12000000034/ThirdAlarm/video/xxx.mp4 -> warning_file/xxx.mp4
+    图片: /12000000034/ThirdAlarm/pic/xxx.jpg -> data/warning_img/xxx.jpg
+          https://slw-base-video.obs...xxx.jpg -> data/warning_img/xxx.jpg
+    视频: /12000000034/ThirdAlarm/video/xxx.mp4 -> data/warning_file/xxx.mp4
 
     注意: CSV 中 video_url 字段可能含尾部逗号（如 xxx.mp4,,,），需先取第一段
     """
@@ -107,19 +123,32 @@ def url_to_local_path(url: str, media_type: str = "image") -> str:
     if not filename:
         return ""
     if media_type == "video":
-        return f"warning_file/{filename}"
-    return f"warning_img/{filename}"
+        return f"{normalize_relative_dir(video_dir)}/{filename}"
+    return f"{normalize_relative_dir(image_dir)}/{filename}"
 
 
-def urls_to_local_paths(url_string: str, media_type: str = "image") -> str:
+def urls_to_local_paths(
+    url_string: str,
+    media_type: str = "image",
+    image_dir: str = DEFAULT_RAW_IMAGES_DIR,
+    video_dir: str = DEFAULT_RAW_VIDEOS_DIR,
+) -> str:
     """将逗号分隔的多个 URL 转换为逗号分隔的本地路径"""
     if not url_string or not url_string.strip():
         return ""
-    parts = [url_to_local_path(u, media_type) for u in url_string.split(",")]
+    parts = [
+        url_to_local_path(u, media_type, image_dir=image_dir, video_dir=video_dir)
+        for u in url_string.split(",")
+    ]
     return ",".join(p for p in parts if p)
 
 
-def import_warning_csv(csv_path: str, db_path: str):
+def import_warning_csv(
+    csv_path: str,
+    db_path: str,
+    image_dir: str = DEFAULT_RAW_IMAGES_DIR,
+    video_dir: str = DEFAULT_RAW_VIDEOS_DIR,
+):
     """导入告警明细表CSV到数据库（全量字段入库）"""
 
     conn = sqlite3.connect(db_path)
@@ -186,9 +215,9 @@ def import_warning_csv(csv_path: str, db_path: str):
                 file_img_url_src = row.get('file_img_url_src', '')
                 file_img_url_icon = row.get('file_img_url_icon', '')
 
-                video_path = url_to_local_path(video_url, "video")
-                img_src_path = urls_to_local_paths(file_img_url_src, "image")
-                img_icon_path = urls_to_local_paths(file_img_url_icon, "image")
+                video_path = url_to_local_path(video_url, "video", image_dir=image_dir, video_dir=video_dir)
+                img_src_path = urls_to_local_paths(file_img_url_src, "image", image_dir=image_dir, video_dir=video_dir)
+                img_icon_path = urls_to_local_paths(file_img_url_icon, "image", image_dir=image_dir, video_dir=video_dir)
 
                 # ---- extra_json 保留完整原始数据 ----
                 extra_json = json.dumps(
@@ -207,11 +236,15 @@ def import_warning_csv(csv_path: str, db_path: str):
                 # 为每张图片创建独立的 asset + event
                 for img_name in all_img_names:
                     asset_id = create_asset_id(warning_order_id, img_name)
-                    file_path = f"warning_img/{img_name}"
+                    file_path = f"{normalize_relative_dir(image_dir)}/{img_name}"
 
                     # 找到该图对应的框图（_01_ → _02_）
                     paired_icon = img_name.replace('_01_', '_02_')
-                    this_icon_path = f"warning_img/{paired_icon}" if paired_icon != img_name and paired_icon in set(icon_names) else img_icon_path
+                    this_icon_path = (
+                        f"{normalize_relative_dir(image_dir)}/{paired_icon}"
+                        if paired_icon != img_name and paired_icon in set(icon_names)
+                        else img_icon_path
+                    )
 
                     cursor.execute("""
                         INSERT OR REPLACE INTO assets
@@ -325,7 +358,11 @@ def import_warning_csv(csv_path: str, db_path: str):
 
 if __name__ == "__main__":
     csv_path = "最终标注入库数据.csv"
-    db_path = "poc/data/metadata.db"
+    config = load_yaml("poc/config/poc.yaml") if Path("poc/config/poc.yaml").exists() else {}
+    paths_cfg = config.get("paths", {})
+    image_dir = normalize_relative_dir(paths_cfg.get("raw_images_dir", DEFAULT_RAW_IMAGES_DIR))
+    video_dir = normalize_relative_dir(paths_cfg.get("raw_videos_dir", DEFAULT_RAW_VIDEOS_DIR))
+    db_path = str(resolve_path(paths_cfg.get("db_path", DEFAULT_DB_PATH)))
 
     print("=" * 60)
     print("告警明细表数据导入工具（全量字段入库版）")
@@ -341,7 +378,7 @@ if __name__ == "__main__":
         print("请先运行: python -m poc.pipeline.ingest --config poc/config/poc.yaml")
         exit(1)
 
-    import_warning_csv(csv_path, db_path)
+    import_warning_csv(csv_path, db_path, image_dir=image_dir, video_dir=video_dir)
 
     print()
     print("=" * 60)

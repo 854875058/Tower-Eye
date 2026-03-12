@@ -12,7 +12,7 @@ def dashboard_page():
 
         # ── 实时数据统计 KPI（彩色渐变卡片） ──
         try:
-            _db = resolve_path(config.get("paths", {}).get("db_path", "poc/data/metadata.db"))
+            _db = resolve_path(config.get("paths", {}).get("db_path", "data/metadata.db"))
             stats = db_stats(_db); lc = lance_count()
         except Exception:
             stats = {"assets": 0, "events": 0, "detections": 0, "annotations": 0, "embeddings": 0}; lc = 0
@@ -273,3 +273,4 @@ graph LR
                                 ui.label(label).classes('text-xs text-slate-400')
                                 ui.label(value).classes('text-base font-bold text-slate-800')
                             ui.label(sub).classes('text-xs text-slate-400')
+

@@ -8,7 +8,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 # 添加项目根目录到路径
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +16,37 @@ sys.path.insert(0, str(ROOT))
 
 from poc.pipeline.utils import load_yaml
 from poc.qa.nl2sql import build_query_plan
+
+
+def _sql_literal(value: Any) -> str:
+    """将参数渲染为 SQL 预览文本，便于测试匹配参数化 SQL。"""
+    if value is None:
+        return "NULL"
+    if isinstance(value, str):
+        return "'" + value.replace("'", "''") + "'"
+    return str(value)
+
+
+def _render_sql_preview(sql: str, params: List[Any]) -> str:
+    """把参数化 SQL 渲染为可读预览，用于断言语义正确性。"""
+    rendered = sql
+    for idx, param in enumerate(params or [], start=1):
+        rendered = rendered.replace(f"${idx}", _sql_literal(param))
+
+    for param in params or []:
+        rendered = rendered.replace("?", _sql_literal(param), 1)
+
+    return rendered
+
+
+def _has_time_filter(sql_preview: str) -> bool:
+    """判断 SQL 是否真的包含时间过滤，而不是只在 SELECT / ORDER BY 中出现 alarm_time。"""
+    sql_lower = sql_preview.lower()
+    if re.search(r"\balarm_time\b\s*(>=|<=|=|>|<|between)\s*", sql_lower):
+        return True
+    if re.search(r"\bdate\s*\(\s*alarm_time\s*\)", sql_lower):
+        return True
+    return False
 
 
 def load_golden_set(path: str = "tests/data/qa_golden_set.json") -> List[Dict]:
@@ -84,6 +115,7 @@ def test_sql_generation(config: Dict, golden_set: List[Dict]) -> Dict:
         try:
             plan = build_query_plan(question, config)
             sql = plan.sql
+            params = plan.params or []
 
             if not sql:
                 errors.append({
@@ -93,13 +125,15 @@ def test_sql_generation(config: Dict, golden_set: List[Dict]) -> Dict:
                 })
                 continue
 
+            sql_preview = _render_sql_preview(sql, params)
+
             # 检查 SQL 模式匹配
             pattern_match = True
             if expected_pattern:
-                pattern_match = bool(re.search(expected_pattern, sql, re.IGNORECASE))
+                pattern_match = bool(re.search(expected_pattern, sql_preview, re.IGNORECASE))
 
             # 检查时间过滤
-            has_time_filter = "alarm_time" in sql.lower() or "date(" in sql.lower()
+            has_time_filter = _has_time_filter(sql_preview)
             time_match = has_time_filter == expected_has_time
 
             if pattern_match and time_match:
@@ -109,6 +143,8 @@ def test_sql_generation(config: Dict, golden_set: List[Dict]) -> Dict:
                     "id": item["id"],
                     "question": question,
                     "sql": sql,
+                    "sql_preview": sql_preview,
+                    "params": params,
                     "pattern_match": pattern_match,
                     "time_match": time_match,
                     "expected_pattern": expected_pattern,
@@ -175,7 +211,7 @@ def run_nl2sql_tests():
             if 'error' in err:
                 print(f"      错误: {err['error']}")
             else:
-                print(f"      SQL: {err.get('sql', 'N/A')[:100]}")
+                print(f"      SQL: {err.get('sql_preview', err.get('sql', 'N/A'))[:100]}")
 
     # 总结
     print("\n" + "=" * 60)

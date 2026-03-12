@@ -14,11 +14,13 @@ from typing import Any, Dict, List
 
 from nicegui import ui, events
 from poc.app.pages.shared import (
-    create_layout, page_header, config, resolve_path,
+    create_content_shell, config, resolve_path,
     ensure_systems, get_agent, get_model_manager, get_trace_manager, QueryTrace,
     get_area_hierarchy, _inject_sql_filters, _get_engine,
     hybrid_search, build_asset_id_filter, fetch_events_by_asset_ids,
-    render_map_picker,
+    render_map_picker, get_raw_images_dir, get_temp_data_dir,
+    render_clickable_image as _render_clickable_image,
+    render_video_with_preview as _render_video_with_preview,
 )
 
 
@@ -101,6 +103,7 @@ def _detect_media_cols(cols_raw: List[str]):
 def _render_detail_fields(row: dict, cols_raw: list, img_cols: list, video_col):
     """渲染记录的完整字段信息（优先字段 + 剩余字段 + extra_json 展开）"""
     PRIORITY = [
+        ('asset_id', 'Asset ID'), ('file_name', 'File Name'),
         ('event_id', '事件ID'), ('event_type', '事件类型'),
         ('alarm_level', '告警等级'), ('alarm_time', '告警时间'),
         ('alarm_source', '告警来源'), ('alarm_body', '告警主体'),
@@ -162,7 +165,7 @@ def _draw_yolo_boxes(img_path: str, detections: list) -> str:
     try:
         import cv2
         import numpy as np
-        full = str(resolve_path(f'warning_img/{_Path(img_path).name}'))
+        full = str(get_raw_images_dir() / _Path(img_path).name)
         img = cv2.imread(full)
         if img is None:
             return ""
@@ -255,6 +258,56 @@ def _find_sibling_images(row: dict) -> list:
         return []
 
 
+def _legacy_create_media_preview_dialog(media_url: str, title: str, media_type: str = 'image'):
+    with ui.dialog().props('maximized') as dlg:
+        with ui.card().classes('w-screen h-screen max-w-none max-h-none m-0 p-0 gap-0 bg-slate-950 text-white shadow-2xl'):
+            with ui.row().classes('w-full items-center justify-between px-4 py-3 bg-black'):
+                ui.label(title).classes('text-sm font-medium text-white truncate')
+                ui.button('关闭', icon='close', on_click=dlg.close).props('flat color=white no-caps')
+            with ui.element('div').classes('w-full flex items-center justify-center bg-black').style('height: calc(100vh - 64px);'):
+                if media_type == 'video':
+                    ui.video(media_url).classes('w-full h-full').style('max-height: calc(100vh - 96px); object-fit: contain;').props('controls autoplay')
+                else:
+                    ui.image(media_url).classes('max-w-full max-h-full').style('object-fit: contain;')
+    return dlg
+
+
+def _legacy_render_clickable_image(image_url: str, thumb_classes: str, title: str):
+    image = ui.image(image_url).classes(f'{thumb_classes} cursor-zoom-in')
+    dlg = _legacy_create_media_preview_dialog(image_url, title, media_type='image')
+    image.on('click', dlg.open)
+    return image
+
+
+def _legacy_render_video_with_preview(video_url: str, video_classes: str, title: str):
+    ui.video(video_url).classes(video_classes).props('controls')
+    dlg = _legacy_create_media_preview_dialog(video_url, title, media_type='video')
+    with ui.row().classes('w-full justify-end mt-2'):
+        ui.button('放大预览', icon='open_in_full', on_click=dlg.open).props('flat color=blue-4 no-caps')
+    return dlg
+
+
+_LEGACY_QA_PREVIEW_CSS = '''
+.q-dialog__inner > .q-card {
+    width: min(96vw, 1600px) !important;
+    max-width: none !important;
+    max-height: 96vh !important;
+}
+.q-dialog__inner > .q-card img {
+    width: auto !important;
+    max-width: 94vw !important;
+    max-height: 88vh !important;
+    object-fit: contain !important;
+}
+.q-dialog__inner > .q-card video {
+    width: min(94vw, 1500px) !important;
+    max-height: 88vh !important;
+    object-fit: contain !important;
+    background: #000 !important;
+}
+'''
+
+
 def _render_media_panel(panel_id: str, file_path: str, img_src: str,
                         img_icon: str, video_path: str,
                         detections: list, siblings: list, row_idx: int):
@@ -262,12 +315,7 @@ def _render_media_panel(panel_id: str, file_path: str, img_src: str,
     if panel_id == 'alert_img' and file_path:
         img_name = _Path(file_path).name
         img_url = f'/warning_img/{img_name}'
-        img_el = ui.image(img_url).classes('w-full rounded cursor-pointer')
-        with ui.dialog() as dlg:
-            with ui.card().classes('p-2'):
-                ui.image(img_url).classes('max-w-[80vw] max-h-[80vh]')
-                ui.button('关闭', on_click=dlg.close).props('flat color=grey')
-        img_el.on('click', dlg.open)
+        _render_clickable_image(img_url, 'w-full rounded', '原图预览')
 
     elif panel_id == 'icon_img' and img_icon:
         # img_icon_path 是带标注框的版本（_02_ 系列）
@@ -276,26 +324,16 @@ def _render_media_panel(panel_id: str, file_path: str, img_src: str,
             if sp:
                 icon_name = _Path(sp).name
                 icon_url = f'/warning_img/{icon_name}'
-                icon_el = ui.image(icon_url).classes('w-full rounded cursor-pointer mb-1')
-                with ui.dialog() as dlg2:
-                    with ui.card().classes('p-2'):
-                        ui.image(icon_url).classes('max-w-[80vw] max-h-[80vh]')
-                        ui.button('关闭', on_click=dlg2.close).props('flat color=grey')
-                icon_el.on('click', dlg2.open)
+                _render_clickable_image(icon_url, 'w-full rounded mb-1', '标注图预览')
 
     elif panel_id == 'video' and video_path:
         vn = _Path(str(video_path).split(",")[0].strip()).name
-        ui.video(f'/warning_file/{vn}').classes('w-full rounded').props('controls')
+        _render_video_with_preview(f'/warning_file/{vn}', 'w-full rounded max-h-[70vh] bg-black', '视频预览')
 
     elif panel_id == 'yolo' and detections and file_path:
         annotated_uri = _draw_yolo_boxes(file_path, detections)
         if annotated_uri:
-            ann_el = ui.image(annotated_uri).classes('w-full rounded cursor-pointer')
-            with ui.dialog() as dlg3:
-                with ui.card().classes('p-2'):
-                    ui.image(annotated_uri).classes('max-w-[80vw] max-h-[80vh]')
-                    ui.button('关闭', on_click=dlg3.close).props('flat color=grey')
-            ann_el.on('click', dlg3.open)
+            _render_clickable_image(annotated_uri, 'w-full rounded', 'YOLO 标注预览')
         else:
             ui.label('YOLO (cv2 unavailable)').classes('text-xs text-slate-500 mb-1')
         for det in detections:
@@ -309,12 +347,7 @@ def _render_media_panel(panel_id: str, file_path: str, img_src: str,
         with ui.row().classes('flex-wrap gap-1'):
             for fname in siblings[:12]:
                 sib_url = f'/warning_img/{fname}'
-                sib_el = ui.image(sib_url).classes('w-16 h-12 object-cover rounded cursor-pointer')
-                with ui.dialog() as dlg4:
-                    with ui.card().classes('p-2'):
-                        ui.image(sib_url).classes('max-w-[80vw] max-h-[80vh]')
-                        ui.button('关闭', on_click=dlg4.close).props('flat color=grey')
-                sib_el.on('click', dlg4.open)
+                _render_clickable_image(sib_url, 'w-16 h-12 object-cover rounded', '关联图片预览')
 
 
 def _render_search_results(results: list, question: str):
@@ -330,12 +363,7 @@ def _render_search_results(results: list, question: str):
 
             with ui.card().classes('w-56 shadow-sm hover:shadow-md transition-shadow'):
                 if img_url:
-                    card_img = ui.image(img_url).classes('w-full h-36 object-cover')
-                    with ui.dialog() as dlg:
-                        with ui.card().classes('p-2'):
-                            ui.image(img_url).classes('max-w-[80vw] max-h-[80vh]')
-                            ui.button('关闭', on_click=dlg.close).props('flat color=grey')
-                    card_img.on('click', dlg.open)
+                    _render_clickable_image(img_url, 'w-full h-36 object-cover', '检索结果预览')
                 else:
                     with ui.element('div').classes('w-full h-36 bg-slate-100 flex items-center justify-center'):
                         ui.icon('image_not_supported').classes('text-3xl text-slate-300')
@@ -359,14 +387,17 @@ def _render_search_results(results: list, question: str):
 
 # ── 页面 ──────────────────────────────────────────────────────────────────
 
-@ui.page('/qa')
-def qa_page():
-    with create_layout('/qa'):
-        page_header('智能问答 · Agent 助手',
-                     '基于 LangGraph Agent 的对话式数据分析，支持 NL2SQL、图表、媒体预览')
+def render_qa_view(embedded: bool = False, active_path: str = '/qa', show_embedded_header: bool = False):
+    with create_content_shell(
+        active_path,
+        '智能问答 · Agent 助手',
+        '基于 LangGraph Agent 的对话式数据分析，支持 NL2SQL、图表、媒体预览',
+        embedded=embedded,
+        show_embedded_header=show_embedded_header,
+    ):
 
         ensure_systems()
-        _db_path = resolve_path(config.get("paths", {}).get("db_path", "poc/data/metadata.db"))
+        _db_path = resolve_path(config.get("paths", {}).get("db_path", "data/metadata.db"))
 
         # ── per-client state ──
         chat_history: List[Dict[str, Any]] = []  # [{role, content, result}]
@@ -632,14 +663,24 @@ def qa_page():
                                                     break
                                                 iv = row.get(cols_raw[ic], "")
                                                 if iv:
-                                                    ui.image(f'/warning_img/{_Path(str(iv)).name}') \
-                                                        .classes('w-32 h-24 object-cover rounded cursor-pointer')
+                                                    _render_clickable_image(
+                                                        f'/warning_img/{_Path(str(iv)).name}',
+                                                        'w-32 h-24 object-cover rounded',
+                                                        '媒体预览',
+                                                    )
                                                     shown = True
                                             if video_col is not None:
                                                 vv = row.get(cols_raw[video_col], "")
                                                 if vv:
                                                     vn = _Path(str(vv).split(",")[0].strip()).name
-                                                    ui.video(f'/warning_file/{vn}').classes('w-32 rounded')
+                                                    _render_video_with_preview(
+                                                        f'/warning_file/{vn}',
+                                                        'w-32 rounded bg-black',
+                                                        '媒体视频预览',
+                                                        button_label='放大',
+                                                        button_props='flat color=blue-5 no-caps size=xs dense',
+                                                        button_row_classes='w-full justify-end mt-1',
+                                                    )
                                                     shown = True
                                             if not shown:
                                                 with ui.element('div').classes('w-32 h-24 bg-slate-100 rounded flex items-center justify-center'):
@@ -741,12 +782,7 @@ def qa_page():
                                                                                     with ui.row().classes('flex-wrap gap-1'):
                                                                                         for sib_name in siblings[:12]:
                                                                                             sib_url = f'/warning_img/{sib_name}'
-                                                                                            sib_el = ui.image(sib_url).classes('w-16 h-12 object-cover rounded cursor-pointer')
-                                                                                            with ui.dialog() as dlg:
-                                                                                                with ui.card().classes('p-2'):
-                                                                                                    ui.image(sib_url).classes('max-w-[80vw] max-h-[80vh]')
-                                                                                                    ui.button('关闭', on_click=dlg.close).props('flat color=grey')
-                                                                                            sib_el.on('click', dlg.open)
+                                                                                            _render_clickable_image(sib_url, 'w-16 h-12 object-cover rounded', '关联图片预览')
                                                                                 else:
                                                                                     ui.label('无关联图片').classes('text-xs text-slate-400')
 
@@ -771,12 +807,7 @@ def qa_page():
                                         with ui.row().classes('w-full gap-3 items-start p-2 bg-purple-50 rounded mb-1'):
                                             if _vr_fname:
                                                 _vr_url = f'/warning_img/{_vr_fname}'
-                                                vr_el = ui.image(_vr_url).classes('w-24 h-18 object-cover rounded cursor-pointer flex-shrink-0')
-                                                with ui.dialog() as vr_dlg:
-                                                    with ui.card().classes('p-2'):
-                                                        ui.image(_vr_url).classes('max-w-[80vw] max-h-[80vh]')
-                                                        ui.button('关闭', on_click=vr_dlg.close).props('flat color=grey')
-                                                vr_el.on('click', vr_dlg.open)
+                                                _render_clickable_image(_vr_url, 'w-24 h-18 object-cover rounded flex-shrink-0', '语义推荐预览')
                                             with ui.column().classes('flex-1 gap-0.5 min-w-0'):
                                                 with ui.row().classes('gap-2 items-center'):
                                                     ui.label(_vr_title).classes('text-xs font-semibold text-slate-700')
@@ -1090,7 +1121,7 @@ def qa_page():
 
                 # 保存临时文件
                 tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix,
-                                                   dir=str(resolve_path('poc/data')))
+                                                   dir=str(get_temp_data_dir()))
                 tmp.write(content)
                 tmp.close()
                 tmp_path = tmp.name
@@ -1108,7 +1139,7 @@ def qa_page():
                         cap.release()
                         if ret:
                             frame_tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg',
-                                                                     dir=str(resolve_path('poc/data')))
+                                                                     dir=str(get_temp_data_dir()))
                             # cv2.imwrite 不支持中文路径，改用 imencode + 手动写入
                             _ok, _buf = cv2.imencode('.jpg', frame)
                             if _ok:
@@ -1132,7 +1163,7 @@ def qa_page():
 
                 # 编码 + 检索
                 import lancedb as _ldb
-                lancedb_dir = resolve_path(config.get("paths", {}).get("lancedb_dir", "poc/data/lancedb"))
+                lancedb_dir = resolve_path(config.get("paths", {}).get("lancedb_dir", "data/lancedb"))
                 db = _ldb.connect(str(lancedb_dir))
                 table = db.open_table("embeddings")
                 mgr = get_model_manager()
@@ -1203,3 +1234,8 @@ def qa_page():
         # 初始渲染空聊天区
         _refresh_chat()
 
+
+@ui.page('/qa')
+def qa_page():
+    embedded = str(ui.context.client.request.query_params.get('embedded', '')).lower() in {'1', 'true', 'yes'}
+    render_qa_view(embedded=embedded, active_path='/qa', show_embedded_header=embedded)

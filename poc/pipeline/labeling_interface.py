@@ -27,8 +27,8 @@ from pipeline.auto_label_engine import (
 
 # 配置
 VIDEO_EXTS = ['.mp4', '.avi', '.mov', '.mkv', '.webp']
-DEFAULT_IMAGES_DIR = "warning_img"
-DEFAULT_VIDEOS_DIR = "warning_file"
+DEFAULT_IMAGES_DIR = "data/warning_img"
+DEFAULT_VIDEOS_DIR = "data/warning_file"
 
 
 def init_state():
@@ -49,7 +49,7 @@ def init_state():
         "draw_enabled": True,
         "img_dir": DEFAULT_IMAGES_DIR,
         "vid_dir": DEFAULT_VIDEOS_DIR,
-        "out_dir": "poc/data/labels/auto",
+        "out_dir": "data/labels/auto",
         "want_tracking": True,
     }
     for k, v in defaults.items():
@@ -386,7 +386,7 @@ def render_labeling_interface():
                 except Exception as e:
                     print(f"[UI] 自动恢复状态失败: {e}")
 
-        st.text_input("输出目录", value=st.session_state.get("out_dir", "poc/data/labels/auto"), key="out_dir")
+        st.text_input("输出目录", value=st.session_state.get("out_dir", "data/labels/auto"), key="out_dir")
         ensure_parent_dir(resolve_path(st.session_state.out_dir) / ".placeholder")
 
         if st.session_state.is_video:
@@ -967,3 +967,4 @@ if __name__ == "__main__":
 def render_interface():
     """兼容旧版本的入口函数"""
     render_labeling_interface()
+

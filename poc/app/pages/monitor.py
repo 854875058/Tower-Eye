@@ -20,7 +20,7 @@ def monitor_page():
 
         # 数据统计
         try:
-            _db = resolve_path(config.get("paths", {}).get("db_path", "poc/data/metadata.db"))
+            _db = resolve_path(config.get("paths", {}).get("db_path", "data/metadata.db"))
             stats = db_stats(_db); lc = lance_count()
         except Exception:
             stats = {"assets": 0, "events": 0, "detections": 0, "annotations": 0, "embeddings": 0}; lc = 0
@@ -284,3 +284,4 @@ def monitor_page():
             ui.label('Ray 模块未安装').classes('text-slate-400')
         except Exception as e:
             ui.label(f'Ray 状态查询失败: {e}').classes('text-slate-400')
+

@@ -10,7 +10,7 @@ import argparse
 import json
 from pathlib import Path
 
-from poc.pipeline.utils import load_yaml
+from poc.pipeline.utils import load_yaml, resolve_path
 from poc.qa.agent import create_agent
 from poc.qa.trace import init_trace_manager
 
@@ -31,11 +31,14 @@ def main():
 
     # 初始化追踪管理器（可选）
     if args.enable_trace:
-        trace_db_path = Path("poc/data/traces.db")
+        paths_cfg = config.get("paths", {})
+        trace_db_path = resolve_path(paths_cfg.get("trace_db_path", "data/traces.db"))
+        log_dir = resolve_path(paths_cfg.get("log_dir", "logs")) / "traces"
+        trace_db_path.parent.mkdir(parents=True, exist_ok=True)
         init_trace_manager(
             db_path=trace_db_path,
             enable_file_log=True,
-            log_dir=Path("poc/logs/traces")
+            log_dir=log_dir,
         )
         print(f"[OK] 追踪系统已启用，数据库: {trace_db_path}")
 
@@ -66,7 +69,7 @@ def main():
     print("查询结果:")
     print(f"{'='*80}\n")
 
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
 
     # 输出摘要
     print(f"\n{'='*80}")
@@ -83,3 +86,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

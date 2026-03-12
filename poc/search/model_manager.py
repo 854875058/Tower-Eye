@@ -6,6 +6,8 @@ from typing import Optional, Union
 from pathlib import Path
 import numpy as np
 
+from poc.pipeline.utils import resolve_path
+
 
 def _get_embedding_actor():
     """获取 Embedding Ray Actor（如果 Ray 可用）"""
@@ -16,6 +18,15 @@ def _get_embedding_actor():
     except Exception:
         pass
     return None
+
+
+def _resolve_qwen_dummy_image(config: dict, search_config: dict) -> Optional[str]:
+    dummy_image = search_config.get("qwen_dummy_image")
+    if not dummy_image:
+        dummy_image = config.get("paths", {}).get("raw_images_dir", "data/warning_img")
+    if not dummy_image:
+        return None
+    return str(resolve_path(dummy_image))
 
 
 class ModelManager:
@@ -70,7 +81,7 @@ class ModelManager:
 
         api_url = self.search_config.get("qwen_api_url", "http://10.132.19.82:8010")
         timeout = self.search_config.get("qwen_timeout", 30)
-        dummy_image = self.search_config.get("qwen_dummy_image", None)
+        dummy_image = _resolve_qwen_dummy_image(self.config, self.search_config)
 
         self.embedding_model = Qwen3VLEmbedding(api_url=api_url, timeout=timeout, dummy_image=dummy_image)
         print(f"[OK] Qwen3-VL 客户端初始化成功: {api_url}")

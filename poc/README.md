@@ -13,9 +13,9 @@
 
 ## 快速开始
 1. 准备离线样本
-   - 图片：`poc/data/raw/images/`
-   - 视频：`poc/data/raw/videos/`
-   - 结构化数据：`poc/data/structured/alarms.csv` 或 `alarms.json`
+   - 图片：`data/warning_img/`
+   - 视频：`data/warning_file/`
+   - 结构化数据：`data/structured/alarms.csv` 或 `alarms.json`
 
 2. 入库与校验
    - `python -m poc.pipeline.ingest --config poc/config/poc.yaml`

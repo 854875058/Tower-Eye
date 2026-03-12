@@ -1,14 +1,16 @@
 paths:
-  raw_images_dir: "warning_img"
-  raw_videos_dir: "warning_file"
-  structured_dir: "poc/data/structured"
-  db_path: "poc/data/metadata.db"
+  raw_images_dir: "data/warning_img"
+  raw_videos_dir: "data/warning_file"
+  structured_dir: "data/structured"
+  db_path: "data/metadata.db"
   schema_path: "poc/schema/metadata.sql"
-  lancedb_dir: "poc/data/lancedb"
-  trace_db_path: "logs/traces.db"
+  lancedb_dir: "data/lancedb"
+  trace_db_path: "data/traces.db"
+  metrics_db_path: "data/metrics.db"
   log_dir: "logs"
-  embeddings_dir: "poc/data/embeddings"
-  index_dir: "poc/data/index"
+  temp_dir: "data/tmp"
+  embeddings_dir: "data/embeddings"
+  index_dir: "data/index"
 
 ingest:
   asset_id_strategy: "sha256"
@@ -27,7 +29,7 @@ search:
   hf_mirror: "https://hf-mirror.com"
   qwen_api_url: "http://10.132.19.82:8010"
   qwen_timeout: 30
-  qwen_dummy_image: "warning_img"
+  qwen_dummy_image: "data/warning_img"
   reranker_enabled: true
   reranker_api_url: "http://10.132.19.82:8011"
   reranker_timeout: 60
@@ -69,7 +71,7 @@ gaode:
 
 ray:
   enabled: true
-  address: "auto"
+  address: "auto"              # 推荐: 由 manage.py 先 bootstrap，本进程只 connect
   num_gpus: 1
   dashboard_port: 8265
   namespace: "multimodal"

@@ -76,9 +76,9 @@ def run_retrieval(config, question: str, filters: Dict) -> List[Dict[str, Any]]:
     except Exception:
         return []
 
-    index_dir = resolve_path(config.get("paths", {}).get("index_dir", "poc/data/index"))
+    index_dir = resolve_path(config.get("paths", {}).get("index_dir", "data/index"))
     model_name = config.get("search", {}).get("clip_model", "clip-ViT-B-32")
-    db_path = resolve_path(config.get("paths", {}).get("db_path", "poc/data/metadata.db"))
+    db_path = resolve_path(config.get("paths", {}).get("db_path", "data/metadata.db"))
 
     meta, index_obj = load_index(index_dir)
     mock_mode = os.getenv("POC_QUERY_MOCK") == "1"
@@ -151,7 +151,7 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_yaml(args.config)
-    db_path = resolve_path(config.get("paths", {}).get("db_path", "poc/data/metadata.db"))
+    db_path = resolve_path(config.get("paths", {}).get("db_path", "data/metadata.db"))
 
     # 创建追踪对象
     trace = QueryTrace(
@@ -229,3 +229,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

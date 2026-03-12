@@ -265,7 +265,7 @@ def main() -> None:
     config = load_yaml(args.config)
     paths_cfg = config.get("paths", {})
     search_cfg = config.get("search", {})
-    lancedb_dir = resolve_path(paths_cfg.get("lancedb_dir", "poc/data/lancedb"))
+    lancedb_dir = resolve_path(paths_cfg.get("lancedb_dir", "data/lancedb"))
 
     # 获取混合检索权重（命令行参数优先）
     vector_weight = args.vector_weight if args.vector_weight is not None else search_cfg.get("vector_weight", 0.7)
@@ -326,7 +326,7 @@ def main() -> None:
 
     # 从 SQLite 批量获取完整事件信息
     from poc.pipeline.utils import connect_db
-    db_path = resolve_path(paths_cfg.get("db_path", "poc/data/metadata.db"))
+    db_path = resolve_path(paths_cfg.get("db_path", "data/metadata.db"))
     conn = connect_db(str(db_path))
     events_map = {}
     if asset_ids:
@@ -389,3 +389,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

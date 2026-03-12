@@ -217,9 +217,9 @@ def main() -> None:
         batch_size = search_cfg.get("batch_size", 32)
         print(f"使用配置文件的批处理大小: {batch_size}")
 
-    raw_images_dir = resolve_path(paths_cfg.get("raw_images_dir", "poc/data/raw/images"))
-    db_path = resolve_path(paths_cfg.get("db_path", "poc/data/metadata.db"))
-    lancedb_dir = resolve_path(paths_cfg.get("lancedb_dir", "poc/data/lancedb"))
+    raw_images_dir = resolve_path(paths_cfg.get("raw_images_dir", "data/warning_img"))
+    db_path = resolve_path(paths_cfg.get("db_path", "data/metadata.db"))
+    lancedb_dir = resolve_path(paths_cfg.get("lancedb_dir", "data/lancedb"))
     ensure_dir(lancedb_dir)
 
     # 发现图片
@@ -462,3 +462,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

@@ -14,7 +14,7 @@
 
 1. **配置文件** (`poc/config/poc.yaml`)
    - 移除: `embeddings_dir`, `index_dir`
-   - 新增: `lancedb_dir: "poc/data/lancedb"`
+   - 新增: `lancedb_dir: "data/lancedb"`
 
 2. **向量生成** (`poc/pipeline/embed.py`)
    - 直接将向量和元数据写入 LanceDB
@@ -145,7 +145,7 @@ query = table.search(query_vec) \
    - 运行 `bash 重新入库.sh` 即可
 
 2. **LanceDB 数据目录**
-   - 位置: `poc/data/lancedb/`
+   - 位置: `data/lancedb/`
    - 包含表数据和索引文件
    - 可以直接备份整个目录
 

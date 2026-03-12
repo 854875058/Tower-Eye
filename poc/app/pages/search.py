@@ -10,28 +10,32 @@ from typing import Any, Dict, List
 # 写到文件的日志，方便排查
 _log = logging.getLogger("search_page")
 _log.setLevel(logging.DEBUG)
-_fh = logging.FileHandler(str(Path(__file__).resolve().parents[2] / "data" / "search_debug.log"), encoding="utf-8")
+_fh = logging.FileHandler(str(Path(__file__).resolve().parents[3] / "data" / "search_debug.log"), encoding="utf-8")
 _fh.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
 _log.addHandler(_fh)
 
 from nicegui import ui, events
 from poc.app.pages.shared import (
-    create_layout, page_header, config, resolve_path,
+    create_content_shell, config, resolve_path,
     get_model_manager, get_dropdown_options, get_area_hierarchy,
     geocode_address, build_sqlite_filter, build_asset_id_filter,
     fetch_events_by_asset_ids, build_result_item, hybrid_search,
-    _get_engine, render_map_picker,
+    _get_engine, render_map_picker, get_temp_data_dir,
+    render_clickable_image, render_video_with_preview,
 )
 
 
-@ui.page('/search')
-def search_page():
-    with create_layout('/search'):
-        page_header('多模态检索 · 图文视频互搜',
-                     '基于 Qwen3-VL + LanceDB 的向量检索，支持图片/文本/视频统一入口互搜')
+def render_search_view(embedded: bool = False, active_path: str = '/search', show_embedded_header: bool = False):
+    with create_content_shell(
+        active_path,
+        '多模态检索 · 图文视频互搜',
+        '基于 Qwen3-VL + LanceDB 的向量检索，支持图片/文本/视频统一入口互搜',
+        embedded=embedded,
+        show_embedded_header=show_embedded_header,
+    ):
 
-        _db_path = resolve_path(config.get("paths", {}).get("db_path", "poc/data/metadata.db"))
-        lancedb_dir = resolve_path(config.get("paths", {}).get("lancedb_dir", "poc/data/lancedb"))
+        _db_path = resolve_path(config.get("paths", {}).get("db_path", "data/metadata.db"))
+        lancedb_dir = resolve_path(config.get("paths", {}).get("lancedb_dir", "data/lancedb"))
 
         # 检查 LanceDB
         _lancedb_ready = False
@@ -96,7 +100,7 @@ def search_page():
                         content = await e.file.read()
                         suffix = Path(name).suffix.lower()
                         _log.info(f"[handle_upload] START name={name}, suffix={suffix}, content_len={len(content)}")
-                        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=str(resolve_path('poc/data')))
+                        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=str(get_temp_data_dir()))
                         tmp.write(content); tmp.close()
                         upload_preview.clear()
                         if suffix == '.mp4':
@@ -108,7 +112,7 @@ def search_page():
                                 cap.set(cv2.CAP_PROP_POS_FRAMES, total // 2)
                                 ret, frame = cap.read(); cap.release()
                                 if ret:
-                                    frame_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg", dir=str(resolve_path('poc/data')))
+                                    frame_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg", dir=str(get_temp_data_dir()))
                                     # cv2.imwrite 不支持中文路径，改用 imencode + 手动写入
                                     _ok, _buf = cv2.imencode('.jpg', frame)
                                     if _ok:
@@ -120,8 +124,11 @@ def search_page():
                                     import base64
                                     _, buf = cv2.imencode('.jpg', cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
                                     with upload_preview:
-                                        ui.image(f'data:image/jpeg;base64,{base64.b64encode(buf).decode()}') \
-                                            .classes('w-full max-h-48 object-contain rounded-lg')
+                                        render_clickable_image(
+                                            f'data:image/jpeg;base64,{base64.b64encode(buf).decode()}',
+                                            'w-full max-h-48 object-contain rounded-lg',
+                                            '上传视频关键帧预览',
+                                        )
                                         ui.label(f'视频关键帧（第 {total//2}/{total} 帧）').classes('text-xs text-slate-400')
                                 else:
                                     with upload_preview:
@@ -140,8 +147,11 @@ def search_page():
                             _log.info(f"[handle_upload] image saved: {tmp.name}")
                             import base64
                             with upload_preview:
-                                ui.image(f'data:image/{suffix[1:]};base64,{base64.b64encode(content).decode()}') \
-                                    .classes('w-full max-h-48 object-contain rounded-lg')
+                                render_clickable_image(
+                                    f'data:image/{suffix[1:]};base64,{base64.b64encode(content).decode()}',
+                                    'w-full max-h-48 object-contain rounded-lg',
+                                    '上传图片预览',
+                                )
                                 ui.label('上传的图片').classes('text-xs text-slate-400')
                         # 上传完成后自动触发检索（强制文件模式）
                         _log.info(f"[handle_upload] END uploaded_path={state.get('uploaded_path')!r}, _upload_ref={_upload_ref}")
@@ -294,17 +304,30 @@ def search_page():
                             # 左: 媒体
                             with ui.column().classes('p-4'):
                                 if item.get('img_url'):
-                                    ui.image(item['img_url']).classes('w-full h-48 object-cover rounded-lg')
+                                    render_clickable_image(item['img_url'], 'w-full h-48 object-cover rounded-lg', '检索结果图片预览')
                                 else:
                                     with ui.element('div').classes('w-full h-48 bg-slate-100 rounded-lg flex items-center justify-center'):
                                         ui.icon('image_not_supported').classes('text-4xl text-slate-300')
                                 if item.get('video_url'):
-                                    ui.video(item['video_url']).classes('w-full rounded-lg mt-2')
+                                    render_video_with_preview(
+                                        item['video_url'],
+                                        'w-full rounded-lg mt-2 bg-black',
+                                        '检索结果视频预览',
+                                        button_label='放大视频',
+                                        button_props='flat color=blue-6 no-caps size=sm',
+                                        button_row_classes='w-full justify-end mt-1',
+                                    )
                                 if item.get('score', 0) > 0:
                                     ui.label(f'相似度: {item["score"]:.4f}').classes('text-blue-600 font-semibold text-sm mt-2')
                             # 右: 详情
                             with ui.column().classes('p-4 gap-1'):
                                 ui.label(item.get('event_type', '未知事件')).classes('font-bold text-lg text-slate-800')
+                                file_name = item.get('file_name') or (Path(item.get('file_path', '')).name if item.get('file_path') else '')
+                                for lbl, value in [('Asset ID', item.get('asset_id')), ('File Name', file_name)]:
+                                    if value:
+                                        with ui.row().classes('gap-2'):
+                                            ui.label(f'{lbl}:').classes('text-xs text-slate-400 w-16')
+                                            ui.label(str(value)).classes('text-sm text-slate-700 break-all')
                                 for lbl, key in [('告警等级', 'alarm_level'), ('时间', 'alarm_time'),
                                                  ('地址', 'address'), ('设备', 'device_name'),
                                                  ('算法', 'algorithm_name'), ('工单状态', 'order_status'),
@@ -361,7 +384,11 @@ def search_page():
                             sd = dict(se)
                             fp = sd.get("file_path") or sd.get("file_name")
                             if fp:
-                                ui.image(f'/warning_img/{Path(fp).name}').classes('w-24 h-20 object-cover rounded')
+                                render_clickable_image(
+                                    f'/warning_img/{Path(fp).name}',
+                                    'w-24 h-20 object-cover rounded',
+                                    '关联图片预览',
+                                )
                 # 完整事件信息
                 ui.label('完整事件信息').classes('font-semibold text-sm text-slate-700 mb-1')
                 display_info = {}
@@ -524,3 +551,9 @@ def search_page():
         results_container = ui.column().classes('w-full')
 
         render_results()
+
+
+@ui.page('/search')
+def search_page():
+    embedded = str(ui.context.client.request.query_params.get('embedded', '')).lower() in {'1', 'true', 'yes'}
+    render_search_view(embedded=embedded, active_path='/search', show_embedded_header=embedded)

@@ -26,6 +26,7 @@ from langgraph.graph.message import add_messages
 from poc.pipeline.utils import resolve_path
 from poc.qa.guardrails import SQLGuardrail, SQLSecurityError
 from poc.qa.nl2sql import build_query_plan, call_llm_fix_sql
+from poc.qa.trace import QueryTrace, get_trace_manager
 from poc.qa.tools import ToolRegistry, get_tool_registry
 from poc.search.duckdb_engine import get_duckdb_engine
 
@@ -142,7 +143,7 @@ def vector_search_node(state: AgentState) -> AgentState:
         import lancedb as _ldb
 
         lancedb_dir = resolve_path(
-            config.get("paths", {}).get("lancedb_dir", "poc/data/lancedb")
+            config.get("paths", {}).get("lancedb_dir", "data/lancedb")
         )
         db = _ldb.connect(str(lancedb_dir))
         table = db.open_table("embeddings")
@@ -283,7 +284,7 @@ def execute_sql_node(state: AgentState) -> AgentState:
 
     try:
         lancedb_dir = resolve_path(
-            state["config"].get("paths", {}).get("lancedb_dir", "poc/data/lancedb")
+            state["config"].get("paths", {}).get("lancedb_dir", "data/lancedb")
         )
         engine = get_duckdb_engine(str(lancedb_dir))
         state["sql_result"] = engine.execute(state["sql"], state["sql_params"])
@@ -358,7 +359,7 @@ def semantic_enhance_node(state: AgentState) -> AgentState:
         clean_q = _re.sub(r'\[筛选条件:.*?\]\s*', '', question)
 
         lancedb_dir = resolve_path(
-            config.get("paths", {}).get("lancedb_dir", "poc/data/lancedb")
+            config.get("paths", {}).get("lancedb_dir", "data/lancedb")
         )
         db = _ldb.connect(str(lancedb_dir))
         tables = db.table_names() if hasattr(db, 'table_names') else db.list_tables()
@@ -760,7 +761,7 @@ class QueryAgent:
         initial_state: AgentState = {
             "question": resolved_question,
             "config": self.config,
-            "db_path": self.config.get("paths", {}).get("db_path", "poc/data/metadata.db"),
+            "db_path": self.config.get("paths", {}).get("db_path", "data/metadata.db"),
             "trace_id": trace_id,
             "intent": None,
             "sql": None,
@@ -803,6 +804,27 @@ class QueryAgent:
             "execution_history": final_state.get("execution_history"),
             "messages": final_state.get("messages")
         }
+
+        trace_result_count = 0
+        if final_state.get("sql_result"):
+            trace_result_count = len(final_state["sql_result"])
+
+        try:
+            trace_mgr = get_trace_manager()
+            if trace_mgr:
+                trace = QueryTrace(question=question, user_id=user_id, session_id=session_id)
+                if trace_id:
+                    trace.trace_id = trace_id
+                trace.intent = final_state.get("intent")
+                trace.sql = final_state.get("sql")
+                trace.sql_params = final_state.get("sql_params")
+                trace.result_count = trace_result_count
+                trace.final_answer = final_state.get("final_answer")
+                trace.status = result["status"]
+                trace.error_message = final_state.get("error_message")
+                trace_mgr.save_trace(trace)
+        except Exception as e:
+            print(f"[QueryAgent] 保存 trace 失败: {e}")
 
         # 保存对话历史
         if conversation and session_id and user_id:
@@ -863,3 +885,4 @@ class QueryAgent:
 def create_agent(config: Dict, max_retries: int = 3) -> QueryAgent:
     """创建查询 Agent"""
     return QueryAgent(config, max_retries)
+

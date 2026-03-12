@@ -19,8 +19,8 @@ def migrate():
     config = load_yaml("poc/config/poc.yaml")
     paths_cfg = config.get("paths", {})
 
-    db_path = resolve_path(paths_cfg.get("db_path", "poc/data/metadata.db"))
-    lancedb_dir = resolve_path(paths_cfg.get("lancedb_dir", "poc/data/lancedb"))
+    db_path = resolve_path(paths_cfg.get("db_path", "data/metadata.db"))
+    lancedb_dir = resolve_path(paths_cfg.get("lancedb_dir", "data/lancedb"))
 
     print(f"SQLite: {db_path}")
     print(f"LanceDB: {lancedb_dir}")
@@ -156,3 +156,4 @@ def migrate():
 
 if __name__ == "__main__":
     migrate()
+

@@ -3,7 +3,7 @@ Daft on Ray 批量数据管线
 替代 embed.py 的 for 循环处理，用 Daft DataFrame 实现 TB 级图片批量入库。
 
 用法:
-    python -m poc.pipeline.daft_pipeline --config poc/config/poc.yaml --image-dir warning_img
+    python -m poc.pipeline.daft_pipeline --config poc/config/poc.yaml --image-dir data/warning_img
 """
 import argparse
 import time
@@ -37,8 +37,8 @@ def run_batch_ingest(config: dict, image_dir: str):
     from poc.pipeline.utils import resolve_path, connect_db
 
     raw_images_dir = resolve_path(image_dir)
-    db_path = resolve_path(paths_cfg.get("db_path", "poc/data/metadata.db"))
-    lancedb_dir = resolve_path(paths_cfg.get("lancedb_dir", "poc/data/lancedb"))
+    db_path = resolve_path(paths_cfg.get("db_path", "data/metadata.db"))
+    lancedb_dir = resolve_path(paths_cfg.get("lancedb_dir", "data/lancedb"))
     lancedb_dir.mkdir(parents=True, exist_ok=True)
 
     # 发现图片
@@ -158,7 +158,7 @@ def run_batch_ingest(config: dict, image_dir: str):
 def main():
     parser = argparse.ArgumentParser(description="Daft on Ray 批量入库管线")
     parser.add_argument("--config", default="poc/config/poc.yaml")
-    parser.add_argument("--image-dir", default="warning_img")
+    parser.add_argument("--image-dir", default="data/warning_img")
     args = parser.parse_args()
 
     from poc.pipeline.utils import load_yaml
@@ -175,3 +175,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

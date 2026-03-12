@@ -53,15 +53,81 @@ except ImportError as _ie:
     print(f"Warning: backend import failed: {_ie}")
 
 
+DEFAULT_RAW_IMAGES_DIR = "data/warning_img"
+DEFAULT_RAW_VIDEOS_DIR = "data/warning_file"
+DEFAULT_DB_PATH = "data/metadata.db"
+DEFAULT_LANCEDB_DIR = "data/lancedb"
+DEFAULT_TRACE_DB_PATH = "data/traces.db"
+DEFAULT_METRICS_DB_PATH = "data/metrics.db"
+
+
+def _paths_cfg() -> Dict[str, Any]:
+    return config.get("paths", {}) if config else {}
+
+
+def get_raw_images_dir() -> Path:
+    return resolve_path(_paths_cfg().get("raw_images_dir", DEFAULT_RAW_IMAGES_DIR))
+
+
+def get_raw_videos_dir() -> Path:
+    return resolve_path(_paths_cfg().get("raw_videos_dir", DEFAULT_RAW_VIDEOS_DIR))
+
+
+def get_temp_data_dir() -> Path:
+    data_dir = Path("data/tmp")
+    temp_dir = resolve_path(str(_paths_cfg().get("temp_dir", data_dir)))
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    return temp_dir
+
+
+def create_media_preview_dialog(media_url: str, title: str, media_type: str = "image"):
+    with ui.dialog().props("maximized") as dlg:
+        with ui.card().classes("w-screen h-screen max-w-none max-h-none m-0 p-0 gap-0 bg-slate-950 text-white shadow-2xl"):
+            with ui.row().classes("w-full items-center justify-between px-4 py-3 bg-black"):
+                ui.label(title).classes("text-sm font-medium text-white truncate")
+                ui.button("关闭", icon="close", on_click=dlg.close).props("flat color=white no-caps")
+            with ui.element("div").classes("w-full flex items-center justify-center bg-black").style("height: calc(100vh - 64px);"):
+                if media_type == "video":
+                    ui.video(media_url).classes("w-full h-full").style(
+                        "max-width: 94vw; max-height: calc(100vh - 96px); object-fit: contain; background: #000;"
+                    ).props("controls autoplay")
+                else:
+                    ui.image(media_url).classes("max-w-full max-h-full").style("object-fit: contain;")
+    return dlg
+
+
+def render_clickable_image(image_url: str, thumb_classes: str, title: str):
+    image = ui.image(image_url).classes(f"{thumb_classes} cursor-zoom-in")
+    dlg = create_media_preview_dialog(image_url, title, media_type="image")
+    image.on("click", dlg.open)
+    return image
+
+
+def render_video_with_preview(
+    video_url: str,
+    video_classes: str,
+    title: str,
+    button_label: str = "放大预览",
+    button_props: str = "flat color=blue-4 no-caps",
+    button_row_classes: str = "w-full justify-end mt-2",
+):
+    video = ui.video(video_url).classes(video_classes).props("controls")
+    dlg = create_media_preview_dialog(video_url, title, media_type="video")
+    video.on("click", dlg.open)
+    with ui.row().classes(button_row_classes):
+        ui.button(button_label, icon="open_in_full", on_click=dlg.open).props(button_props)
+    return dlg
+
+
 def _get_engine():
     """获取 DuckDB 引擎单例"""
-    lancedb_dir = resolve_path(config.get("paths", {}).get("lancedb_dir", "poc/data/lancedb"))
+    lancedb_dir = resolve_path(_paths_cfg().get("lancedb_dir", DEFAULT_LANCEDB_DIR))
     return get_duckdb_engine(str(lancedb_dir))
 
 # ── 静态文件服务 ──────────────────────────────────────────────────────────
 try:
-    app.add_static_files('/warning_img', str(resolve_path('warning_img')))
-    app.add_static_files('/warning_file', str(resolve_path('warning_file')))
+    app.add_static_files('/warning_img', str(get_raw_images_dir()))
+    app.add_static_files('/warning_file', str(get_raw_videos_dir()))
 except Exception:
     pass
 
@@ -91,17 +157,17 @@ def ensure_systems():
     if not config:
         return
     try:
-        trace_db = Path(config.get("paths", {}).get("trace_db_path", "logs/traces.db"))
+        trace_db = resolve_path(_paths_cfg().get("trace_db_path", DEFAULT_TRACE_DB_PATH))
         trace_db.parent.mkdir(parents=True, exist_ok=True)
         init_trace_manager(db_path=trace_db, enable_file_log=True,
-                           log_dir=Path(config.get("paths", {}).get("log_dir", "logs")))
+                           log_dir=resolve_path(_paths_cfg().get("log_dir", "logs")))
         print(f"[ensure_systems] trace_manager 初始化成功: {trace_db}")
     except Exception as e:
         print(f"[ensure_systems] trace_manager 初始化失败: {e}")
         import traceback; traceback.print_exc()
 
     try:
-        db_path = config.get("paths", {}).get("db_path", "poc/data/metadata.db")
+        db_path = _paths_cfg().get("db_path", DEFAULT_DB_PATH)
         db_abs = resolve_path(db_path)
         if db_abs.exists():
             init_tool_registry(str(db_abs))
@@ -114,7 +180,7 @@ def ensure_systems():
 
     # 初始化 metrics collector
     try:
-        metrics_db = Path(config.get("paths", {}).get("metrics_db_path", "logs/metrics.db"))
+        metrics_db = resolve_path(_paths_cfg().get("metrics_db_path", DEFAULT_METRICS_DB_PATH))
         metrics_db.parent.mkdir(parents=True, exist_ok=True)
         init_metrics_collector(db_path=metrics_db)
         print(f"[ensure_systems] metrics_collector 初始化成功: {metrics_db}")
@@ -130,20 +196,18 @@ def ensure_systems():
         print(f"[ensure_systems] conversation_manager 初始化失败: {e}")
         import traceback; traceback.print_exc()
 
-    # 初始化 Ray（必选，每次启动都初始化）
+    # 初始化 Ray（Web 进程只 connect，不负责 bootstrap 集群）
     try:
         from poc.infra.ray_init import init_ray, create_actors
         print(f"[ensure_systems] 正在初始化 Ray...")
-        if init_ray(config):
+        if init_ray(config, mode="connect_only"):
             create_actors(config)
             print(f"[ensure_systems] Ray 初始化成功")
         else:
-            print(f"[ensure_systems] Ray 初始化失败（init_ray 返回 False）")
+            print("[ensure_systems] Ray 未就绪：应用保持可用，依赖 Ray 的能力将在运行时重试或降级")
     except Exception as e:
         print(f"[ensure_systems] Ray 初始化失败: {e}")
         import traceback; traceback.print_exc()
-        # Ray 是必选的，初始化失败时抛出异常
-        raise RuntimeError(f"Ray 初始化失败，应用无法启动: {e}") from e
 
     _systems_inited = True
 
@@ -503,6 +567,21 @@ def sidebar_item(label: str, icon: str, target: str, current: str):
 
 
 @contextmanager
+def create_content_shell(active_path: str, title: str, subtitle: str,
+                         embedded: bool = False, show_embedded_header: bool = False):
+    if embedded:
+        ui.add_head_html(f'<style>{GLOBAL_CSS}</style>')
+        with ui.column().classes('max-w-7xl mx-auto w-full p-6 gap-0'):
+            if show_embedded_header:
+                page_header(title, subtitle)
+            yield
+    else:
+        with create_layout(active_path):
+            page_header(title, subtitle)
+            yield
+
+
+@contextmanager
 def create_layout(active_path: str):
     ui.add_head_html(f'<style>{GLOBAL_CSS}</style>')
     with ui.row().classes('h-screen w-full gap-0 overflow-hidden'):
@@ -513,8 +592,7 @@ def create_layout(active_path: str):
                          '').classes('text-xl font-bold text-slate-800')
             with ui.column().classes('flex-1 w-full gap-1 px-3'):
                 sidebar_item('架构概览', 'dashboard', '/', active_path)
-                sidebar_item('智能问答', 'chat', '/qa', active_path)
-                sidebar_item('多模态检索', 'search', '/search', active_path)
+                sidebar_item('问答与检索', 'hub', '/workspace', active_path)
                 sidebar_item('自动标注', 'label', '/label', active_path)
                 sidebar_item('系统监控', 'monitoring', '/monitor', active_path)
             ui.separator().classes('my-2 opacity-30 mx-3')

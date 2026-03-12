@@ -14,6 +14,17 @@ from typing import Dict, List, Optional, Union
 import numpy as np
 import ray
 
+from poc.pipeline.utils import resolve_path
+
+
+def _resolve_qwen_dummy_image(config: dict, search_config: dict) -> Optional[str]:
+    dummy_image = search_config.get("qwen_dummy_image")
+    if not dummy_image:
+        dummy_image = config.get("paths", {}).get("raw_images_dir", "data/warning_img")
+    if not dummy_image:
+        return None
+    return str(resolve_path(dummy_image))
+
 
 # ── YOLODetectorActor ─────────────────────────────────────────────────────
 
@@ -112,6 +123,7 @@ class EmbeddingActor:
         self.search_config = config.get("search", {})
         self.model_type = self.search_config.get("embedding_model", "clip")
         self.embedding_model = None
+        self._resolved_dummy_image = None
         self._init_model()
 
     def _init_model(self):
@@ -126,7 +138,8 @@ class EmbeddingActor:
             from poc.search.qwen_embedding import Qwen3VLEmbedding
             api_url = self.search_config.get("qwen_api_url", "http://10.132.19.82:8010")
             timeout = self.search_config.get("qwen_timeout", 30)
-            dummy_image = self.search_config.get("qwen_dummy_image", None)
+            dummy_image = _resolve_qwen_dummy_image(self.config, self.search_config)
+            self._resolved_dummy_image = dummy_image
             self.embedding_model = Qwen3VLEmbedding(api_url=api_url, timeout=timeout, dummy_image=dummy_image)
             print(f"[EmbeddingActor] Qwen3-VL 客户端初始化成功: {api_url}")
 
@@ -158,6 +171,15 @@ class EmbeddingActor:
     def encode_batch(self, image_paths: List[str]) -> List[np.ndarray]:
         """批量编码（Daft 管线用）"""
         return [self.encode_image(p) for p in image_paths]
+
+    def get_runtime_info(self) -> Dict[str, Optional[str]]:
+        info: Dict[str, Optional[str]] = {"model_type": self.model_type}
+        if self.model_type == "clip":
+            info["clip_model"] = self.search_config.get("clip_model", "clip-ViT-L-14")
+        elif self.model_type == "qwen":
+            info["qwen_api_url"] = self.search_config.get("qwen_api_url", "http://10.132.19.82:8010")
+            info["dummy_image"] = self._resolved_dummy_image
+        return info
 
 
 # ── VLAnalyzerActor ───────────────────────────────────────────────────────

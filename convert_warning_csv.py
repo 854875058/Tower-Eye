@@ -16,7 +16,7 @@ def pick_basename(value: str) -> Optional[str]:
 def main() -> None:
     root = Path(__file__).resolve().parent
     src = root / "告警明细表.csv"
-    dst = root / "poc" / "data" / "structured" / "alarms_warning.csv"
+    dst = root / "data" / "structured" / "alarms_warning.csv"
     dst.parent.mkdir(parents=True, exist_ok=True)
 
     if not src.exists():

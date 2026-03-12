@@ -1,5 +1,6 @@
 /warning_file
 /warning_img
+/data
 /logs
 *.db
 *.log
@@ -14,6 +15,7 @@ __pycache__
 /poc/data/pretrainModel
 /付
 /poc/.git
+/tests/reports/
 
 # 数据文件
 *.csv

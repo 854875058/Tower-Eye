@@ -210,7 +210,7 @@ def build_dataset(output_dir: Path, assets: List[dict], labels: Dict[str, List[d
 def main() -> None:
     parser = argparse.ArgumentParser(description="POC dataset builder")
     parser.add_argument("--config", default="poc/config/poc.yaml")
-    parser.add_argument("--output-dir", default="poc/data/datasets/yolo")
+    parser.add_argument("--output-dir", default="data/datasets/yolo")
     parser.add_argument("--val-ratio", type=float, default=0.2)
     parser.add_argument("--negative-ratio", type=float, default=0.5)
     parser.add_argument("--min-km", type=float, default=2.0)
@@ -219,7 +219,7 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_yaml(args.config)
-    db_path = resolve_path(config.get("paths", {}).get("db_path", "poc/data/metadata.db"))
+    db_path = resolve_path(config.get("paths", {}).get("db_path", "data/metadata.db"))
 
     conn = connect_db(db_path)
     assets = load_assets(conn)
@@ -241,3 +241,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

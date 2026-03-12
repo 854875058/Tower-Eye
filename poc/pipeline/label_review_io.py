@@ -118,14 +118,14 @@ def main() -> None:
     parser.add_argument("--config", default="poc/config/poc.yaml")
     parser.add_argument("--export", action="store_true")
     parser.add_argument("--import-file")
-    parser.add_argument("--output", default="poc/data/review/review_tasks.jsonl")
+    parser.add_argument("--output", default="data/review/review_tasks.jsonl")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--reviewer", default="reviewer")
     parser.add_argument("--origin", default="review")
     args = parser.parse_args()
 
     config = load_yaml(args.config)
-    db_path = resolve_path(config.get("paths", {}).get("db_path", "poc/data/metadata.db"))
+    db_path = resolve_path(config.get("paths", {}).get("db_path", "data/metadata.db"))
 
     if args.export:
         output_path = resolve_path(args.output)
@@ -145,3 +145,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

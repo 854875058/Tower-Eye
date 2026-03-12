@@ -40,6 +40,11 @@ def _parse_top_k(text: str, default: int = 20) -> int:
     return default
 
 
+def _has_top_k_limit_request(text: str) -> bool:
+    ranking_keywords = ["TOP", "top", "排名", "前", "最多"]
+    return any(keyword in text for keyword in ranking_keywords) and bool(re.search(r"\d+", text))
+
+
 def _parse_time_range(text: str) -> Tuple[Optional[str], Optional[str]]:
     # 1) 精确日期范围: 2025-01-01 ~ 2025-01-31
     date_matches = re.findall(r"\d{4}-\d{2}-\d{2}", text)
@@ -212,6 +217,64 @@ def _parse_area_name(text: str) -> Tuple[Optional[str], Optional[str]]:
     return town_name, county_name
 
 
+_GENERIC_DEVICE_TERMS = {
+    "设备",
+    "各设备",
+    "所有设备",
+    "摄像机",
+    "相机",
+    "监控",
+    "监控设备",
+    "视频监控",
+    "视频监控设备",
+    "通道",
+}
+
+
+def _strip_quantity_phrases(text: str) -> str:
+    """移除最近20条/10个等数量描述，避免误伤实体提取。"""
+    cleaned = re.sub(r"(最近|近)\s*\d+\s*[条个件次项篇张]?", "", text)
+    cleaned = re.sub(r"\d+\s*[条个件次项篇张]", "", cleaned)
+    return cleaned
+
+
+def _parse_device_name(text: str) -> Optional[str]:
+    """提取设备名称，优先支持带层级分隔符和常见设备命名。"""
+    def _normalize_candidate(value: str) -> str:
+        return value.strip(" ,，。；;:：").rstrip("的")
+
+    cleaned = _strip_quantity_phrases(text)
+    cleaned = re.sub(r"(查询|查看|查找|搜索|列出|获取|显示|统计)", " ", cleaned)
+    cleaned = re.sub(r"(详细信息|详情|明细|记录|告警信息|告警详情|告警记录|信息)", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+    slash_match = re.search(r"([\u4e00-\u9fa5A-Za-z0-9_.-]+(?:/[\u4e00-\u9fa5A-Za-z0-9_.-]+)+)", cleaned)
+    if slash_match:
+        return _normalize_candidate(slash_match.group(1))
+
+    candidates: List[str] = []
+    patterns = [
+        r"(?:设备名称|设备为|设备是|设备叫做|设备叫)[:：]?\s*([\u4e00-\u9fa5A-Za-z0-9_./-]+)",
+        r"([\u4e00-\u9fa5A-Za-z0-9_.-]{2,}(?:视频监控设备|监控设备|摄像机|相机|设备|通道)\d*)",
+    ]
+    for pattern in patterns:
+        for match in re.finditer(pattern, cleaned):
+            candidate = _normalize_candidate(match.group(1))
+            if not candidate:
+                continue
+            if candidate in _GENERIC_DEVICE_TERMS:
+                continue
+            if any(word in candidate for word in ("告警", "事件", "详情", "明细", "统计", "TOP", "top")):
+                continue
+            candidates.append(candidate)
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=len, reverse=True)
+    return candidates[0]
+
+
 def _parse_confidence(text: str) -> Optional[float]:
     """解析置信度条件，如 '置信度大于0.9' '置信度>0.8'"""
     m = re.search(r"置信度\s*(?:大于|>|>=|高于)\s*([0-9.]+)", text)
@@ -245,6 +308,7 @@ def parse_question(text: str) -> QueryPlan:
     top_k = _parse_top_k(text)
     lat, lon, radius_km = _parse_location(text)
     town_name, county_name = _parse_area_name(text)
+    device_name = _parse_device_name(text)
     confidence_min = _parse_confidence(text)
     group_by_result = _parse_group_by(text)
 
@@ -265,6 +329,9 @@ def parse_question(text: str) -> QueryPlan:
     if county_name:
         where.append("county_name LIKE ?")
         params.append(f"%{county_name}%")
+    if device_name:
+        where.append("device_name LIKE ?")
+        params.append(f"%{device_name}%")
     if confidence_min is not None:
         where.append("confidence_level >= ?")
         params.append(confidence_min)
@@ -282,6 +349,9 @@ def parse_question(text: str) -> QueryPlan:
             + where_sql
             + f" GROUP BY {group_col} ORDER BY 数量 DESC"
         )
+        if _has_top_k_limit_request(text):
+            sql += " LIMIT ?"
+            params.append(top_k)
     else:
         sql = (
             "SELECT * FROM events"
@@ -300,6 +370,7 @@ def parse_question(text: str) -> QueryPlan:
         "top_k": top_k,
         "town_name": town_name,
         "county_name": county_name,
+        "device_name": device_name,
         "confidence_min": confidence_min,
     }
 
@@ -310,9 +381,13 @@ def _get_llm_config(config: Dict):
     """提取 LLM 连接配置（api_key, url, model）"""
     llm_cfg = config.get("llm", {})
     api_key = llm_cfg.get("api_key") or None
+    if api_key in {"YOUR_DEEPSEEK_API_KEY_HERE", "YOUR_API_KEY_HERE"}:
+        api_key = None
     if not api_key:
         api_key_env = llm_cfg.get("api_key_env", "DEEPSEEK_API_KEY")
         api_key = os.getenv(api_key_env)
+    if api_key in {"YOUR_DEEPSEEK_API_KEY_HERE", "YOUR_API_KEY_HERE"}:
+        api_key = None
     if not api_key:
         raise RuntimeError("DEEPSEEK API key not configured (neither in config.llm.api_key nor environment).")
 
@@ -419,6 +494,8 @@ def _build_nl2sql_system_prompt(schema_prompt: str) -> str:
         "   - 正确：'查询最近20条告警' → LIMIT 20，无 WHERE 时间条件\n"
         "   - 错误：'查询最近20条告警' → WHERE alarm_time >= date('now', '-20 days')\n"
         "6. **事件类型**：从用户描述中匹配 event_type 字段的枚举值。\n\n"
+        "7. **设备名称**：像“同安磁灶尾高速/摄像机1”“视频监控设备2”这类实体，"
+        "优先映射到 `device_name`，使用 `device_name LIKE ...` 过滤。\n\n"
         "# intent 分类规则（必须遵守）\n"
         "- **count**：用户问'统计'、'数量'、'多少'、'分布'、'TOP'、'排名'，或 SQL 包含 COUNT/SUM/AVG + GROUP BY\n"
         "- **list**：用户问'查询'、'查看'、'详细信息'、'明细'，需要返回逐行记录\n"
@@ -432,11 +509,13 @@ def _build_nl2sql_system_prompt(schema_prompt: str) -> str:
         "6. 只允许 SELECT 查询，禁止 INSERT/UPDATE/DELETE/DROP 等写操作。\n"
         "7. 列表查询默认 LIMIT 20，除非用户指定了数量。\n"
         "8. town_name 匹配用 LIKE '%关键词%' 模糊匹配，关键词只包含纯地名。\n\n"
+        "9. device_name 匹配用 LIKE '%关键词%' 模糊匹配，完整保留设备层级名，例如"
+        " `同安磁灶尾高速/摄像机1`。\n\n"
         "# 输出格式\n"
         "严格输出一个 JSON 对象，不要包含任何多余文字、注释或 markdown 代码块：\n"
         '{"intent": "count|list", "sql": "...", "params": [...], "filters": {...}}\n'
         "filters 包含: event_type, start_time, end_time, lat, lon, radius_km, top_k, "
-        "town_name, county_name, confidence_min（值为 null 表示未指定）。"
+        "town_name, county_name, device_name, confidence_min（值为 null 表示未指定）。"
     )
 
 
@@ -444,7 +523,7 @@ def _call_deepseek_nl2sql(question: str, config: Dict, fallback: QueryPlan, trac
     from poc.qa.schema_meta import build_schema_prompt
 
     api_key, url, model, timeout = _get_llm_config(config)
-    db_path = config.get("paths", {}).get("db_path", "poc/data/metadata.db")
+    db_path = config.get("paths", {}).get("db_path", "data/metadata.db")
     schema_prompt = build_schema_prompt(db_path)
 
     system_prompt = _build_nl2sql_system_prompt(schema_prompt)
@@ -467,10 +546,44 @@ def _call_deepseek_nl2sql(question: str, config: Dict, fallback: QueryPlan, trac
     return QueryPlan(intent=intent, sql=sql, params=params, filters=merged_filters)
 
 
+def _count_sql_placeholders(sql: str) -> int:
+    dollar_count = len(re.findall(r'\$\d+', sql or ""))
+    qmark_count = (sql or "").count('?')
+    return max(dollar_count, qmark_count)
+
+
+def _normalize_sql_params(plan: QueryPlan) -> QueryPlan:
+    sql = plan.sql or ""
+    params = list(plan.params or [])
+    placeholder_count = _count_sql_placeholders(sql)
+
+    if placeholder_count == len(params):
+        return plan
+
+    limit_match = re.search(r'(?i)\bLIMIT\s+(\d+)\b', sql)
+    if limit_match and len(params) == placeholder_count + 1:
+        try:
+            limit_value = int(limit_match.group(1))
+            param_value = int(params[-1])
+        except (TypeError, ValueError):
+            return plan
+
+        if limit_value == param_value:
+            next_placeholder = f"${placeholder_count + 1}" if '$' in sql else '?'
+            plan.sql = (
+                sql[:limit_match.start(1)]
+                + next_placeholder
+                + sql[limit_match.end(1):]
+            )
+
+    return plan
+
+
 def _auto_correct_intent(plan: QueryPlan) -> QueryPlan:
     """根据 SQL 内容自动纠正 intent。
     如果 SQL 包含聚合函数 + GROUP BY，intent 应该是 count 而非 list。
     """
+    plan = _normalize_sql_params(plan)
     sql_upper = (plan.sql or "").upper()
     has_aggregate = any(fn in sql_upper for fn in ("COUNT(", "SUM(", "AVG("))
     has_group_by = "GROUP BY" in sql_upper
@@ -505,21 +618,37 @@ def _try_sql_cache(text: str, rule_plan: QueryPlan) -> Optional[QueryPlan]:
     fresh_plan = parse_question(text)
 
     # 校验占位符数量与 params 数量是否匹配
-    dollar_count = len(re.findall(r'\$\d+', cached_sql))
-    qmark_count = cached_sql.count('?')
-    placeholder_count = max(dollar_count, qmark_count)
-
-    if placeholder_count != len(fresh_plan.params):
-        print(f"[sql_cache] SKIP - placeholder count ({placeholder_count}) != param count ({len(fresh_plan.params)}), falling through to LLM")
-        return None
-
-    print(f"[sql_cache] HIT - intent={cached_intent}, reusing cached SQL template")
-    return QueryPlan(
+    normalized_plan = _normalize_sql_params(QueryPlan(
         intent=cached_intent,
         sql=cached_sql,
         params=fresh_plan.params,
         filters=fresh_plan.filters,
-    )
+    ))
+    placeholder_count = _count_sql_placeholders(normalized_plan.sql)
+
+    if placeholder_count != len(normalized_plan.params):
+        print(f"[sql_cache] SKIP - placeholder count ({placeholder_count}) != param count ({len(normalized_plan.params)}), falling through to LLM")
+        return None
+
+    print(f"[sql_cache] HIT - intent={cached_intent}, reusing cached SQL template")
+    return normalized_plan
+
+
+def _guard_required_rule_filters(plan: QueryPlan, rule_plan: QueryPlan) -> QueryPlan:
+    """规则引擎已识别到关键过滤条件时，不允许被 LLM SQL 无声丢失。"""
+    device_name = (rule_plan.filters or {}).get("device_name")
+    if device_name and "device_name" not in (plan.sql or ""):
+        print("[guard_filters] LLM SQL 丢失 device_name 过滤，回退到规则 SQL")
+        merged_filters = dict(rule_plan.filters or {})
+        merged_filters.update(plan.filters or {})
+        merged_filters["device_name"] = device_name
+        return QueryPlan(
+            intent=rule_plan.intent,
+            sql=rule_plan.sql,
+            params=list(rule_plan.params or []),
+            filters=merged_filters,
+        )
+    return plan
 
 
 def build_query_plan(text: str, config: Dict, trace_id: Optional[str] = None) -> QueryPlan:
@@ -555,6 +684,7 @@ def build_query_plan(text: str, config: Dict, trace_id: Optional[str] = None) ->
         try:
             print(f"[build_query_plan] 调用 LLM ({mode} 模式)...")
             llm_plan = _call_deepseek_nl2sql(text, config, rule_plan, trace_id=trace_id)
+            llm_plan = _guard_required_rule_filters(llm_plan, rule_plan)
             print(f"[build_query_plan] LLM 调用成功, intent={llm_plan.intent}")
             return _auto_correct_intent(llm_plan)
         except Exception as e:
@@ -621,3 +751,4 @@ def call_llm_fix_sql(question: str, failed_sql: str, error_msg: str,
     filters = obj.get("filters", {})
 
     return _auto_correct_intent(QueryPlan(intent=intent, sql=sql, params=params, filters=filters))
+

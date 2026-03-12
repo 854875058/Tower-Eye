@@ -171,7 +171,7 @@ def run_on_videos(
 def main() -> None:
     parser = argparse.ArgumentParser(description="POC YOLOv8 auto labeling")
     parser.add_argument("--config", default="poc/config/poc.yaml")
-    parser.add_argument("--output-dir", default="poc/data/labels/auto")
+    parser.add_argument("--output-dir", default="data/labels/auto")
     parser.add_argument("--confidence", type=float, default=0.25)
     parser.add_argument("--frame-step", type=int, default=30)
     parser.add_argument("--mock", action="store_true")
@@ -181,9 +181,9 @@ def main() -> None:
     paths_cfg = config.get("paths", {})
     train_cfg = config.get("train", {})
 
-    db_path = resolve_path(paths_cfg.get("db_path", "poc/data/metadata.db"))
-    raw_images_dir = resolve_path(paths_cfg.get("raw_images_dir", "poc/data/raw/images"))
-    raw_videos_dir = resolve_path(paths_cfg.get("raw_videos_dir", "poc/data/raw/videos"))
+    db_path = resolve_path(paths_cfg.get("db_path", "data/metadata.db"))
+    raw_images_dir = resolve_path(paths_cfg.get("raw_images_dir", "data/warning_img"))
+    raw_videos_dir = resolve_path(paths_cfg.get("raw_videos_dir", "data/warning_file"))
     labels_dir = resolve_path(args.output_dir)
     ensure_dir(labels_dir)
 
@@ -213,3 +213,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

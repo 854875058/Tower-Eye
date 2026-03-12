@@ -12,8 +12,8 @@ except Exception:  # pragma: no cover - optional dependency
 def main() -> None:
     parser = argparse.ArgumentParser(description="POC YOLOv8 training")
     parser.add_argument("--config", default="poc/config/poc.yaml")
-    parser.add_argument("--dataset", default="poc/data/datasets/yolo/dataset.yaml")
-    parser.add_argument("--project", default="poc/data/runs")
+    parser.add_argument("--dataset", default="data/datasets/yolo/dataset.yaml")
+    parser.add_argument("--project", default="data/runs")
     args = parser.parse_args()
 
     config = load_yaml(args.config)
@@ -36,3 +36,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

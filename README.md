@@ -32,8 +32,11 @@ Tower-Eye/
 ├── bin/                    # 启停、部署、运维脚本
 ├── docs/                   # 项目文档
 ├── tests/                  # 测试与评估脚本
-├── warning_img/            # 告警图片数据
-├── warning_file/           # 告警视频数据
+├── data/
+│   ├── warning_img/        # 告警图片数据
+│   ├── warning_file/       # 告警视频数据
+│   ├── metadata.db         # 元数据数据库
+│   └── lancedb/            # 向量库与结构化查询底座
 └── requirements.txt
 ```
 
@@ -77,13 +80,13 @@ copy poc\config\poc.yaml.example poc\config\poc.yaml
 ### 启动主界面
 
 ```bash
-python -m poc.app.app_ui
+python bin/manage.py start
 ```
 
 或：
 
 ```bash
-python bin/manage.py start
+python -m poc.app.app_ui
 ```
 
 默认访问地址：
@@ -124,7 +127,11 @@ python -m poc.qa.agent_query --question "最近7天车辆闯入告警有多少�
 - 如果没有 `poc/config/poc.yaml`，部分页面与测试会直接失败
 - 如果外部 Qwen3-VL / Reranker 服务不可用，检索能力会降级或失败
 - 如果未配置 DeepSeek Key，NL2SQL 会回退到规则模式或相关能力不可用
-- Windows 环境优先使用 `python bin/manage.py start|stop|restart|status`
+- Windows 环境优先使用 `python bin/manage.py start|stop|restart|status`；该入口会先 bootstrap 本地 `Ray`，再让 NiceGUI 以 connect-only 模式接入
+- `ray.address: auto` 表示“连接由 `manage.py` 或外部进程准备好的 Ray 地址”；如果你直接运行 `python -m poc.app.app_ui`，请先保证已有可连接的 Ray 集群，或显式把 `ray.address` 设为 `local`
+- 本地 bootstrap 地址会写入 `logs/ray_bootstrap.json`，应用启动时优先读取该地址，避免再次自启一套 Ray
+- 如果启动日志反复出现 `127.0.0.1:6379` / `global_state_accessor.cc:505`，优先执行 `ray stop` 和 `python bin/manage.py stop`，再重新启动应用
+- 如果命令行查询想启用 `sql_cache` / `trace`，请使用 `python -m poc.qa.agent_query --enable-trace ...`
 
 ## 相关文档
 

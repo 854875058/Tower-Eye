@@ -10,7 +10,7 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_yaml(args.config)
-    db_path = resolve_path(config.get("paths", {}).get("db_path", "poc/data/metadata.db"))
+    db_path = resolve_path(config.get("paths", {}).get("db_path", "data/metadata.db"))
 
     conn = connect_db(db_path)
 
@@ -47,3 +47,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

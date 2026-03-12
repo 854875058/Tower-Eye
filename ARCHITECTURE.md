@@ -72,6 +72,13 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+### 运行时控制
+
+- `Ray` 集群与 NiceGUI Web 进程解耦：推荐由 `python bin/manage.py start` 先 bootstrap 本地 `Ray`
+- Web 进程启动时只执行 connect-only，不再在 `app_ui.py` 所在进程里二次自启 `Ray`
+- 本地 bootstrap 地址会写入 `logs/ray_bootstrap.json`，供 Web 进程和运维命令统一读取
+- 如果 `Ray` 未就绪，Web 仍可启动；监控页会显示状态，依赖 `Ray` Actor 的能力在运行时重试或降级
+
 ---
 
 ## 🧩 核心组件
@@ -155,15 +162,15 @@ except SQLSecurityError as e:
 - 📈 **统计分析**：成功率、平均耗时、按意图分组
 
 **数据存储**：
-- SQLite 数据库（`poc/data/traces.db`）
-- JSONL 日志文件（`poc/logs/traces/trace_YYYYMMDD.jsonl`）
+- SQLite 数据库（`data/traces.db`）
+- JSONL 日志文件（`logs/traces/trace_YYYYMMDD.jsonl`）
 
 **查询示例**：
 ```python
 from poc.qa.trace import init_trace_manager, get_trace_manager
 
 # 初始化
-init_trace_manager(db_path="poc/data/traces.db", enable_file_log=True)
+init_trace_manager(db_path="data/traces.db", enable_file_log=True)
 
 # 查询统计
 manager = get_trace_manager()
@@ -334,7 +341,7 @@ print(f"平均耗时: {stats['avg_duration_ms']} ms")
 from poc.qa.tools import init_tool_registry, get_tool_registry
 
 # 初始化
-init_tool_registry(db_path="poc/data/metadata.db")
+init_tool_registry(db_path="data/metadata.db")
 
 # 执行 Tool
 registry = get_tool_registry()
@@ -519,4 +526,4 @@ def handle_user_query(question: str, user_id: str):
 
 **架构设计**: AI 架构师
 **技术栈**: Python 3.8+, LangGraph, DeepSeek, LanceDB, DuckDB
-**最后更新**: 2026-02-24
+**最后更新**: 2026-03-12

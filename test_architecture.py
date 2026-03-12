@@ -43,11 +43,11 @@ passed = 0
 for sql, should_pass, desc in test_cases:
     try:
         SQLGuardrail.validate_sql(sql)
-        result = "✓ 通过" if should_pass else "✗ 应该被拦截"
+        result = "[OK] 通过" if should_pass else "[FAIL] 应该被拦截"
         if should_pass:
             passed += 1
     except SQLSecurityError as e:
-        result = "✗ 被拦截" if not should_pass else f"✗ 误拦截: {e}"
+        result = "[OK] 被拦截" if not should_pass else f"[FAIL] 误拦截: {e}"
         if not should_pass:
             passed += 1
 
@@ -92,15 +92,15 @@ assert retrieved.question == "测试问题", "追踪数据不一致"
 # 统计信息
 stats = trace_manager.get_statistics()
 
-print(f"✓ 追踪记录创建成功")
-print(f"✓ 追踪ID: {trace.trace_id}")
-print(f"✓ 执行步骤: {len(trace.steps)} 个")
-print(f"✓ 总耗时: {trace.total_duration_ms:.2f} ms")
-print(f"✓ 数据库统计: {stats['total_queries']} 条记录")
+print(f"[OK] 追踪记录创建成功")
+print(f"[OK] 追踪ID: {trace.trace_id}")
+print(f"[OK] 执行步骤: {len(trace.steps)} 个")
+print(f"[OK] 总耗时: {trace.total_duration_ms:.2f} ms")
+print(f"[OK] 数据库统计: {stats['total_queries']} 条记录")
 
 # 清理
 temp_db.unlink()
-print(f"\n追踪系统测试: ✓ 通过\n")
+print(f"\n追踪系统测试: [OK] 通过\n")
 
 # ============================================================================
 # 测试 3: 语义层 Tool
@@ -111,13 +111,13 @@ print("-"*80)
 from poc.qa.tools import ToolRegistry
 
 # 检查是否有数据库
-db_path = Path("poc/data/metadata.db")
+db_path = Path("data/metadata.db")
 if db_path.exists():
     registry = ToolRegistry(str(db_path))
 
     # 列出所有 Tools
     tools = registry.list_tools()
-    print(f"✓ 已注册 {len(tools)} 个 Tools:")
+    print(f"[OK] 已注册 {len(tools)} 个 Tools:")
     for tool in tools:
         print(f"  - {tool['name']}: {tool['description']}")
 
@@ -125,14 +125,14 @@ if db_path.exists():
     print(f"\n测试 Tool 执行:")
     result = registry.execute_tool("get_vehicle_count", start_time="2026-01-01", end_time="2026-12-31")
     if result.success:
-        print(f"✓ get_vehicle_count 执行成功")
+        print(f"[OK] get_vehicle_count 执行成功")
         print(f"  结果: {result.data}")
     else:
-        print(f"✗ 执行失败: {result.error}")
+        print(f"[FAIL] 执行失败: {result.error}")
 
-    print(f"\n语义层 Tool 测试: ✓ 通过\n")
+    print(f"\n语义层 Tool 测试: [OK] 通过\n")
 else:
-    print(f"⚠ 数据库不存在 ({db_path})，跳过 Tool 测试\n")
+    print(f"[WARN] 数据库不存在 ({db_path})，跳过 Tool 测试\n")
 
 # ============================================================================
 # 测试 4: LangGraph Agent
@@ -148,8 +148,8 @@ if db_path.exists():
         config = load_yaml("poc/config/poc.yaml")
         agent = create_agent(config, max_retries=2)
 
-        print(f"✓ Agent 创建成功")
-        print(f"✓ 最大重试次数: 2")
+        print(f"[OK] Agent 创建成功")
+        print(f"[OK] 最大重试次数: 2")
 
         # 测试简单查询
         print(f"\n执行测试查询...")
@@ -163,17 +163,17 @@ if db_path.exists():
 
         if result['status'] == 'success':
             print(f"  答案: {result['answer']}")
-            print(f"\n✓ Agent 测试通过")
+            print(f"\n[OK] Agent 测试通过")
         else:
             print(f"  错误: {result['error']}")
-            print(f"\n⚠ Agent 执行失败（可能是数据库为空）")
+            print(f"\n[WARN] Agent 执行失败（可能是数据库为空）")
 
     except Exception as e:
-        print(f"✗ Agent 测试失败: {e}")
+        print(f"[FAIL] Agent 测试失败: {e}")
         import traceback
         traceback.print_exc()
 else:
-    print(f"⚠ 数据库不存在，跳过 Agent 测试\n")
+    print(f"[WARN] 数据库不存在，跳过 Agent 测试\n")
 
 # ============================================================================
 # 总结
@@ -182,15 +182,15 @@ print("="*80)
 print("验证完成！")
 print("="*80)
 print()
-print("✓ 安全护栏: 已部署，可防御 SQL 注入")
-print("✓ 追踪系统: 已部署，可记录完整链路")
-print("✓ 语义层 Tool: 已部署，支持业务抽象")
-print("✓ LangGraph Agent: 已部署，支持自我修正")
+print("[OK] 安全护栏: 已部署，可防御 SQL 注入")
+print("[OK] 追踪系统: 已部署，可记录完整链路")
+print("[OK] 语义层 Tool: 已部署，支持业务抽象")
+print("[OK] LangGraph Agent: 已部署，支持自我修正")
 print()
 print("下一步:")
 print("1. 运行数据入库: python -m poc.pipeline.ingest --config poc/config/poc.yaml")
 print("2. 构建向量索引: python -m poc.search.index --config poc/config/poc.yaml")
-print("3. 启动 Streamlit: streamlit run poc/app/app.py")
+print("3. 启动 NiceGUI: python bin/manage.py start")
 print("4. 使用 Agent 查询: python -m poc.qa.agent_query --question '你的问题'")
 print()
 print("="*80)

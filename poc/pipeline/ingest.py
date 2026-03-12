@@ -251,13 +251,13 @@ def main() -> None:
     paths_cfg = config.get("paths", {})
     ingest_cfg = config.get("ingest", {})
 
-    db_path = resolve_path(paths_cfg.get("db_path", "poc/data/metadata.db"))
+    db_path = resolve_path(paths_cfg.get("db_path", "data/metadata.db"))
     schema_path = resolve_path(paths_cfg.get("schema_path", "poc/schema/metadata.sql"))
     init_db(db_path, schema_path)
 
-    raw_images_dir = resolve_path(paths_cfg.get("raw_images_dir", "poc/data/raw/images"))
-    raw_videos_dir = resolve_path(paths_cfg.get("raw_videos_dir", "poc/data/raw/videos"))
-    structured_dir = resolve_path(paths_cfg.get("structured_dir", "poc/data/structured"))
+    raw_images_dir = resolve_path(paths_cfg.get("raw_images_dir", "data/warning_img"))
+    raw_videos_dir = resolve_path(paths_cfg.get("raw_videos_dir", "data/warning_file"))
+    structured_dir = resolve_path(paths_cfg.get("structured_dir", "data/structured"))
 
     strategy = ingest_cfg.get("asset_id_strategy", "sha256")
     images = discover_media(raw_images_dir, IMAGE_EXTS)
@@ -287,3 +287,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
