@@ -132,6 +132,13 @@ export interface DatasetCreate {
   status?: string
 }
 
+export interface TowerCleanedDatasetImportRequest {
+  workspace_id: number
+  data_source_name?: string
+  dataset_name?: string
+  description?: string
+}
+
 // 智能标注
 export interface WorkbenchSftpConfig {
   host: string

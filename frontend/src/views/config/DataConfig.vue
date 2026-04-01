@@ -45,6 +45,7 @@ const videoFiles = ref<File[]>([])
 const mediaPathInput = ref('')
 const uploading = ref(false)
 const uploadProgress = ref(0)
+const importingTowerCleaned = ref(false)
 
 // 创建数据源中
 const creatingDs = ref(false)
@@ -397,6 +398,30 @@ const handleUploadCsvFiles = async () => {
   }
 }
 
+const handleImportTowerCleaned = async () => {
+  if (!userStore.currentWorkspace) {
+    ElMessage.warning('请先选择工作空间')
+    return
+  }
+
+  importingTowerCleaned.value = true
+  try {
+    const res = await datasetApi.importTowerCleaned({
+      workspace_id: userStore.currentWorkspace.id,
+    })
+    await loadData(true)
+
+    const latest = datasets.value.find((item) => item.id === res.data.id) || res.data
+    handleDatasetSelect(latest)
+    ElMessage.success('铁塔清洗数据已接入当前系统')
+  } catch (e: any) {
+    console.error('导入铁塔清洗数据失败:', e)
+    ElMessage.error(e.response?.data?.detail || '导入失败')
+  } finally {
+    importingTowerCleaned.value = false
+  }
+}
+
 // 获取数据源类型标签
 const getDataSourceTypeLabel = (type: string) => {
   const option = typeOptions.find(t => t.value === type)
@@ -461,6 +486,14 @@ const selectedDatasetAlert = computed(() => {
     <div class="left-panel">
       <div class="panel-header">
         <span class="panel-title">数据集</span>
+        <el-button
+          type="primary"
+          size="small"
+          :loading="importingTowerCleaned"
+          @click="handleImportTowerCleaned"
+        >
+          接入铁塔清洗数据
+        </el-button>
       </div>
       <div class="source-list">
         <div
@@ -499,6 +532,7 @@ const selectedDatasetAlert = computed(() => {
       <div v-if="!isEditing" class="empty-config">
         <el-empty description="请选择或创建数据集">
           <el-button type="primary" @click="handleAddDataset">新建数据集</el-button>
+          <el-button plain :loading="importingTowerCleaned" @click="handleImportTowerCleaned">接入铁塔清洗数据</el-button>
         </el-empty>
       </div>
 

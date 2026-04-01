@@ -34,6 +34,7 @@ backend/data/*.db
 backend/data/*.sqlite
 backend/data/*.sqlite3
 backend/data/*.duckdb
+backend/data/*.wal
 backend/data/uploads/
 backend/data/media/
 backend/data/query_uploads/
@@ -75,6 +76,11 @@ data/warning_file/
 data-chat-bot.zip
 .antiword/
 antiword-utf8.txt
+pytest_tmp/
+pytest-cache-files-*/
+backend/data/_tmp_runtime/
+backend/data/_tower_import_test_runtime/
+backend/tests/_tmp_runtime/
 
 # Large local demo binaries
 backend/data/model/*.pt

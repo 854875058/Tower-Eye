@@ -15,8 +15,10 @@ from app.schemas.schemas import (
     DatasetCreate,
     DatasetUpdate,
     DatasetResponse,
+    TowerCleanedDatasetImportRequest,
 )
 from app.services.dataset import DatasetService
+from app.services.tower_cleaned_import import TowerCleanedImportService
 
 router = APIRouter()
 
@@ -152,6 +154,41 @@ async def create_dataset(
             business_rules=data.business_rules,
             status=data.status or "draft",
         )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return dataset
+
+
+@router.post("/import/tower-cleaned", response_model=DatasetResponse)
+async def import_tower_cleaned_dataset(
+    data: TowerCleanedDatasetImportRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """将铁塔清洗后的 events 数据一键注册到当前系统。"""
+    if not await verify_workspace_access(data.workspace_id, current_user, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权在该工作空间导入数据集",
+        )
+
+    service = TowerCleanedImportService(db)
+    try:
+        dataset = await service.import_cleaned_events(
+            workspace_id=data.workspace_id,
+            data_source_name=data.data_source_name or "铁塔告警清洗数据源",
+            dataset_name=data.dataset_name or "铁塔告警清洗数据集",
+            description=data.description,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

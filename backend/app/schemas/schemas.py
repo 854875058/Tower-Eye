@@ -204,6 +204,13 @@ class DatasetCreate(DatasetBase):
     status: Optional[str] = 'draft'
 
 
+class TowerCleanedDatasetImportRequest(BaseModel):
+    workspace_id: int
+    data_source_name: Optional[str] = "铁塔告警清洗数据源"
+    dataset_name: Optional[str] = "铁塔告警清洗数据集"
+    description: Optional[str] = "基于铁塔清洗后的 metadata.db events 表自动接入，供当前系统查询页和智能问答直接使用。"
+
+
 class DatasetUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None

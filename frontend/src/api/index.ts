@@ -13,6 +13,7 @@ import type {
   SchemaColumn,
   Dataset,
   DatasetCreate,
+  TowerCleanedDatasetImportRequest,
   WorkbenchDataset,
   WorkbenchDatasetCreate,
   WorkbenchDatasetDetail,
@@ -114,6 +115,9 @@ export const datasetApi = {
     api.post<any, AxiosResponse<Dataset>>('/datasets', data, data instanceof FormData
       ? { headers: { 'Content-Type': 'multipart/form-data' } }
       : undefined),
+
+  importTowerCleaned: (data: TowerCleanedDatasetImportRequest) =>
+    api.post<any, AxiosResponse<Dataset>>('/datasets/import/tower-cleaned', data),
 
   list: (workspaceId: number, dataSourceId?: number) =>
     api.get<any, AxiosResponse<Dataset[]>>('/datasets', {
