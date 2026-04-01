@@ -1,0 +1,82 @@
+.DS_Store
+
+# Local tool settings
+.claude/
+.idea/
+.vscode/
+
+# Python caches
+.ruff_cache/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.coverage
+
+# Local env files
+.env
+.env.*
+!.env.example
+!backend/.env.example
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/
+
+# Runtime logs and pid files
+logs/
+backend/logs/
+*.log
+*.pid
+
+# Local runtime data
+backend/data/*.db
+backend/data/*.sqlite
+backend/data/*.sqlite3
+backend/data/*.duckdb
+backend/data/uploads/
+backend/data/media/
+backend/data/query_uploads/
+backend/data/annotations/
+backend/data/.claude/
+
+# Keep source assets in Git:
+# - backend/data/warning_file/
+# - backend/data/warning_img/
+# - backend/data/model/
+
+# Local test dependencies
+backend/.test-deps/
+
+# Local Python/Node runtime env
+backend/.venv/
+backend/.vendor/
+backend/.pip-cache/
+backend/.tmp/
+frontend/.npm-cache/
+frontend/.tmp/
+
+# Root data caches / generated artifacts
+data/backups/
+data/embeddings/
+data/index/
+data/lancedb/
+data/review/
+data/runs/
+data/tmp/
+data/metrics.db
+data/traces.db
+data/search_debug.log
+data/warning_img/
+data/warning_file/
+
+# Local temp / export artifacts
+~$*
+data-chat-bot.zip
+.antiword/
+antiword-utf8.txt
+
+# Large local demo binaries
+backend/data/model/*.pt
+backend/data/warning_img/
+backend/data/warning_file/

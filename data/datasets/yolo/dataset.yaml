@@ -1,0 +1,6 @@
+path: /Users/anzp/environment/patenterWirter/poc/data/datasets/yolo
+train: images/train
+val: images/val
+names:
+  0: 烟火
+  1: 违法建设

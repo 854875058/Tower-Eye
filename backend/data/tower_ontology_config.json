@@ -1,0 +1,197 @@
+{
+  "entities": [
+    {
+      "type": "source",
+      "label": "数据源",
+      "description": "原始业务数据载体，包括事件元数据、图片资源、视频资源。",
+      "key_fields": [
+        "source_name",
+        "storage_path"
+      ],
+      "source_fields": [
+        "events",
+        "warning_img",
+        "warning_file"
+      ],
+      "enabled": true
+    },
+    {
+      "type": "event",
+      "label": "告警事件",
+      "description": "视联告警核心业务对象，承载事件类型、时间、位置、设备和置信度。",
+      "key_fields": [
+        "event_id",
+        "event_type",
+        "alarm_time",
+        "confidence_level"
+      ],
+      "source_fields": [
+        "event_id",
+        "event_type",
+        "alarm_time",
+        "confidence_level",
+        "summary"
+      ],
+      "enabled": true
+    },
+    {
+      "type": "region",
+      "label": "区域实体",
+      "description": "用于聚合告警热点、分析区域风险和巡检优先级。",
+      "key_fields": [
+        "province_name",
+        "city_name",
+        "county_name"
+      ],
+      "source_fields": [
+        "province_name",
+        "city_name",
+        "county_name",
+        "town_name"
+      ],
+      "enabled": true
+    },
+    {
+      "type": "device",
+      "label": "设备实体",
+      "description": "承载设备热点、通道活跃度和重点复核对象。",
+      "key_fields": [
+        "device_name",
+        "channel_name"
+      ],
+      "source_fields": [
+        "device_name",
+        "channel_name",
+        "algorithm_name"
+      ],
+      "enabled": true
+    },
+    {
+      "type": "media",
+      "label": "多模态证据",
+      "description": "与告警事件关联的图片和视频证据。",
+      "key_fields": [
+        "image_url",
+        "video_url"
+      ],
+      "source_fields": [
+        "img_src_path",
+        "video_path"
+      ],
+      "enabled": true
+    },
+    {
+      "type": "process",
+      "label": "处理过程",
+      "description": "描述从事件接入、图谱关联、风险排序到建议生成的处理链路。",
+      "key_fields": [
+        "process_name"
+      ],
+      "source_fields": [
+        "事件接入",
+        "知识关联",
+        "风险排序",
+        "建议生成"
+      ],
+      "enabled": true
+    },
+    {
+      "type": "recommendation",
+      "label": "处置建议",
+      "description": "面向巡检、复核和样本治理的建议输出对象。",
+      "key_fields": [
+        "title",
+        "priority"
+      ],
+      "source_fields": [
+        "title",
+        "priority",
+        "reason"
+      ],
+      "enabled": true
+    }
+  ],
+  "relations": [
+    {
+      "type": "feeds",
+      "label": "数据注入",
+      "source_type": "source",
+      "target_type": "process",
+      "description": "原始数据进入处理流程。",
+      "source_field": null,
+      "enabled": true
+    },
+    {
+      "type": "produces",
+      "label": "产出",
+      "source_type": "process",
+      "target_type": "event",
+      "description": "处理流程产出业务事件。",
+      "source_field": null,
+      "enabled": true
+    },
+    {
+      "type": "located_in",
+      "label": "发生区域",
+      "source_type": "event",
+      "target_type": "region",
+      "description": "告警事件映射到区域实体。",
+      "source_field": "county_name",
+      "enabled": true
+    },
+    {
+      "type": "detected_on",
+      "label": "触发设备",
+      "source_type": "event",
+      "target_type": "device",
+      "description": "告警事件关联触发设备。",
+      "source_field": "device_name",
+      "enabled": true
+    },
+    {
+      "type": "has_image",
+      "label": "关联图片",
+      "source_type": "event",
+      "target_type": "media",
+      "description": "告警事件关联图片证据。",
+      "source_field": "img_src_path",
+      "enabled": true
+    },
+    {
+      "type": "has_video",
+      "label": "关联视频",
+      "source_type": "event",
+      "target_type": "media",
+      "description": "告警事件关联视频证据。",
+      "source_field": "video_path",
+      "enabled": true
+    },
+    {
+      "type": "supports",
+      "label": "支撑分析",
+      "source_type": "region",
+      "target_type": "process",
+      "description": "区域或设备信息参与风险分析。",
+      "source_field": null,
+      "enabled": true
+    },
+    {
+      "type": "transforms",
+      "label": "处理流转",
+      "source_type": "process",
+      "target_type": "process",
+      "description": "处理阶段之间的流转关系。",
+      "source_field": null,
+      "enabled": true
+    },
+    {
+      "type": "outputs",
+      "label": "输出建议",
+      "source_type": "process",
+      "target_type": "recommendation",
+      "description": "分析流程输出建议动作。",
+      "source_field": null,
+      "enabled": true
+    }
+  ]
+}

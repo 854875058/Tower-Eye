@@ -1,0 +1,3 @@
+file_name,event_type,alarm_time,lat,lon,alarm_level,alarm_source,region
+sample1.png,烟火,2026-02-02T10:00:00,31.2304,121.4737,high,demo,shanghai
+sample2.png,违法建设,2026-02-01T09:30:00,30.5728,104.0668,medium,demo,chengdu
