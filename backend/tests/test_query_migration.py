@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+from app.api.queries import _build_query_response_data
+from app.services import nl2sql as nl2sql_module
+
+
+def test_count_sql_parameter_placeholders_ignores_literals_and_comments():
+    sql = """
+    SELECT *
+    FROM ds1_events
+    WHERE summary = ?
+      AND note = '?'
+      AND description = "?"
+      -- comment ?
+      /* block ? */
+      AND extra_json LIKE ?
+    """
+
+    assert nl2sql_module._count_sql_parameter_placeholders(sql) == 2
+
+
+def test_sql_cache_plan_skips_placeholder_mismatch_and_invalidates_cache(monkeypatch):
+    class FakeTraceManager:
+        def __init__(self):
+            self.invalidated = []
+
+        def lookup_sql_cache(self, q_text, table_scope=None, mark_hit=False):
+            return {
+                "intent": "list",
+                "sql": "SELECT * FROM ds1_events WHERE event_type = ?",
+                "sql_params": [],
+                "question_hash": "bad-cache",
+                "question_sample": q_text,
+                "hit_count": 1,
+            }
+
+        def invalidate_sql_cache(self, question_hash_value: str):
+            self.invalidated.append(question_hash_value)
+
+        def mark_sql_cache_hit(self, question_hash_value: str):
+            raise AssertionError("placeholder mismatch cache should not be marked as hit")
+
+    fake_manager = FakeTraceManager()
+
+    monkeypatch.setattr("app.services.trace.get_trace_manager", lambda: fake_manager)
+
+    plan = nl2sql_module._try_build_sql_cache_plan(
+        question="查询最近20条告警",
+        parsed_intent="list",
+        candidate_tables=["ds1_events"],
+    )
+
+    assert plan is None
+    assert fake_manager.invalidated == ["bad-cache"]
+
+
+def test_build_query_response_data_exposes_semantic_enhance_fields():
+    state = {
+        "intent": "list",
+        "sql": "SELECT * FROM ds1_events LIMIT 20",
+        "sql_params": [],
+        "sql_result": [{"file_path": "/tmp/a.jpg", "summary": "red vehicle"}],
+        "final_answer": {
+            "type": "list",
+            "value": [{"file_path": "/tmp/a.jpg", "summary": "red vehicle"}],
+            "message": "查询结果：返回 1 条记录",
+            "semantic_scores": {"a.jpg": 0.91},
+            "vector_only_results": [{"file_name": "b.jpg", "hybrid_score": 0.87}],
+        },
+        "execution_history": [],
+        "filters": {"plan_source": "llm", "confidence": 0.88},
+        "logs": [],
+    }
+
+    data = _build_query_response_data(
+        question="查找红色车辆",
+        dataset=None,
+        trace_id="trace-demo",
+        audit_id="audit-demo",
+        state=state,
+        warnings=[],
+    )
+
+    assert data["semantic_scores"] == {"a.jpg": 0.91}
+    assert data["vector_only_results"] == [{"file_name": "b.jpg", "hybrid_score": 0.87}]
+    assert data["plan_source"] == "llm"
+    assert data["confidence"] == 0.88

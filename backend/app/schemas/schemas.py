@@ -2,7 +2,7 @@
 Pydantic schemas - API 请求/响应模型
 """
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -544,6 +544,8 @@ class QueryResponse(BaseModel):
     agent_steps: Optional[List[dict]] = None  # Agent 思考步骤
     execution_history: Optional[List[dict]] = None  # 完整节点执行历史
     evidence: Optional[dict] = None  # 结构化证据
+    semantic_scores: Optional[Dict[str, float]] = None  # 语义增强匹配分数
+    vector_only_results: Optional[List[dict]] = None  # 语义增强补充推荐结果
     answer: Optional[str] = None  # 自然语言答案
     plan_source: Optional[str] = None  # 规划来源：rule/llm/verified_query/sql_cache/manual_sql/reject
     confidence: Optional[float] = None  # 规划置信度（0~1）

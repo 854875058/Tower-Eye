@@ -471,14 +471,15 @@ def semantic_enhance_node(state: AgentState) -> AgentState:
         return state
 
     question = state["question"]
-    logger.start_node("semantic_enhance", {"question": question[:50]})
+    semantic_query = str(state.get("resolved_question") or question)
+    logger.start_node("semantic_enhance", {"question": semantic_query[:50]})
 
     try:
         from app.services.vector_search import semantic_enhance
 
         config = {"search": {"lancedb_dir": "data/lancedb"}}
         semantic_scores, vector_only = semantic_enhance(
-            config, sql_result, question, top_k=max(len(sql_result) * 2, 20)
+            config, sql_result, semantic_query, top_k=max(len(sql_result) * 2, 20)
         )
 
         state["semantic_scores"] = semantic_scores
@@ -493,7 +494,7 @@ def semantic_enhance_node(state: AgentState) -> AgentState:
             step="semantic_enhance",
             started_at=started_at,
             status="success",
-            input_data={"question": question, "row_count": len(sql_result)},
+            input_data={"question": semantic_query, "row_count": len(sql_result)},
             output_data={"matched": len(semantic_scores), "vector_only": len(vector_only)},
         )
 
@@ -506,7 +507,7 @@ def semantic_enhance_node(state: AgentState) -> AgentState:
             step="semantic_enhance",
             started_at=started_at,
             status="error",
-            input_data={"question": question, "row_count": len(sql_result)},
+            input_data={"question": semantic_query, "row_count": len(sql_result)},
             error=str(e),
         )
 

@@ -548,6 +548,8 @@ def _build_query_response_data(
             chart_suggestion = "table"
 
     evidence = final.get("evidence")
+    semantic_scores = final.get("semantic_scores") if isinstance(final.get("semantic_scores"), dict) else {}
+    vector_only_results = final.get("vector_only_results") if isinstance(final.get("vector_only_results"), list) else []
     execution_history = state.get("execution_history") if isinstance(state.get("execution_history"), list) else []
     filters = state.get("filters") if isinstance(state.get("filters"), dict) else {}
     plan_source = filters.get("plan_source")
@@ -579,6 +581,8 @@ def _build_query_response_data(
         "agent_steps": state.get("logs", []),
         "execution_history": execution_history,
         "evidence": evidence,
+        "semantic_scores": semantic_scores,
+        "vector_only_results": vector_only_results,
         "answer": answer,
         "plan_source": plan_source,
         "confidence": confidence,
@@ -940,6 +944,8 @@ async def execute_sql(
                 "evidence_type": "record" if intent == "list" else "aggregate",
                 "summary": "结果来自手工执行 SQL 的直接输出样本。",
             },
+            "semantic_scores": {},
+            "vector_only_results": [],
             "answer": f"执行成功，返回 {row_count} 条记录" if intent == "list" else f"统计完成，共 {row_count} 条分组结果",
             "plan_source": "manual_sql",
             "confidence": 1.0,
@@ -972,6 +978,8 @@ async def execute_sql(
             "agent_steps": [],
             "execution_history": [],
             "evidence": None,
+            "semantic_scores": {},
+            "vector_only_results": [],
             "answer": f"SQL 执行失败: {str(exc)}",
             "plan_source": "manual_sql",
             "confidence": 0.0,

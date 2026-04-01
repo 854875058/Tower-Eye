@@ -1081,6 +1081,79 @@ def _is_sql_text_valid(sql: str) -> bool:
     return bool(sql and sql.strip() and "FROM None" not in sql)
 
 
+def _count_sql_parameter_placeholders(sql: str) -> int:
+    """统计 SQL 中真正的参数占位符数量，忽略字符串与注释中的 `?`。"""
+    if not sql:
+        return 0
+
+    count = 0
+    in_single = False
+    in_double = False
+    in_line_comment = False
+    in_block_comment = False
+    idx = 0
+    length = len(sql)
+
+    while idx < length:
+        ch = sql[idx]
+        nxt = sql[idx + 1] if idx + 1 < length else ""
+
+        if in_line_comment:
+            if ch == "\n":
+                in_line_comment = False
+            idx += 1
+            continue
+
+        if in_block_comment:
+            if ch == "*" and nxt == "/":
+                in_block_comment = False
+                idx += 2
+                continue
+            idx += 1
+            continue
+
+        if in_single:
+            if ch == "'" and nxt == "'":
+                idx += 2
+                continue
+            if ch == "'":
+                in_single = False
+            idx += 1
+            continue
+
+        if in_double:
+            if ch == '"' and nxt == '"':
+                idx += 2
+                continue
+            if ch == '"':
+                in_double = False
+            idx += 1
+            continue
+
+        if ch == "-" and nxt == "-":
+            in_line_comment = True
+            idx += 2
+            continue
+        if ch == "/" and nxt == "*":
+            in_block_comment = True
+            idx += 2
+            continue
+        if ch == "'":
+            in_single = True
+            idx += 1
+            continue
+        if ch == '"':
+            in_double = True
+            idx += 1
+            continue
+        if ch == "?":
+            count += 1
+
+        idx += 1
+
+    return count
+
+
 def _is_plan_sql_valid(plan: QueryPlan, allowed_tables: Optional[List[str]] = None) -> bool:
     """计划 SQL 是否可执行（含安全校验）"""
     if not _is_sql_text_valid(plan.sql):
@@ -1232,6 +1305,15 @@ def _try_build_sql_cache_plan(question: str, parsed_intent: str, candidate_table
     params = cached.get("sql_params")
     if not isinstance(params, list):
         params = []
+
+    placeholder_count = _count_sql_parameter_placeholders(sql)
+    if placeholder_count != len(params):
+        manager.invalidate_sql_cache(str(cached.get("question_hash") or ""))
+        print(
+            f"[build_query_plan] 命中 sql_cache，但占位符数量({placeholder_count})与参数数量({len(params)})不一致，"
+            "已移除缓存并回退 LLM 轨道"
+        )
+        return None
 
     plan = _auto_correct_intent(
         QueryPlan(

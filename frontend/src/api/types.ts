@@ -564,6 +564,8 @@ export interface QueryResponse {
   agent_steps?: AgentStep[]
   execution_history?: Record<string, any>[]
   evidence?: Record<string, any>
+  semantic_scores?: Record<string, number>
+  vector_only_results?: Record<string, any>[]
   answer?: string
   plan_source?: string
   confidence?: number

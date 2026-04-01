@@ -844,6 +844,19 @@ const formatSearchScore = (row: Record<string, any>) => {
   return '-'
 }
 
+const getSemanticMatchedCount = (data?: QueryResponse | null) => {
+  if (!data?.semantic_scores) return 0
+  return Object.keys(data.semantic_scores).length
+}
+
+const getVectorRecommendations = (data?: QueryResponse | null) => {
+  return Array.isArray(data?.vector_only_results) ? data.vector_only_results : []
+}
+
+const getRecommendationTitle = (row: Record<string, any>) => {
+  return row.file_name || row.file_path || row.asset_id || row.image_id || row.video_id || '相关结果'
+}
+
 const validateQueryMediaFile = (file: File) => {
   const isImage = file.type.startsWith('image/') || /\.(png|jpe?g|bmp|webp)$/i.test(file.name)
   const isVideo = file.type.startsWith('video/') || /\.(mp4|mov|avi|mkv|m4v|webm)$/i.test(file.name)
@@ -924,6 +937,8 @@ const handleRerunSql = async (msgIdx: number, msgData: any) => {
       msgData.audit_id = response.data.audit_id
       msgData.execution_history = response.data.execution_history || []
       msgData.evidence = response.data.evidence || null
+      msgData.semantic_scores = response.data.semantic_scores || {}
+      msgData.vector_only_results = response.data.vector_only_results || []
       msgData.plan_source = response.data.plan_source || 'manual_sql'
       msgData.confidence = typeof response.data.confidence === 'number' ? response.data.confidence : 1
       msgData.warnings = response.data.warnings || []
@@ -1160,6 +1175,8 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
                   audit_id: currentAuditId,
                   execution_history: finalExecutionHistory,
                   evidence: finalData?.evidence,
+                  semantic_scores: finalData?.semantic_scores || {},
+                  vector_only_results: finalData?.vector_only_results || [],
                   plan_source: finalData?.plan_source || finalFilters?.plan_source,
                   confidence: typeof (finalData?.confidence ?? finalFilters?.confidence) === 'number'
                     ? (finalData?.confidence ?? finalFilters?.confidence)
@@ -1248,6 +1265,8 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
           audit_id: currentAuditId,
           execution_history: finalExecutionHistory,
           evidence: finalData?.evidence,
+          semantic_scores: finalData?.semantic_scores || {},
+          vector_only_results: finalData?.vector_only_results || [],
           plan_source: finalData?.plan_source || finalFilters?.plan_source,
           confidence: typeof (finalData?.confidence ?? finalFilters?.confidence) === 'number'
             ? (finalData?.confidence ?? finalFilters?.confidence)
@@ -1278,6 +1297,8 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
         audit_id: currentAuditId,
         table_names: selectedTableNames,
         dataset_id: selectedDataset.value?.id,
+        semantic_scores: {},
+        vector_only_results: [],
       } as QueryResponse
     }
     if (currentTraceId) {
@@ -1624,6 +1645,43 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                       class="exec-history-more"
                     >
                       仅展示最近 {{ getExecutionHistoryPreview(msg.data).length }} 个节点
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  v-if="msg.data && (getSemanticMatchedCount(msg.data) > 0 || getVectorRecommendations(msg.data).length > 0)"
+                  class="semantic-card"
+                >
+                  <div class="card-header">
+                    <div class="header-left">
+                      <span class="icon-emoji">✨</span>
+                      <span class="header-title">语义增强</span>
+                    </div>
+                  </div>
+                  <div class="semantic-summary">
+                    <el-tag size="small" type="success">匹配 {{ getSemanticMatchedCount(msg.data) }} 条</el-tag>
+                    <el-tag size="small" type="warning">补充 {{ getVectorRecommendations(msg.data).length }} 条</el-tag>
+                  </div>
+                  <div v-if="getVectorRecommendations(msg.data).length > 0" class="semantic-recommend-list">
+                    <div
+                      v-for="(item, ridx) in getVectorRecommendations(msg.data)"
+                      :key="`${getRecommendationTitle(item)}-${ridx}`"
+                      class="semantic-recommend-item"
+                    >
+                      <el-image
+                        v-if="getSearchPreview(item)"
+                        :src="getSearchPreview(item)"
+                        fit="cover"
+                        class="semantic-recommend-preview"
+                        :preview-src-list="[getSearchPreview(item)]"
+                      />
+                      <div v-else class="semantic-recommend-fallback">相关结果</div>
+                      <div class="semantic-recommend-main">
+                        <div class="semantic-recommend-title">{{ getRecommendationTitle(item) }}</div>
+                        <div class="semantic-recommend-desc">{{ formatSearchExtra(item) }}</div>
+                      </div>
+                      <el-tag size="small" type="info">{{ formatSearchScore(item) }}</el-tag>
                     </div>
                   </div>
                 </div>
@@ -2495,6 +2553,100 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
     font-size: 12px;
     color: #7a8a9a;
     margin-top: 2px;
+  }
+}
+
+.semantic-card {
+  background: #fffdf6;
+  border-radius: 12px;
+  padding: 14px 16px;
+  border: 1px solid #f4e2a8;
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .icon-emoji {
+      font-size: 16px;
+    }
+
+    .header-title {
+      color: #8b6a11;
+      font-weight: 600;
+      font-size: 14px;
+    }
+  }
+
+  .semantic-summary {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+
+  .semantic-recommend-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .semantic-recommend-item {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px;
+    border-radius: 10px;
+    background: #fff;
+    border: 1px solid #f3ead1;
+  }
+
+  .semantic-recommend-preview,
+  .semantic-recommend-fallback {
+    width: 88px;
+    height: 56px;
+    border-radius: 8px;
+  }
+
+  .semantic-recommend-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #fff7db 0%, #ffefb0 100%);
+    color: #8b6a11;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .semantic-recommend-main {
+    min-width: 0;
+  }
+
+  .semantic-recommend-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #4c4c4c;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .semantic-recommend-desc {
+    font-size: 12px;
+    color: #6b7280;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 }
 
