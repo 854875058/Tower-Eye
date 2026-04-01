@@ -39,10 +39,10 @@ const allTables = ref<TableItem[]>([])
 
 // 快捷示例
 const quickExamples = [
-  '分析近三个月各渠道新增用户和转化率变化',
-  '统计本月高价值用户的 ARPU、留存率和付费转化情况',
-  '检索与“人员聚集”相关的图片和视频片段',
-  '查找与“机房巡检告警”相似的监控画面',
+  '统计最近30天各区县告警数量分布',
+  '查询最近20条车辆闯入监控告警',
+  '分析近期哪些设备触发告警次数最多',
+  '查找与“车辆闯入”相关的图片和视频片段',
 ]
 
 // 过滤后的数据表
@@ -1475,7 +1475,7 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                 </div>
                 <div class="support-item">
                   <span class="support-icon">🗂️</span>
-                  <span class="support-text">结构化数据分析：支持用户、运营、渠道、财务等业务场景分析</span>
+                  <span class="support-text">结构化数据分析：支持告警、设备、区域、时间等业务场景分析</span>
                 </div>
                 <div class="support-item">
                   <span class="support-icon">🖼️</span>
