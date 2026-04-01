@@ -33,6 +33,7 @@ import type {
   QueryResponse,
   QueryHistory,
   LlmHeartbeatResponse,
+  SystemMonitorSummaryResponse,
 } from './types'
 
 const baseURL = '/api/v1'
@@ -354,6 +355,9 @@ export const historyApi = {
 export const systemApi = {
   getLlmHeartbeat: () =>
     api.get<any, AxiosResponse<LlmHeartbeatResponse>>('/system/llm-heartbeat'),
+
+  getMonitorSummary: () =>
+    api.get<any, AxiosResponse<SystemMonitorSummaryResponse>>('/system/monitor-summary'),
 }
 
 export default api

@@ -618,3 +618,53 @@ export interface LlmHeartbeatResponse {
   model_count?: number
   detail?: string
 }
+
+export interface SystemMonitorDataStats {
+  workspace_count: number
+  data_source_count: number
+  dataset_count: number
+  workbench_dataset_count: number
+  query_history_count: number
+  tower_assets: number
+  tower_events: number
+  tower_detections: number
+}
+
+export interface SystemMonitorTraceItem {
+  timestamp?: string
+  question?: string
+  intent?: string
+  status?: string
+  duration_ms?: number
+  trace_id?: string
+}
+
+export interface SystemMonitorExternalService {
+  name: string
+  status: 'up' | 'down' | 'degraded' | 'unconfigured'
+  message: string
+  detail?: string
+  latency_ms?: number
+}
+
+export interface SystemMonitorTool {
+  name: string
+  category: string
+  description: string
+}
+
+export interface SystemMonitorSummaryResponse {
+  data_stats: SystemMonitorDataStats
+  query_trace: {
+    total_queries: number
+    success_count: number
+    error_count: number
+    success_rate: number
+    avg_duration_ms: number
+    by_intent: Record<string, number>
+    recent_queries: SystemMonitorTraceItem[]
+  }
+  tool_registry: SystemMonitorTool[]
+  external_services: SystemMonitorExternalService[]
+  checked_at: string
+}
