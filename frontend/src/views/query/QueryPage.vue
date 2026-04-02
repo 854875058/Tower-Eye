@@ -4,7 +4,7 @@ import { useUserStore } from '@/stores/user'
 import { queryApi, datasetApi, dataSourceApi, historyApi } from '@/api'
 import type { QueryContextTurn, QueryResponse, QuerySessionContext, Dataset, SchemaColumn } from '@/api/types'
 import { ElMessage } from 'element-plus'
-import { Loading, UploadFilled } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowRight, Loading, UploadFilled } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 
 const userStore = useUserStore()
@@ -15,6 +15,8 @@ interface Message {
   content: string
   data?: QueryResponse
   thinkingLines?: string[]
+  progressCollapsed?: boolean
+  sqlCollapsed?: boolean
 }
 
 interface TableItem {
@@ -122,20 +124,20 @@ const getFriendlyStepStartText = (step?: string) => {
   if (!step) return `${stepText}中`
 
   const startTextMap: Record<string, string> = {
-    parse_question: '正在理解你的问题',
-    validate_sql: '正在检查查询条件',
-    execute_sql: '正在查询数据',
-    format_answer: '正在整理结果',
-    semantic_enhance: '正在优化结果',
-    vector_search: '正在查找相关内容',
-    fix_sql: '检测到异常，正在自动修正',
-    intent_node: '正在识别你的问题类型',
-    semantic_node: '正在理解问题语义',
-    dispatcher_node: '正在规划处理路径',
-    sql_gen_node: '正在生成查询语句',
-    sql_validate_node: '正在检查查询语句',
-    sql_execute_node: '正在执行查询',
-    format_node: '正在整理结果',
+    parse_question: '正在解析问题并匹配可用数据表',
+    validate_sql: '正在校验查询条件与执行安全性',
+    execute_sql: '正在执行查询并获取结果',
+    format_answer: '正在整理答案与结果摘要',
+    semantic_enhance: '正在补充语义匹配与相关推荐',
+    vector_search: '正在检索相关图片、视频和文本证据',
+    fix_sql: '检测到异常，正在重新规划查询语句',
+    intent_node: '正在识别你的查询类型',
+    semantic_node: '正在理解问题语义与检索意图',
+    dispatcher_node: '正在选择合适的处理路径',
+    sql_gen_node: '正在生成可执行的查询语句',
+    sql_validate_node: '正在校验查询语句',
+    sql_execute_node: '正在执行查询语句',
+    format_node: '正在整理答案与展示结果',
   }
   return `[${stepText}] ${startTextMap[step] || '正在处理'}`
 }
@@ -149,12 +151,12 @@ const getFriendlyStepEndLines = (step?: string, outputs?: any): string[] => {
 
   if (step === 'parse_question' || step === 'intent_node') {
     if (outputs?.intent) {
-      lines.push(`[${stepText}] 已理解需求：${getIntentLabel(outputs.intent)}`)
+      lines.push(`[${stepText}] 已识别查询类型：${getIntentLabel(outputs.intent)}`)
     } else {
       lines.push(`[${stepText}] 已完成`)
     }
     if (outputs?.sql) {
-      lines.push('[查询准备] 已生成可执行的查询条件')
+      lines.push('[查询准备] 已生成可执行查询条件')
     }
     const planSource = outputs?.filters?.plan_source
     if (planSource === 'sql_cache') {
@@ -174,9 +176,9 @@ const getFriendlyStepEndLines = (step?: string, outputs?: any): string[] => {
 
   if (step === 'validate_sql' || step === 'sql_validate_node') {
     if (errorMessage) {
-      lines.push('[查询检查] 检查未通过，系统将自动修正')
+      lines.push('[查询检查] 校验未通过，系统将尝试自动修正')
     } else {
-      lines.push('[查询检查] 检查通过')
+      lines.push('[查询检查] 校验通过，可进入执行阶段')
     }
     return lines
   }
@@ -185,7 +187,7 @@ const getFriendlyStepEndLines = (step?: string, outputs?: any): string[] => {
     const resultRows = outputs?.result?.rows || outputs?.rows || outputs?.sql_result || []
     const rowCount = outputs?.row_count || (Array.isArray(resultRows) ? resultRows.length : 0)
     if (errorMessage) {
-      lines.push('[数据查询] 执行遇到问题，系统将自动重试')
+      lines.push('[数据查询] 当前步骤执行异常，系统将继续尝试修复')
     } else {
       lines.push(`[数据查询] 已完成，共返回 ${rowCount} 条结果`)
     }
@@ -857,6 +859,31 @@ const getRecommendationTitle = (row: Record<string, any>) => {
   return row.file_name || row.file_path || row.asset_id || row.image_id || row.video_id || '相关结果'
 }
 
+const toggleProgressCollapse = (msg: Message) => {
+  msg.progressCollapsed = !msg.progressCollapsed
+}
+
+const toggleSqlCollapse = (msg: Message) => {
+  msg.sqlCollapsed = !msg.sqlCollapsed
+}
+
+const collapseAssistantCards = (msg?: Message | null) => {
+  if (!msg) return
+  msg.progressCollapsed = true
+  msg.sqlCollapsed = true
+}
+
+const getThinkingSummary = (msg?: Message | null) => {
+  const lines = msg?.thinkingLines || []
+  return lines.length > 0 ? lines[lines.length - 1] : '本轮处理已完成，可展开查看详情'
+}
+
+const getSqlPreview = (sql?: string) => {
+  if (!sql) return ''
+  const singleLine = sql.replace(/\s+/g, ' ').trim()
+  return singleLine.length > 180 ? `${singleLine.slice(0, 177)}...` : singleLine
+}
+
 const validateQueryMediaFile = (file: File) => {
   const isImage = file.type.startsWith('image/') || /\.(png|jpe?g|bmp|webp)$/i.test(file.name)
   const isVideo = file.type.startsWith('video/') || /\.(mp4|mov|avi|mkv|m4v|webm)$/i.test(file.name)
@@ -947,6 +974,7 @@ const handleRerunSql = async (msgIdx: number, msgData: any) => {
       msgData.table_names = tableNamesForRerun
       msgData.dataset_id = datasetIdForRerun
       msgData.sql_params = Array.isArray(response.data.sql_params) ? response.data.sql_params : sqlParamsForRerun
+      messages.value[msgIdx].sqlCollapsed = true
 
       // 触发响应式更新
       messages.value[msgIdx].data = { ...msgData }
@@ -1003,6 +1031,8 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
     content: '',
     data: null as any,
     thinkingLines: [] as string[],
+    progressCollapsed: false,
+    sqlCollapsed: false,
   })
   messages.value.push(assistantMsg)
 
@@ -1034,7 +1064,7 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
   }
 
   try {
-    updateThinking(uploadFile ? '收到你上传的文件，正在发起多模态检索' : '收到你的问题，正在处理中')
+    updateThinking(uploadFile ? '已接收上传内容，正在分析检索目标' : '已接收问题，正在分析查询意图')
 
     const requestPayload = {
       question: currentQuestion,
@@ -1079,7 +1109,7 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
           console.log('[Query] 事件:', data.type, data.step || '', data.summary?.substring(0, 30))
 
           if (data.type === 'run_start') {
-            updateThinking(uploadFile ? '正在分析上传内容并理解你的需求' : '正在理解你的需求')
+            updateThinking(uploadFile ? '正在结合上传内容和当前数据集理解检索需求' : '正在结合当前数据集理解你的查询需求')
           } else if (data.type === 'node_start') {
             const startText = getFriendlyStepStartText(data.step)
             if (startText) {
@@ -1093,15 +1123,18 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
             if (data.step === 'format_node' && data.outputs?.final_answer) {
               finalData = data.outputs.final_answer
               console.log('[Query] 收到 format_node 结果:', JSON.stringify(finalData, null, 2))
-              if (finalData?.answer_text) {
-                updateThinking('结果说明：' + finalData.answer_text)
+              if (finalData?.answer_text && !lastThinkingLine.includes(finalData.answer_text)) {
+                updateThinking('结果摘要：' + finalData.answer_text)
               }
             } else {
               const endLines = getFriendlyStepEndLines(data.step, data.outputs)
               endLines.forEach(lineText => updateThinking(lineText))
             }
           } else if (data.type === 'node_error') {
-            updateThinking('处理过程中出现问题：' + (data.error?.message || '执行失败'))
+            const errMsg = data.error?.message || data.error || ''
+            if (errMsg && errMsg !== '执行失败' && !String(lastThinkingLine || '').includes(errMsg)) {
+              updateThinking('当前步骤出现问题：' + errMsg)
+            }
           } else if (data.type === 'final') {
             if (data.trace_id) {
               currentTraceId = data.trace_id
@@ -1126,8 +1159,8 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
             }
 
             finalData = data.result || data.outputs || data
-            if (finalData?.answer_text || finalData?.message) {
-              updateThinking('结果说明：' + (finalData?.answer_text || finalData?.message))
+            if ((finalData?.answer_text || finalData?.message) && !lastThinkingLine.includes(finalData?.answer_text || finalData?.message)) {
+              updateThinking('结果摘要：' + (finalData?.answer_text || finalData?.message))
             }
 
             if (finalData) {
@@ -1187,14 +1220,16 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
                   table_names: selectedTableNames,
                   dataset_id: selectedDataset.value?.id,
                 })
+                collapseAssistantCards(lastMsg)
               }
             }
           } else if (data.type === 'done') {
-            updateThinking('处理完成，结果已返回')
+            updateThinking('本轮处理完成，可展开查看详情')
             loading.value = false
             if (currentTraceId) {
               const lastMsg = messages.value[messages.value.length - 1]
               const msgData = lastMsg?.data
+              collapseAssistantCards(lastMsg)
               try {
                 await historyApi.create({
                   workspace_id: userStore.currentWorkspace?.id || 0,
@@ -1278,6 +1313,7 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
           dataset_id: selectedDataset.value?.id,
         })
         lastMsg.data = fallbackData
+        collapseAssistantCards(lastMsg)
         messages.value = [...messages.value]
       }
     }
@@ -1300,6 +1336,7 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
         semantic_scores: {},
         vector_only_results: [],
       } as QueryResponse
+      collapseAssistantCards(lastMsg)
     }
     if (currentTraceId) {
       try {
@@ -1531,9 +1568,21 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                       <span class="icon-emoji">🤖</span>
                       <span class="header-title">处理进度</span>
                     </div>
-                    <el-icon class="is-loading loading-icon"><Loading /></el-icon>
+                    <div class="header-right">
+                      <el-tag v-if="msg.data?.status" size="small" :type="msg.data.status === 'success' ? 'success' : 'danger'">
+                        {{ msg.data.status === 'success' ? '已完成' : '已结束' }}
+                      </el-tag>
+                      <el-icon v-else class="is-loading loading-icon"><Loading /></el-icon>
+                      <el-button text class="collapse-btn" @click="toggleProgressCollapse(msg)">
+                        <el-icon><component :is="msg.progressCollapsed ? ArrowRight : ArrowDown" /></el-icon>
+                        {{ msg.progressCollapsed ? '展开' : '收起' }}
+                      </el-button>
+                    </div>
                   </div>
-                  <div class="thinking-content">
+                  <div v-if="msg.progressCollapsed" class="thinking-summary">
+                    {{ getThinkingSummary(msg) }}
+                  </div>
+                  <div v-else class="thinking-content">
                     <div v-for="(line, lidx) in msg.thinkingLines" :key="lidx" class="thinking-line" :style="{ color: getLogColor(line) }">
                       {{ line }}
                     </div>
@@ -1588,6 +1637,10 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                       <span class="header-title">生成的 SQL</span>
                     </div>
                     <div class="header-right">
+                      <el-button text class="collapse-btn" @click="toggleSqlCollapse(msg)">
+                        <el-icon><component :is="msg.sqlCollapsed ? ArrowRight : ArrowDown" /></el-icon>
+                        {{ msg.sqlCollapsed ? '展开' : '收起' }}
+                      </el-button>
                       <el-button
                         type="primary"
                         size="small"
@@ -1598,7 +1651,10 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                       </el-button>
                     </div>
                   </div>
-                  <div class="sql-editor">
+                  <div v-if="msg.sqlCollapsed" class="sql-preview">
+                    {{ getSqlPreview(msg.data.sql) }}
+                  </div>
+                  <div v-else class="sql-editor">
                     <el-input type="textarea" v-model="msg.data.sql" :rows="4" class="sql-textarea" />
                   </div>
                 </div>
@@ -2344,6 +2400,26 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
     }
   }
 
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .collapse-btn {
+    color: #667085;
+    padding: 0;
+  }
+
+  .thinking-summary {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 13px;
+    color: #4b5563;
+    line-height: 1.7;
+  }
+
   .thinking-content {
     background: #f8f9fa;
     border-radius: 8px;
@@ -2398,10 +2474,16 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
   .card-header {
     display: flex;
     align-items: center;
-    gap: 8px;
+    justify-content: space-between;
     margin-bottom: 12px;
 
     .header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .header-right {
       display: flex;
       align-items: center;
       gap: 8px;
@@ -2416,6 +2498,23 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
       font-weight: 600;
       font-size: 14px;
     }
+  }
+
+  .collapse-btn {
+    color: #8c5a12;
+    padding: 0;
+  }
+
+  .sql-preview {
+    background: #fff;
+    border: 1px solid #f7c97c;
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: #7c4a03;
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    word-break: break-all;
   }
 
   .sql-editor {
