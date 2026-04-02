@@ -9,6 +9,7 @@ START → PARSE_QUESTION → VALIDATE_SQL → EXECUTE_SQL → SEMANTIC_ENHANCE �
                             FIX_SQL (自我修正, max retries → ERROR)
 """
 
+import json
 import time
 import uuid
 from datetime import datetime, timezone
@@ -50,6 +51,11 @@ class AgentState(TypedDict):
 # ==================== 日志辅助 ====================
 
 _log_helpers: Dict[str, LogHelper] = {}
+
+
+def _json_dumps_stream_event(payload: Dict[str, Any]) -> str:
+    """统一处理 SSE 事件序列化，兼容 datetime 等非 JSON 原生类型。"""
+    return json.dumps(payload, ensure_ascii=False, default=str)
 
 def _get_logger(run_id: str) -> LogHelper:
     """获取日志助手"""
@@ -921,7 +927,7 @@ class LangGraphOrchestrator:
             "request_context": request_context,
         }
 
-        yield f"data: {json.dumps({'type': 'run_start', 'run_id': run_id, 'question': question[:100], 'ts': datetime.utcnow().isoformat() + 'Z'}, ensure_ascii=False)}\n\n"
+        yield f"data: {_json_dumps_stream_event({'type': 'run_start', 'run_id': run_id, 'question': question[:100], 'ts': datetime.utcnow().isoformat() + 'Z'})}\n\n"
 
         final_state = None
         try:
@@ -933,12 +939,12 @@ class LangGraphOrchestrator:
                     # 输出日志
                     logs = logger.logs
                     for log_entry in logs[last_log_count:]:
-                        yield f"data: {json.dumps(log_entry, ensure_ascii=False)}\n\n"
+                        yield f"data: {_json_dumps_stream_event(log_entry)}\n\n"
                     last_log_count = len(logs)
 
                     # 输出节点结束事件
                     outputs = node_state if node_state else {}
-                    yield f"data: {json.dumps({'type': 'node_end', 'step': node_name, 'outputs': outputs}, ensure_ascii=False)}\n\n"
+                    yield f"data: {_json_dumps_stream_event({'type': 'node_end', 'step': node_name, 'outputs': outputs})}\n\n"
 
             if final_state:
                 final_state["logs"] = logger.logs
@@ -964,13 +970,13 @@ class LangGraphOrchestrator:
                     "execution_history": final_state.get("execution_history") or [],
                     "filters": final_state.get("filters") or {},
                 }
-                yield f"data: {json.dumps({'type': 'final', 'result': final_output, 'meta': final_meta}, ensure_ascii=False)}\n\n"
+                yield f"data: {_json_dumps_stream_event({'type': 'final', 'result': final_output, 'meta': final_meta})}\n\n"
 
         except Exception as e:
             logger.error(f"图执行失败: {e}", exc_info=True)
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+            yield f"data: {_json_dumps_stream_event({'type': 'error', 'error': str(e)})}\n\n"
 
-        yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+        yield f"data: {_json_dumps_stream_event({'type': 'done'})}\n\n"
 
     def run_stream(
         self,

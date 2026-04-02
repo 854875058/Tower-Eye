@@ -45,6 +45,20 @@ class LogHelper:
         """输出信息日志"""
         print(f"[LogHelper] {message}")
 
+    def error(self, message: str, exc_info: bool = False):
+        """输出错误日志，兼容 orchestrator 异常分支调用。"""
+        log = {
+            "type": "error",
+            "run_id": self.run_id,
+            "step": "system",
+            "ts": datetime.utcnow().isoformat() + "Z",
+            "status": "fail",
+            "summary": str(message)[:160],
+            "error": {"message": str(message)},
+        }
+        print(json.dumps(log, ensure_ascii=False))
+        self.logs.append(log)
+
     def start_node(self, step: str, inputs: Dict) -> Dict:
         """输出节点开始日志"""
         node_start_ts = time.time()

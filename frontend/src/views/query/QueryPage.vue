@@ -1273,6 +1273,41 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
             if (errMsg && errMsg !== '执行失败' && !String(lastThinkingLine || '').includes(errMsg)) {
               updateThinking('当前步骤出现问题：' + errMsg)
             }
+          } else if (data.type === 'error') {
+            const errMsg = data.error?.message || data.error || '处理过程中发生异常'
+            updateThinking('当前流程异常终止：' + errMsg)
+            loading.value = false
+
+            const lastMsg = messages.value[messages.value.length - 1]
+            if (lastMsg) {
+              lastMsg.data = reactive<QueryResponse>({
+                question: currentQuestion,
+                intent: finalMetaIntent || 'list',
+                intent_text: getIntentLabel(finalMetaIntent || 'list'),
+                sql: finalSqlFromMeta || '',
+                sql_params: finalSqlParamsFromMeta,
+                result_rows: [],
+                result_schema: [],
+                chart_suggestion: 'table',
+                row_count: 0,
+                status: 'error',
+                error: errMsg,
+                answer: errMsg,
+                trace_id: data.trace_id || currentTraceId,
+                audit_id: data.audit_id || currentAuditId,
+                execution_history: finalExecutionHistory,
+                evidence: undefined,
+                semantic_scores: {},
+                vector_only_results: [],
+                plan_source: finalFilters?.plan_source,
+                confidence: typeof finalFilters?.confidence === 'number' ? finalFilters.confidence : undefined,
+                clarification_needed: false,
+                clarification_options: [],
+                table_names: selectedTableNames,
+                dataset_id: selectedDataset.value?.id,
+              })
+              collapseAssistantCards(lastMsg)
+            }
           } else if (data.type === 'final') {
             if (data.trace_id) {
               currentTraceId = data.trace_id
