@@ -2426,6 +2426,38 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                           :name="detailIdx"
                         >
                           <div class="detail-layout">
+                            <div class="detail-media">
+                              <el-tabs v-if="getListRowImageCandidates(row).length > 0 || getListRowVideoCandidates(row).length > 0" stretch>
+                                <el-tab-pane v-if="getListRowImageCandidates(row).length > 0" label="原图">
+                                  <el-image
+                                    :src="getListRowImageCandidates(row)[0]"
+                                    fit="contain"
+                                    class="detail-media-view"
+                                    :preview-src-list="getListRowImageCandidates(row)"
+                                  />
+                                </el-tab-pane>
+                                <el-tab-pane v-if="getListRowVideoCandidates(row).length > 0" label="视频">
+                                  <video
+                                    :src="getListRowVideoCandidates(row)[0]"
+                                    class="detail-media-view"
+                                    controls
+                                  />
+                                </el-tab-pane>
+                                <el-tab-pane v-if="getRelatedImageCandidates(row, msg.data).length > 0" label="关联图片">
+                                  <div class="detail-image-list">
+                                    <el-image
+                                      v-for="img in getRelatedImageCandidates(row, msg.data)"
+                                      :key="img"
+                                      :src="img"
+                                      fit="cover"
+                                      class="detail-image-thumb"
+                                      :preview-src-list="getRelatedImageCandidates(row, msg.data)"
+                                    />
+                                  </div>
+                                </el-tab-pane>
+                              </el-tabs>
+                              <div v-else class="detail-media-empty">暂无媒体预览</div>
+                            </div>
                             <div class="detail-fields">
                               <div
                                 v-for="field in getDetailFieldRows(row)"
@@ -2435,38 +2467,6 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                                 <span class="detail-field-label">{{ field.label }}：</span>
                                 <span class="detail-field-value">{{ field.value }}</span>
                               </div>
-                            </div>
-                            <div class="detail-media">
-                                <el-tabs v-if="getListRowImageCandidates(row).length > 0 || getListRowVideoCandidates(row).length > 0" stretch>
-                                  <el-tab-pane v-if="getListRowImageCandidates(row).length > 0" label="原图">
-                                    <el-image
-                                      :src="getListRowImageCandidates(row)[0]"
-                                      fit="contain"
-                                      class="detail-media-view"
-                                      :preview-src-list="getListRowImageCandidates(row)"
-                                    />
-                                  </el-tab-pane>
-                                  <el-tab-pane v-if="getListRowVideoCandidates(row).length > 0" label="视频">
-                                    <video
-                                      :src="getListRowVideoCandidates(row)[0]"
-                                      class="detail-media-view"
-                                      controls
-                                    />
-                                  </el-tab-pane>
-                                  <el-tab-pane v-if="getRelatedImageCandidates(row, msg.data).length > 0" label="关联图片">
-                                    <div class="detail-image-list">
-                                      <el-image
-                                        v-for="img in getRelatedImageCandidates(row, msg.data)"
-                                        :key="img"
-                                        :src="img"
-                                        fit="cover"
-                                        class="detail-image-thumb"
-                                        :preview-src-list="getRelatedImageCandidates(row, msg.data)"
-                                      />
-                                    </div>
-                                  </el-tab-pane>
-                                </el-tabs>
-                              <div v-else class="detail-media-empty">暂无媒体预览</div>
                             </div>
                           </div>
                         </el-collapse-item>
@@ -3807,8 +3807,9 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
 
 .detail-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
-  gap: 16px;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(0, 1.05fr);
+  gap: 18px;
+  align-items: start;
 }
 
 .detail-fields {
@@ -3816,6 +3817,10 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
   flex-direction: column;
   gap: 8px;
   min-width: 0;
+  background: #fbfcfe;
+  border: 1px solid #e8edf5;
+  border-radius: 10px;
+  padding: 10px 12px;
 }
 
 .detail-field-row {
@@ -3842,11 +3847,16 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
 
 .detail-media {
   min-width: 0;
+  background: #fff;
+  border: 1px solid #e8edf5;
+  border-radius: 12px;
+  padding: 10px;
 }
 
 .detail-media-view {
   width: 100%;
-  max-height: 320px;
+  min-height: 260px;
+  max-height: 360px;
   border-radius: 10px;
   background: #0f172a;
 }
