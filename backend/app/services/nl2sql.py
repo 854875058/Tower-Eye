@@ -12,7 +12,7 @@ NL2SQL 多 Agent 规划服务（Intent -> Coder -> Reviewer -> Self-Correction�
 import json
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.services.llm_utils import (
@@ -35,6 +35,14 @@ _SHORT_SESSION_MAX_TURNS = 3
 _SHORT_SESSION_MAX_SCHEMA_COLUMNS = 8
 _SHORT_SESSION_MAX_SQL_LEN = 320
 _SHORT_SESSION_MAX_TEXT_LEN = 220
+
+_TOWER_SCENE_KEYWORDS = {
+    "车辆闯入监控": "车辆闯入监控告警",
+    "车辆闯入": "车辆闯入监控告警",
+    "车辆闯入监控告警": "车辆闯入监控告警",
+    "工程车辆": "工程车辆识别检测告警",
+    "工程车辆识别": "工程车辆识别检测告警",
+}
 
 
 def _truncate_text(value: Any, max_len: int) -> str:
@@ -383,6 +391,147 @@ def _choose_fallback_tables_by_policy(fallback_tables: List[str], policy: Dict[s
         except Exception:
             pass
     return tables[:1]
+
+
+def _match_tower_alarm_table(candidate_tables: List[str]) -> Optional[str]:
+    for table in candidate_tables:
+        if "tower_warning_events_cleaned" in str(table):
+            return str(table)
+    return candidate_tables[0] if candidate_tables else None
+
+
+def _extract_recent_days(question: str) -> Optional[int]:
+    match = re.search(r"(?:最近|近)\s*(\d+)\s*天", question)
+    if not match:
+        return None
+    try:
+        days = int(match.group(1))
+        return days if days > 0 else None
+    except Exception:
+        return None
+
+
+def _extract_top_k(question: str, default: int = 20) -> int:
+    match = re.search(r"(?:前|top|TOP)\s*(\d+)", question, flags=re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"(\d+)\s*条", question)
+    if match:
+        return int(match.group(1))
+    return default
+
+
+def _extract_tower_area(question: str) -> Tuple[Optional[str], Optional[str]]:
+    town_name = None
+    county_name = None
+    cleaned = re.sub(r"\d+\s*[条个件次项篇张天]", "", question)
+    town_match = re.search(r"(?:查询|查看|统计|搜索|分析|查找|找)?([\u4e00-\u9fa5]{2,8}(?:街道|镇|乡))", cleaned)
+    county_match = re.search(r"(?:查询|查看|统计|搜索|分析|查找|找)?([\u4e00-\u9fa5]{2,8}(?:区|县))", cleaned)
+    if town_match:
+        candidate = town_match.group(1)
+        if candidate not in {"各街道", "各乡镇", "所有街道"}:
+            town_name = candidate
+    if county_match:
+        candidate = county_match.group(1)
+        if candidate not in {"各区", "各县", "区县", "各区县", "各地区", "所有区县"}:
+            county_name = candidate
+    return town_name, county_name
+
+
+def _extract_tower_event_type(question: str) -> Optional[str]:
+    for key, value in _TOWER_SCENE_KEYWORDS.items():
+        if key in question:
+            return value
+    return None
+
+
+def _build_tower_where_clause(question: str) -> Tuple[List[str], List[Any]]:
+    where: List[str] = []
+    params: List[Any] = []
+
+    event_type = _extract_tower_event_type(question)
+    if event_type:
+        where.append("event_type LIKE ?")
+        params.append(f"%{event_type}%")
+
+    town_name, county_name = _extract_tower_area(question)
+    if county_name:
+        where.append("county_name LIKE ?")
+        params.append(f"%{county_name}%")
+    if town_name:
+        where.append("town_name LIKE ?")
+        params.append(f"%{town_name}%")
+
+    recent_days = _extract_recent_days(question)
+    if recent_days:
+        end = datetime.now()
+        start = end - timedelta(days=recent_days)
+        where.append("alarm_time >= ?")
+        params.append(start.strftime("%Y-%m-%d %H:%M:%S"))
+        where.append("alarm_time <= ?")
+        params.append(end.strftime("%Y-%m-%d %H:%M:%S"))
+
+    return where, params
+
+
+def _try_build_tower_rule_plan(
+    question: str,
+    parsed_intent: str,
+    candidate_tables: List[str],
+    default_table: Optional[str],
+) -> Optional[QueryPlan]:
+    table_name = _match_tower_alarm_table(candidate_tables or ([] if default_table is None else [default_table]))
+    if not table_name:
+        return None
+
+    filters: Dict[str, Any] = {
+        "agent_mode": "tower_rule",
+        "chart_suggestion": "table",
+    }
+    where, params = _build_tower_where_clause(question)
+    where_sql = f" WHERE {' AND '.join(where)}" if where else ""
+
+    lower_question = question.lower()
+    if any(token in lower_question for token in ["趋势", "变化", "走势", "波动"]):
+        sql = (
+            f"SELECT substr(alarm_time, 1, 10) AS 日期, COUNT(*) AS 告警数量 "
+            f"FROM {table_name}{where_sql} "
+            "GROUP BY substr(alarm_time, 1, 10) "
+            "ORDER BY 日期 ASC"
+        )
+        filters["chart_suggestion"] = "line"
+        return QueryPlan(intent="count", sql=sql, params=params, filters=filters)
+
+    if any(token in lower_question for token in ["分布", "各区县", "各地区", "按区县", "按地区", "排名", "top"]):
+        group_field = "county_name"
+        group_alias = "区县"
+        if "街道" in question:
+            group_field = "town_name"
+            group_alias = "街道"
+        elif "设备" in question:
+            group_field = "device_name"
+            group_alias = "设备"
+        sql = (
+            f"SELECT {group_field} AS {group_alias}, COUNT(*) AS 告警数量 "
+            f"FROM {table_name}{where_sql} "
+            f"GROUP BY {group_field} "
+            "ORDER BY 告警数量 DESC "
+            "LIMIT ?"
+        )
+        params = params + [_extract_top_k(question, default=10)]
+        filters["chart_suggestion"] = "bar"
+        return QueryPlan(intent="count", sql=sql, params=params, filters=filters)
+
+    if parsed_intent == "list" and ("最近" in question or "明细" in question or "详情" in question):
+        sql = (
+            f"SELECT * FROM {table_name}{where_sql} "
+            "ORDER BY alarm_time DESC "
+            "LIMIT ?"
+        )
+        params = params + [_extract_top_k(question, default=20)]
+        return QueryPlan(intent="list", sql=sql, params=params, filters=filters)
+
+    return None
 
 
 def _get_table_schema(table_name: str) -> List[Dict]:
@@ -1557,6 +1706,23 @@ def build_query_plan(
                 plan_source="verified_query",
                 semantic_judge=judge_result,
                 confidence=1.0,
+            ),
+            session_meta,
+        )
+
+    tower_rule_plan = _try_build_tower_rule_plan(planning_text, parsed_intent, resolved_tables, default_table)
+    if tower_rule_plan:
+        tower_reason = "命中铁塔告警高频分析规则，直接生成结构化查询方案"
+        return _apply_short_session_metadata(
+            _with_plan_context(
+                tower_rule_plan,
+                selected_table=default_table,
+                candidate_tables=resolved_tables,
+                candidate_table_ranking=ranked_tables,
+                table_selection_reason=tower_reason,
+                plan_source="rule",
+                semantic_judge={"winner": "rule", "confidence": 0.92, "reason": tower_reason, "intent_agent": intent_meta},
+                confidence=0.92,
             ),
             session_meta,
         )

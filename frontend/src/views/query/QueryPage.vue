@@ -544,7 +544,27 @@ const getChartFieldMeta = (data?: QueryResponse | null) => {
     return stringCount >= Math.ceil(sample.length * 0.4)
   })
 
-  const dimensionKey = preferredDimension || textDimension || candidateDimensionKeys[0] || metricKey
+  const timeDimension = schemaNames.find((name) => {
+    const lower = name.toLowerCase()
+    if (
+      lower.includes('time') ||
+      lower.includes('date') ||
+      lower.includes('day') ||
+      lower.includes('month') ||
+      lower.includes('week') ||
+      lower.includes('hour') ||
+      lower.includes('alarm_time') ||
+      lower.includes('created_at')
+    ) {
+      return candidateDimensionKeys.includes(name)
+    }
+    return (
+      candidateDimensionKeys.includes(name) &&
+      (name.includes('时间') || name.includes('日期') || name.includes('按天') || name.includes('按月') || name.includes('按周'))
+    )
+  })
+
+  const dimensionKey = timeDimension || preferredDimension || textDimension || candidateDimensionKeys[0] || metricKey
 
   return {
     dimensionKey,
@@ -564,6 +584,14 @@ const getChartSuggestionType = (data?: QueryResponse | null): 'bar' | 'line' | '
   if (suggestion.includes('pie')) return 'pie'
   if (suggestion.includes('line')) return 'line'
   return 'bar'
+}
+
+const shouldAutoOpenChart = (data?: QueryResponse | null) => {
+  if (!data || !canRenderChart(data)) return false
+  if (data.intent === 'search' || data.status !== 'success') return false
+  const chartType = getChartSuggestionType(data)
+  if (chartType === 'line' || chartType === 'pie') return true
+  return data.intent === 'count' && (data.row_count || 0) > 1
 }
 
 const buildChartOption = (data?: QueryResponse | null): echarts.EChartsOption | null => {
@@ -1164,7 +1192,8 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
             }
 
             if (finalData) {
-              const lastMsg = messages.value[messages.value.length - 1]
+              const lastMsgIndex = messages.value.length - 1
+              const lastMsg = messages.value[lastMsgIndex]
               if (lastMsg) {
                 let columns: any[] = []
                 let rows: any[] = []
@@ -1221,6 +1250,10 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
                   dataset_id: selectedDataset.value?.id,
                 })
                 collapseAssistantCards(lastMsg)
+                if (shouldAutoOpenChart(lastMsg.data)) {
+                  resultViewModeMap.value[lastMsgIndex] = 'chart'
+                  nextTick(() => renderMessageChart(lastMsgIndex, lastMsg.data))
+                }
               }
             }
           } else if (data.type === 'done') {
@@ -1314,6 +1347,10 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
         })
         lastMsg.data = fallbackData
         collapseAssistantCards(lastMsg)
+        if (shouldAutoOpenChart(fallbackData)) {
+          resultViewModeMap.value[messages.value.length - 1] = 'chart'
+          nextTick(() => renderMessageChart(messages.value.length - 1, fallbackData))
+        }
         messages.value = [...messages.value]
       }
     }

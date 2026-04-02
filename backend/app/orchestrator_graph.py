@@ -735,6 +735,7 @@ def format_answer_node(state: AgentState) -> AgentState:
         filters = state.get("filters") if isinstance(state.get("filters"), dict) else {}
         state["final_answer"].setdefault("plan_source", filters.get("plan_source"))
         state["final_answer"].setdefault("confidence", filters.get("confidence"))
+        state["final_answer"].setdefault("chart_suggestion", filters.get("chart_suggestion"))
         state["final_answer"].setdefault("clarification_needed", bool(filters.get("needs_clarification")))
         options = filters.get("clarification_options") if isinstance(filters.get("clarification_options"), list) else []
         state["final_answer"].setdefault("clarification_options", options[:5])

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.api.queries import _build_query_response_data
+from app.api.queries import _infer_chart_suggestion
 from app.services import nl2sql as nl2sql_module
 
 
@@ -85,3 +86,38 @@ def test_build_query_response_data_exposes_semantic_enhance_fields():
     assert data["vector_only_results"] == [{"file_name": "b.jpg", "hybrid_score": 0.87}]
     assert data["plan_source"] == "llm"
     assert data["confidence"] == 0.88
+
+
+def test_infer_chart_suggestion_prefers_line_for_time_trend_questions():
+    rows = [
+        {"alarm_date": "2025-11-16", "count": 3},
+        {"alarm_date": "2025-11-17", "count": 7},
+        {"alarm_date": "2025-11-18", "count": 5},
+    ]
+    result_schema = [
+        {"name": "alarm_date", "type": "string"},
+        {"name": "count", "type": "number"},
+    ]
+
+    suggestion = _infer_chart_suggestion(
+        question="查询海沧区最近三天告警趋势变化",
+        intent="count",
+        rows=rows,
+        result_schema=result_schema,
+    )
+
+    assert suggestion == "line"
+
+
+def test_build_tower_rule_plan_supports_trend_queries_without_llm():
+    plan = nl2sql_module._try_build_tower_rule_plan(
+        question="查询海沧区告警趋势变化",
+        parsed_intent="list",
+        candidate_tables=["ds1_tower_warning_events_cleaned"],
+        default_table="ds1_tower_warning_events_cleaned",
+    )
+
+    assert plan is not None
+    assert plan.intent == "count"
+    assert "substr(alarm_time, 1, 10)" in plan.sql
+    assert plan.filters.get("chart_suggestion") == "line"

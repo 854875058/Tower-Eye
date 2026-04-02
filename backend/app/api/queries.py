@@ -250,6 +250,90 @@ def _build_result_schema(rows: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     return [{"name": key, "type": "string"} for key in first.keys()]
 
 
+def _to_number(value: Any) -> Optional[float]:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    if isinstance(value, str):
+        text = value.strip().replace(",", "")
+        if not text:
+            return None
+        try:
+            return float(text)
+        except Exception:
+            return None
+    return None
+
+
+def _looks_like_time_text(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    text = value.strip()
+    if not text:
+        return False
+    return bool(
+        re.search(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}", text)
+        or re.search(r"\d{1,2}:\d{2}", text)
+        or any(token in text for token in ["年", "月", "日", "周", "小时", "分钟"])
+    )
+
+
+def _looks_like_time_dimension(field_name: str, sample_values: List[Any]) -> bool:
+    lower = (field_name or "").lower()
+    if any(token in lower for token in ["time", "date", "day", "month", "week", "hour", "alarm_time", "created_at"]):
+        return True
+    if any(token in field_name for token in ["时间", "日期", "按天", "按月", "按周", "趋势"]):
+        return True
+    return sum(1 for value in sample_values if _looks_like_time_text(value)) >= max(1, len(sample_values) // 2)
+
+
+def _infer_chart_suggestion(
+    *,
+    question: str,
+    intent: Optional[str],
+    rows: List[Dict[str, Any]],
+    result_schema: List[Dict[str, str]],
+) -> str:
+    if intent == "chat":
+        return "none"
+    if intent == "search":
+        return "table"
+    if not rows:
+        return "table"
+
+    question_text = (question or "").lower()
+    schema_names = [str(item.get("name") or "") for item in (result_schema or [])]
+    sample_rows = rows[:20]
+    numeric_fields: List[str] = []
+    for name in schema_names:
+        valid = 0
+        for row in sample_rows:
+            if _to_number(row.get(name)) is not None:
+                valid += 1
+        if valid >= max(1, int(len(sample_rows) * 0.6)):
+            numeric_fields.append(name)
+
+    if intent == "count" and len(rows) == 1 and len(numeric_fields) <= 1:
+        return "metric"
+
+    dimension_candidates = [name for name in schema_names if name not in numeric_fields]
+    time_like = False
+    for field_name in dimension_candidates:
+        values = [row.get(field_name) for row in sample_rows]
+        if _looks_like_time_dimension(field_name, values):
+            time_like = True
+            break
+
+    if any(token in question_text for token in ["占比", "比例", "构成", "份额", "饼图"]):
+        return "pie"
+    if any(token in question_text for token in ["趋势", "变化", "走势", "波动", "按天", "按月", "按周", "每天", "每月", "每周", "折线"]) or time_like:
+        return "line"
+    if any(token in question_text for token in ["分布", "排名", "top", "柱状", "各区", "各地区", "各设备", "各算法", "各街道"]):
+        return "bar"
+    if len(rows) > 1 and numeric_fields and dimension_candidates:
+        return "bar"
+    return "table"
+
+
 def _strip_leading_sql_comments(sql: str) -> str:
     """移除 SQL 头部注释，便于识别首语句是否为 SELECT。"""
     text = (sql or "").lstrip()
@@ -540,12 +624,12 @@ def _build_query_response_data(
 
     chart_suggestion = final.get("chart_suggestion")
     if not chart_suggestion:
-        if intent == "chat":
-            chart_suggestion = "none"
-        elif intent == "count":
-            chart_suggestion = "bar"
-        else:
-            chart_suggestion = "table"
+        chart_suggestion = _infer_chart_suggestion(
+            question=question,
+            intent=intent,
+            rows=rows,
+            result_schema=result_schema,
+        )
 
     evidence = final.get("evidence")
     semantic_scores = final.get("semantic_scores") if isinstance(final.get("semantic_scores"), dict) else {}
@@ -923,7 +1007,12 @@ async def execute_sql(
             "result_schema": [{"name": c, "type": "string"} for c in columns],
             "result_rows": rows[:1000],
             "row_count": row_count,
-            "chart_suggestion": "bar" if intent == "count" else "table",
+            "chart_suggestion": _infer_chart_suggestion(
+                question=request.sql,
+                intent=intent,
+                rows=rows[:1000],
+                result_schema=[{"name": c, "type": "string"} for c in columns],
+            ),
             "cost_time_ms": execution_time_ms,
             "cost_rows": row_count,
             "warnings": [],
