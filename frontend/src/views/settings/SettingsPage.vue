@@ -222,11 +222,11 @@ const formatPercent = (value?: number) => {
       <div class="monitor-section">
         <div class="section-header">
           <el-icon><Connection /></el-icon>
-          <span>外部服务状态</span>
+          <span>外部服务健康</span>
         </div>
         <el-table :data="externalServices" size="small" border class="table-block">
-          <el-table-column prop="name" label="服务" min-width="180" />
-          <el-table-column label="状态" width="130">
+          <el-table-column prop="name" label="服务名称" min-width="180" />
+          <el-table-column label="健康状态" width="130">
             <template #default="{ row }">
               <el-tag size="small" :type="getServiceTagType(row.status)">{{ row.status }}</el-tag>
             </template>
