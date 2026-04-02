@@ -874,6 +874,125 @@ const formatSearchScore = (row: Record<string, any>) => {
   return '-'
 }
 
+const DETAIL_PRIORITY_FIELDS: Array<{ key: string; label: string }> = [
+  { key: 'event_id', label: '事件ID' },
+  { key: 'event_type', label: '事件类型' },
+  { key: 'alarm_level', label: '告警等级' },
+  { key: 'alarm_time', label: '告警时间' },
+  { key: 'address', label: '地址' },
+  { key: 'province_name', label: '省份' },
+  { key: 'city_name', label: '城市' },
+  { key: 'county_name', label: '区县' },
+  { key: 'town_name', label: '街道' },
+  { key: 'device_name', label: '设备名称' },
+  { key: 'device_code', label: '设备编码' },
+  { key: 'channel_name', label: '通道名称' },
+  { key: 'algorithm_name', label: '算法名称' },
+  { key: 'order_status', label: '工单状态' },
+  { key: 'confidence_level', label: '置信度' },
+  { key: 'confidence_level_max', label: '最大置信度' },
+  { key: 'summary', label: '摘要' },
+  { key: 'description', label: '描述' },
+]
+
+const splitMediaPaths = (value?: unknown) => {
+  if (typeof value !== 'string') return []
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+const isVideoFile = (value: string) => /\.(mp4|mov|avi|mkv|m4v|webm)$/i.test(value)
+
+const buildWarningImageUrl = (value: string) => {
+  const normalized = value.replace(/\\/g, '/')
+  const fileName = normalized.split('/').pop() || normalized
+  return `/tower-warning-img/${fileName}`
+}
+
+const buildWarningVideoUrl = (value: string) => {
+  const normalized = value.replace(/\\/g, '/')
+  const fileName = normalized.split('/').pop() || normalized
+  return `/tower-warning-video/${fileName}`
+}
+
+const getListRowImageCandidates = (row: Record<string, any>) => {
+  const paths = [
+    ...splitMediaPaths(row.img_src_path),
+    ...splitMediaPaths(row.file_path).filter((item) => !isVideoFile(item)),
+    ...splitMediaPaths(row.img_icon_path),
+  ]
+  return Array.from(new Set(paths)).map((item) => buildWarningImageUrl(item))
+}
+
+const getListRowVideoCandidates = (row: Record<string, any>) => {
+  const paths = [
+    ...splitMediaPaths(row.video_path),
+    ...splitMediaPaths(row.file_path).filter((item) => isVideoFile(item)),
+  ]
+  return Array.from(new Set(paths)).map((item) => buildWarningVideoUrl(item))
+}
+
+const hasListMedia = (data?: QueryResponse | null) => {
+  const rows = data?.result_rows || []
+  return rows.some((row) => getListRowImageCandidates(row).length > 0 || getListRowVideoCandidates(row).length > 0)
+}
+
+const getListPreviewItems = (data?: QueryResponse | null) => {
+  const rows = data?.result_rows || []
+  return rows.slice(0, 9).map((row, index) => ({
+    key: `${row.event_id || row.asset_id || index}`,
+    title: `${row.event_type || '告警事件'} | ${String(row.alarm_time || '').slice(0, 19)}`,
+    image: getListRowImageCandidates(row)[0] || '',
+    video: getListRowVideoCandidates(row)[0] || '',
+  }))
+}
+
+const parseExtraJson = (row: Record<string, any>) => {
+  const raw = row.extra_json
+  if (!raw || typeof raw !== 'string') return null
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+const getDetailFieldRows = (row: Record<string, any>) => {
+  const used = new Set<string>()
+  const fields: Array<{ label: string; value: string }> = []
+
+  for (const item of DETAIL_PRIORITY_FIELDS) {
+    const value = row[item.key]
+    if (value === null || value === undefined || String(value).trim() === '') continue
+    used.add(item.key)
+    fields.push({ label: item.label, value: String(value) })
+  }
+
+  const extra = parseExtraJson(row)
+  if (extra && typeof extra === 'object') {
+    for (const [key, value] of Object.entries(extra)) {
+      if (used.has(key)) continue
+      if (value === null || value === undefined || String(value).trim() === '') continue
+      fields.push({ label: key, value: String(value) })
+      if (fields.length >= 28) break
+    }
+  }
+
+  return fields
+}
+
+const getDetailTitle = (row: Record<string, any>, index: number, data?: QueryResponse | null) => {
+  const base = `第 ${index + 1} 条 - ${row.event_type || '告警事件'} | ${String(row.alarm_time || '').slice(0, 19)}`
+  const scores = data?.semantic_scores || {}
+  const filePath = row.file_path || row.img_src_path || ''
+  const fileName = typeof filePath === 'string' ? filePath.replace(/\\/g, '/').split('/').pop() || '' : ''
+  const score = fileName ? scores[fileName] : undefined
+  return score ? `${base} [语义 ${(score * 100).toFixed(0)}%]` : base
+}
+
 const getSemanticMatchedCount = (data?: QueryResponse | null) => {
   if (!data?.semantic_scores) return 0
   return Object.keys(data.semantic_scores).length
@@ -1850,12 +1969,15 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                   <div class="card-header">
                     <div class="header-left">
                       <span class="icon-emoji">✨</span>
-                      <span class="header-title">语义增强</span>
+                      <span class="header-title">{{ getVectorRecommendations(msg.data).length > 0 ? `您可能还感兴趣 (${getVectorRecommendations(msg.data).length})` : '语义增强' }}</span>
                     </div>
                   </div>
                   <div class="semantic-summary">
                     <el-tag size="small" type="success">匹配 {{ getSemanticMatchedCount(msg.data) }} 条</el-tag>
                     <el-tag size="small" type="warning">补充 {{ getVectorRecommendations(msg.data).length }} 条</el-tag>
+                  </div>
+                  <div v-if="getVectorRecommendations(msg.data).length > 0" class="semantic-tip">
+                    以下结果来自图像语义检索，与当前查询在视觉内容上相关
                   </div>
                   <div v-if="getVectorRecommendations(msg.data).length > 0" class="semantic-recommend-list">
                     <div
@@ -1991,6 +2113,93 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                       class="more-hint"
                     >
                       当前展示 {{ msg.data.result_rows?.length || 0 }} 行（共 {{ msg.data.row_count }} 行）
+                    </div>
+
+                    <div
+                      v-if="msg.data.intent === 'list' && hasListMedia(msg.data)"
+                      class="list-media-preview"
+                    >
+                      <div class="section-subtitle">媒体预览</div>
+                      <div class="list-media-grid">
+                        <div
+                          v-for="item in getListPreviewItems(msg.data)"
+                          :key="item.key"
+                          class="media-preview-item"
+                        >
+                          <el-image
+                            v-if="item.image"
+                            :src="item.image"
+                            fit="cover"
+                            class="media-preview-thumb"
+                            :preview-src-list="[item.image]"
+                          />
+                          <video
+                            v-else-if="item.video"
+                            :src="item.video"
+                            class="media-preview-thumb"
+                            controls
+                          />
+                          <div v-else class="media-preview-empty">无媒体</div>
+                          <div class="media-preview-title">{{ item.title }}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div v-if="msg.data.intent === 'list'" class="detail-section">
+                      <div class="section-subtitle">查看详情</div>
+                      <el-collapse>
+                        <el-collapse-item
+                          v-for="(row, detailIdx) in (msg.data.result_rows || []).slice(0, 20)"
+                          :key="row.event_id || row.asset_id || detailIdx"
+                          :title="getDetailTitle(row, detailIdx, msg.data)"
+                          :name="detailIdx"
+                        >
+                          <div class="detail-layout">
+                            <div class="detail-fields">
+                              <div
+                                v-for="field in getDetailFieldRows(row)"
+                                :key="field.label"
+                                class="detail-field-row"
+                              >
+                                <span class="detail-field-label">{{ field.label }}：</span>
+                                <span class="detail-field-value">{{ field.value }}</span>
+                              </div>
+                            </div>
+                            <div class="detail-media">
+                              <el-tabs v-if="getListRowImageCandidates(row).length > 0 || getListRowVideoCandidates(row).length > 0" stretch>
+                                <el-tab-pane v-if="getListRowImageCandidates(row).length > 0" label="原图">
+                                  <el-image
+                                    :src="getListRowImageCandidates(row)[0]"
+                                    fit="contain"
+                                    class="detail-media-view"
+                                    :preview-src-list="getListRowImageCandidates(row)"
+                                  />
+                                </el-tab-pane>
+                                <el-tab-pane v-if="getListRowVideoCandidates(row).length > 0" label="视频">
+                                  <video
+                                    :src="getListRowVideoCandidates(row)[0]"
+                                    class="detail-media-view"
+                                    controls
+                                  />
+                                </el-tab-pane>
+                                <el-tab-pane v-if="getListRowImageCandidates(row).length > 1" label="更多图片">
+                                  <div class="detail-image-list">
+                                    <el-image
+                                      v-for="img in getListRowImageCandidates(row).slice(1)"
+                                      :key="img"
+                                      :src="img"
+                                      fit="cover"
+                                      class="detail-image-thumb"
+                                      :preview-src-list="getListRowImageCandidates(row)"
+                                    />
+                                  </div>
+                                </el-tab-pane>
+                              </el-tabs>
+                              <div v-else class="detail-media-empty">暂无媒体预览</div>
+                            </div>
+                          </div>
+                        </el-collapse-item>
+                      </el-collapse>
                     </div>
                   </div>
                 </div>
@@ -2835,6 +3044,126 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
   gap: 12px;
 }
 
+.list-media-preview {
+  margin-top: 16px;
+}
+
+.section-subtitle {
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475467;
+}
+
+.list-media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.media-preview-item {
+  padding: 10px;
+  border: 1px solid #e6edf5;
+  border-radius: 10px;
+  background: #fafcff;
+}
+
+.media-preview-thumb,
+.media-preview-empty {
+  width: 100%;
+  height: 96px;
+  border-radius: 8px;
+}
+
+.media-preview-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f3f4f6;
+  color: #98a2b3;
+  font-size: 12px;
+}
+
+.media-preview-title {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #667085;
+  line-height: 1.5;
+}
+
+.detail-section {
+  margin-top: 16px;
+}
+
+.detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  gap: 16px;
+}
+
+.detail-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.detail-field-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 6px 0;
+  border-bottom: 1px dashed #eef2f6;
+}
+
+.detail-field-label {
+  flex-shrink: 0;
+  width: 88px;
+  color: #667085;
+  font-size: 12px;
+}
+
+.detail-field-value {
+  color: #344054;
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.detail-media {
+  min-width: 0;
+}
+
+.detail-media-view {
+  width: 100%;
+  max-height: 320px;
+  border-radius: 10px;
+  background: #0f172a;
+}
+
+.detail-media-empty {
+  height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed #d0d5dd;
+  border-radius: 10px;
+  color: #98a2b3;
+  font-size: 13px;
+}
+
+.detail-image-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 10px;
+}
+
+.detail-image-thumb {
+  width: 100%;
+  height: 72px;
+  border-radius: 8px;
+}
+
 .follow-up-card {
   background: #f8fafc;
   border-radius: 12px;
@@ -2968,6 +3297,12 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
     gap: 8px;
     flex-wrap: wrap;
     margin-bottom: 12px;
+  }
+
+  .semantic-tip {
+    font-size: 12px;
+    color: #7c6a36;
+    margin-bottom: 10px;
   }
 
   .semantic-recommend-list {
