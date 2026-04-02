@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import requests
 
+from app.core.config import settings
 from app.core.openai_compat import build_v1_endpoint
 
 
@@ -16,12 +17,12 @@ def get_llm_config(config: Dict[str, Any]) -> Tuple[str, str, str, int]:
     """提取 LLM 连接配置。"""
     llm_cfg = config.get("llm", {})
 
-    api_key = os.getenv("LLM_API_KEY") or llm_cfg.get("api_key")
+    api_key = os.getenv("LLM_API_KEY") or llm_cfg.get("api_key") or settings.LLM_API_KEY
     if not api_key:
         raise RuntimeError("LLM API key not configured")
 
-    base_url = os.getenv("LLM_BASE_URL") or llm_cfg.get("base_url", "https://api.deepseek.com")
-    model = os.getenv("LLM_MODEL") or llm_cfg.get("model", "deepseek-chat")
+    base_url = os.getenv("LLM_BASE_URL") or llm_cfg.get("base_url") or settings.LLM_BASE_URL or "https://api.deepseek.com"
+    model = os.getenv("LLM_MODEL") or llm_cfg.get("model") or settings.LLM_MODEL or "deepseek-chat"
     url = build_v1_endpoint(base_url, "/chat/completions")
     timeout = llm_cfg.get("timeout", 30)
     return api_key, url, model, timeout
@@ -119,5 +120,5 @@ def parse_llm_json(content: str) -> Dict[str, Any]:
 def has_llm_config(config: Dict[str, Any]) -> bool:
     """是否存在可用 LLM 配置。"""
     llm_cfg = config.get("llm", {})
-    api_key = os.getenv("LLM_API_KEY") or llm_cfg.get("api_key")
+    api_key = os.getenv("LLM_API_KEY") or llm_cfg.get("api_key") or settings.LLM_API_KEY
     return bool(api_key)
