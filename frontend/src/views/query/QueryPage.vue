@@ -530,23 +530,6 @@ const getEvidenceSourceTables = (data?: QueryResponse | null): string[] => {
   return tables.filter((item): item is string => typeof item === 'string' && item.trim() !== '')
 }
 
-const getAnswerCardTitle = (data?: QueryResponse | null) => {
-  if (!data) return '结果说明'
-  if (data.status === 'error') return '异常说明'
-  if ((data.row_count || 0) === 0) return '结果说明'
-  if (data.intent === 'count') return '分析结论'
-  if (data.intent === 'search') return '检索结论'
-  if (data.intent === 'list') return '结果解读'
-  return '结果说明'
-}
-
-const getEvidenceCardTitle = (data?: QueryResponse | null) => {
-  if (!data) return '结果依据'
-  if ((data.row_count || 0) === 0) return '查询依据'
-  if (data.intent === 'search') return '命中依据'
-  return '结果依据'
-}
-
 const getEvidenceSummaryText = (data?: QueryResponse | null) => {
   const summary = String(data?.evidence?.summary || '').trim()
   if (summary) return summary
@@ -557,6 +540,31 @@ const getEvidenceSummaryText = (data?: QueryResponse | null) => {
     return '当前结果基于相似度检索命中、结构化字段和关联样本综合整理。'
   }
   return '当前说明基于本轮查询结果、结构化字段和返回样本综合整理。'
+}
+
+const getInsightCardTitle = (data?: QueryResponse | null) => {
+  if (!data) return '结果解读'
+  if (data.status === 'error') return '异常解读'
+  if ((data.row_count || 0) === 0) return '结果说明'
+  if (data.intent === 'count') return '分析结论'
+  if (data.intent === 'search') return '检索解读'
+  return '结果解读'
+}
+
+const getInsightBodyText = (msg?: Message | null) => {
+  const data = msg?.data
+  const streamed = String(msg?.streamedAnswer || '').trim()
+  if (streamed) return streamed
+  const answer = String(data?.answer || '').trim()
+  if (answer) return answer
+  return getEvidenceSummaryText(data)
+}
+
+const getInsightSupportLabel = (data?: QueryResponse | null) => {
+  if (!data) return '结果依据'
+  if ((data.row_count || 0) === 0) return '查询依据'
+  if (data.intent === 'search') return '命中依据'
+  return '结果依据'
 }
 
 const getResultViewMode = (idx: number): ResultViewMode => {
@@ -2454,29 +2462,19 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
 
                 <div
                   v-if="msg.data && msg.data.intent !== 'chat' && (msg.data.answer || msg.data.evidence)"
-                  class="summary-row"
+                  class="insight-card"
                 >
-                  <div v-if="msg.data.answer" class="answer-card">
-                    <div class="card-header">
-                      <div class="header-left">
-                        <span class="icon-emoji">🧠</span>
-                        <span class="header-title">{{ getAnswerCardTitle(msg.data) }}</span>
-                      </div>
-                      <el-tag v-if="msg.answerStreaming" size="small" type="primary">流式输出中</el-tag>
+                  <div class="card-header">
+                    <div class="header-left">
+                      <span class="icon-emoji">💡</span>
+                      <span class="header-title">{{ getInsightCardTitle(msg.data) }}</span>
                     </div>
-                    <div class="answer-text">{{ msg.streamedAnswer || msg.data.answer }}</div>
+                    <el-tag v-if="msg.answerStreaming" size="small" type="primary">流式输出中</el-tag>
                   </div>
-
-                  <div v-if="msg.data.evidence" class="evidence-card">
-                    <div class="card-header">
-                      <div class="header-left">
-                        <span class="icon-emoji">📌</span>
-                        <span class="header-title">{{ getEvidenceCardTitle(msg.data) }}</span>
-                      </div>
-                    </div>
-                    <div class="evidence-summary">
-                      {{ getEvidenceSummaryText(msg.data) }}
-                    </div>
+                  <div class="insight-body">{{ getInsightBodyText(msg) }}</div>
+                  <div v-if="msg.data.evidence || getEvidenceSourceTables(msg.data).length > 0" class="insight-support">
+                    <div class="insight-support-label">{{ getInsightSupportLabel(msg.data) }}</div>
+                    <div class="insight-support-text">{{ getEvidenceSummaryText(msg.data) }}</div>
                     <div v-if="getEvidenceSourceTables(msg.data).length > 0" class="evidence-tables">
                       <span class="meta-label">数据来源</span>
                       <div class="meta-tags">
@@ -3114,6 +3112,91 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
       strong {
         font-weight: 600;
       }
+    }
+  }
+}
+
+
+.insight-card {
+  background: linear-gradient(180deg, #f8fbff 0%, #f3f7ff 100%);
+  border-radius: 14px;
+  padding: 16px 18px;
+  border: 1px solid #d9e6ff;
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .icon-emoji {
+      font-size: 16px;
+    }
+
+    .header-title {
+      color: #3557a6;
+      font-weight: 600;
+      font-size: 14px;
+    }
+  }
+
+  .insight-body {
+    color: #344054;
+    font-size: 14px;
+    line-height: 1.85;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .insight-support {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed #cfdaf4;
+  }
+
+  .insight-support-label {
+    color: #58708f;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    margin-bottom: 6px;
+  }
+
+  .insight-support-text {
+    color: #52607a;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+
+  .evidence-tables {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+
+    .meta-label {
+      font-size: 12px;
+      color: #737a91;
+      flex-shrink: 0;
+    }
+
+    .meta-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .meta-tag {
+      border-color: #cad2ff;
+      color: #4a56a6;
+      background: #eef1ff;
     }
   }
 }
