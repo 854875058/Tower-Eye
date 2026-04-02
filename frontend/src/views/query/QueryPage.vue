@@ -1038,6 +1038,18 @@ const getVectorRecommendations = (data?: QueryResponse | null) => {
   return Array.isArray(data?.vector_only_results) ? data.vector_only_results : []
 }
 
+const getRelationInsights = (data?: QueryResponse | null) => {
+  return Array.isArray(data?.relation_insights) ? data.relation_insights : []
+}
+
+const getRelationTagType = (relationType?: string) => {
+  if (relationType === 'same_warning_order' || relationType === 'same_alarm_code') return 'danger'
+  if (relationType === 'detected_on' || relationType === 'same_channel') return 'warning'
+  if (relationType === 'located_in') return 'success'
+  if (relationType === 'uses_algorithm' || relationType === 'has_video') return 'primary'
+  return 'info'
+}
+
 const getRecommendationTitle = (row: Record<string, any>) => {
   return row.file_name || row.file_path || row.asset_id || row.image_id || row.video_id || '相关结果'
 }
@@ -1256,6 +1268,7 @@ const handleRerunSql = async (msgIdx: number, msgData: any) => {
       msgData.evidence = response.data.evidence || null
       msgData.semantic_scores = response.data.semantic_scores || {}
       msgData.vector_only_results = response.data.vector_only_results || []
+      msgData.relation_insights = response.data.relation_insights || []
       msgData.plan_source = response.data.plan_source || 'manual_sql'
       msgData.confidence = typeof response.data.confidence === 'number' ? response.data.confidence : 1
       msgData.warnings = response.data.warnings || []
@@ -1454,6 +1467,7 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
                 evidence: undefined,
                 semantic_scores: {},
                 vector_only_results: [],
+                relation_insights: [],
                 plan_source: finalFilters?.plan_source,
                 confidence: typeof finalFilters?.confidence === 'number' ? finalFilters.confidence : undefined,
                 clarification_needed: false,
@@ -1539,6 +1553,7 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
                   evidence: finalData?.evidence,
                   semantic_scores: finalData?.semantic_scores || {},
                   vector_only_results: finalData?.vector_only_results || [],
+                  relation_insights: finalData?.relation_insights || [],
                   plan_source: finalData?.plan_source || finalFilters?.plan_source,
                   confidence: typeof (finalData?.confidence ?? finalFilters?.confidence) === 'number'
                     ? (finalData?.confidence ?? finalFilters?.confidence)
@@ -1636,6 +1651,7 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
           evidence: finalData?.evidence,
           semantic_scores: finalData?.semantic_scores || {},
           vector_only_results: finalData?.vector_only_results || [],
+          relation_insights: finalData?.relation_insights || [],
           plan_source: finalData?.plan_source || finalFilters?.plan_source,
           confidence: typeof (finalData?.confidence ?? finalFilters?.confidence) === 'number'
             ? (finalData?.confidence ?? finalFilters?.confidence)
@@ -1674,6 +1690,7 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
         dataset_id: selectedDataset.value?.id,
         semantic_scores: {},
         vector_only_results: [],
+        relation_insights: [],
       } as QueryResponse
       collapseAssistantCards(lastMsg)
     }
@@ -2236,6 +2253,47 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                           </div>
                         </el-collapse-item>
                       </el-collapse>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  v-if="msg.data && getRelationInsights(msg.data).length > 0"
+                  class="relation-card"
+                >
+                  <div class="card-header">
+                    <div class="header-left">
+                      <span class="icon-emoji">🕸️</span>
+                      <span class="header-title">图谱关联洞察</span>
+                    </div>
+                  </div>
+                  <div class="relation-summary">
+                    这些结果不只是按主键拼接，系统已经从本体关系里识别出可继续联动的重点对象。
+                  </div>
+                  <div class="relation-list">
+                    <div
+                      v-for="insight in getRelationInsights(msg.data)"
+                      :key="`${insight.relation_type}-${insight.shared_value}`"
+                      class="relation-item"
+                    >
+                      <div class="relation-item-head">
+                        <el-tag size="small" :type="getRelationTagType(insight.relation_type)">
+                          {{ insight.label }}
+                        </el-tag>
+                        <span class="relation-target">{{ insight.shared_value }}</span>
+                        <span class="relation-count">{{ insight.count }} / {{ msg.data.row_count }}</span>
+                      </div>
+                      <div class="relation-item-summary">{{ insight.summary }}</div>
+                      <div v-if="insight.reason" class="relation-item-reason">{{ insight.reason }}</div>
+                      <div v-if="insight.examples && insight.examples.length > 0" class="relation-example-list">
+                        <div
+                          v-for="example in insight.examples"
+                          :key="example"
+                          class="relation-example-item"
+                        >
+                          {{ example }}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -3071,6 +3129,104 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
       color: #4a56a6;
       background: #eef1ff;
     }
+  }
+}
+
+.relation-card {
+  background: linear-gradient(135deg, #fbfcff 0%, #f4f7ff 100%);
+  border-radius: 12px;
+  padding: 14px 16px;
+  border: 1px solid #dbe4ff;
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .icon-emoji {
+      font-size: 16px;
+    }
+
+    .header-title {
+      color: #334155;
+      font-weight: 600;
+      font-size: 14px;
+    }
+  }
+
+  .relation-summary {
+    color: #52607a;
+    font-size: 13px;
+    line-height: 1.6;
+    margin-bottom: 12px;
+  }
+
+  .relation-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 10px;
+  }
+
+  .relation-item {
+    padding: 12px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #e2e8f6;
+  }
+
+  .relation-item-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+
+  .relation-target {
+    color: #1e293b;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .relation-count {
+    color: #64748b;
+    font-size: 12px;
+    margin-left: auto;
+  }
+
+  .relation-item-summary {
+    color: #334155;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .relation-item-reason {
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.5;
+    margin-top: 6px;
+  }
+
+  .relation-example-list {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .relation-example-item {
+    color: #475569;
+    font-size: 12px;
+    line-height: 1.5;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: #f8fafc;
   }
 }
 

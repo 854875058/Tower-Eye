@@ -553,6 +553,7 @@ class QueryResponse(BaseModel):
     evidence: Optional[dict] = None  # 结构化证据
     semantic_scores: Optional[Dict[str, float]] = None  # 语义增强匹配分数
     vector_only_results: Optional[List[dict]] = None  # 语义增强补充推荐结果
+    relation_insights: Optional[List[dict]] = None  # 图谱/本体驱动的关联洞察
     answer: Optional[str] = None  # 自然语言答案
     plan_source: Optional[str] = None  # 规划来源：rule/llm/verified_query/sql_cache/manual_sql/reject
     confidence: Optional[float] = None  # 规划置信度（0~1）

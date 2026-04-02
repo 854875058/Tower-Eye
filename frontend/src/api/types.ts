@@ -573,6 +573,17 @@ export interface QueryResponse {
   evidence?: Record<string, any>
   semantic_scores?: Record<string, number>
   vector_only_results?: Record<string, any>[]
+  relation_insights?: Array<{
+    relation_type: string
+    label: string
+    shared_value: string
+    count: number
+    ratio: number
+    summary: string
+    reason?: string
+    examples?: string[]
+    score?: number
+  }>
   answer?: string
   plan_source?: string
   confidence?: number

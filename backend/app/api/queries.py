@@ -30,6 +30,187 @@ router = APIRouter()
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 UPLOAD_DIR = BACKEND_DIR / "data" / "uploads"
+ONTOLOGY_CONFIG_PATH = BACKEND_DIR / "data" / "tower_ontology_config.json"
+
+
+def _safe_row_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return text
+
+
+def _parse_extra_json(raw: Any) -> Dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str):
+        return {}
+    text = raw.strip()
+    if not text:
+        return {}
+    try:
+        obj = json.loads(text)
+    except Exception:
+        return {}
+    return obj if isinstance(obj, dict) else {}
+
+
+def _split_media_values(raw: Any) -> List[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        items = raw
+    else:
+        items = re.split(r"[,;|]+", str(raw))
+    values: List[str] = []
+    for item in items:
+        text = str(item or "").strip()
+        if text:
+            values.append(text)
+    return values
+
+
+def _media_basename(raw: Any) -> str:
+    values = _split_media_values(raw)
+    if not values:
+        return ""
+    normalized = values[0].replace("\\", "/")
+    return normalized.rsplit("/", 1)[-1]
+
+
+def _load_relation_labels() -> Dict[str, str]:
+    labels = {
+        "located_in": "发生区域",
+        "detected_on": "触发设备",
+        "uses_algorithm": "关联算法",
+        "has_video": "关联视频",
+        "same_warning_order": "同工单",
+        "same_alarm_code": "同告警编码",
+        "same_channel": "同监控通道",
+    }
+    if not ONTOLOGY_CONFIG_PATH.exists():
+        return labels
+    try:
+        payload = json.loads(ONTOLOGY_CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return labels
+    for item in payload.get("relations") or []:
+        relation_type = _safe_row_text((item or {}).get("type"))
+        label = _safe_row_text((item or {}).get("label"))
+        if relation_type and label:
+            labels[relation_type] = label
+    return labels
+
+
+def _build_relation_insights(question: str, intent: Optional[str], rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if intent not in {"list", "search"} or len(rows) < 2:
+        return []
+
+    relation_labels = _load_relation_labels()
+    total = len(rows)
+    relation_specs = [
+        {
+            "type": "same_warning_order",
+            "field": "warning_order_id",
+            "label": relation_labels.get("same_warning_order", "同工单"),
+            "reason": "这些记录可以按同一告警工单串起处理链路、证据回放和处置闭环。",
+        },
+        {
+            "type": "same_alarm_code",
+            "field": "alarm_code",
+            "label": relation_labels.get("same_alarm_code", "同告警编码"),
+            "reason": "这些记录共享同一告警编码，适合做事件级证据聚合与同源追踪。",
+        },
+        {
+            "type": "detected_on",
+            "field": "device_name",
+            "label": relation_labels.get("detected_on", "触发设备"),
+            "reason": "这些记录命中同一设备，可继续联动设备画像、通道活跃度和巡检优先级。",
+        },
+        {
+            "type": "same_channel",
+            "field": "channel_name",
+            "label": relation_labels.get("same_channel", "同监控通道"),
+            "reason": "这些记录共享同一监控通道，适合回看通道级连续告警与视频证据。",
+        },
+        {
+            "type": "located_in",
+            "field": "county_name",
+            "label": relation_labels.get("located_in", "发生区域"),
+            "reason": "这些记录落在同一地区，可继续展开区域热度、风险分层与属地处置建议。",
+        },
+        {
+            "type": "uses_algorithm",
+            "field": "algorithm_name",
+            "label": relation_labels.get("uses_algorithm", "关联算法"),
+            "reason": "这些记录由同一算法触发，适合展示算法能力覆盖和误报复盘路径。",
+        },
+        {
+            "type": "has_video",
+            "field": "video_name",
+            "label": relation_labels.get("has_video", "关联视频"),
+            "reason": "这些记录指向同一视频源，可直接联动视频片段、抽帧和关联图片。",
+        },
+    ]
+
+    normalized_rows: List[Dict[str, str]] = []
+    for row in rows:
+        extra = _parse_extra_json(row.get("extra_json"))
+        province = _safe_row_text(row.get("province_name") or extra.get("province_name"))
+        city = _safe_row_text(row.get("city_name") or extra.get("city_name"))
+        county = _safe_row_text(row.get("county_name") or extra.get("county_name"))
+        region = " / ".join([part for part in [province, city, county] if part])
+        normalized_rows.append(
+            {
+                "warning_order_id": _safe_row_text(row.get("warning_order_id") or extra.get("warning_order_id")),
+                "alarm_code": _safe_row_text(row.get("alarm_code") or extra.get("alarm_code")),
+                "device_name": _safe_row_text(row.get("device_name") or extra.get("device_name")),
+                "channel_name": _safe_row_text(row.get("channel_name") or extra.get("channel_name")),
+                "county_name": county or region or city or province,
+                "algorithm_name": _safe_row_text(row.get("algorithm_name") or extra.get("algorithm_name")),
+                "video_name": _media_basename(row.get("video_path") or row.get("video_url") or extra.get("video_path") or extra.get("video_url")),
+                "event_id": _safe_row_text(row.get("event_id") or row.get("asset_id") or row.get("alarm_code")),
+                "event_type": _safe_row_text(row.get("event_type") or row.get("warning_type_name") or row.get("alarm_body")),
+                "alarm_time": _safe_row_text(row.get("alarm_time") or row.get("create_time")),
+            }
+        )
+
+    insights: List[Dict[str, Any]] = []
+    for spec in relation_specs:
+        groups: Dict[str, List[Dict[str, str]]] = {}
+        for row in normalized_rows:
+            value = row.get(spec["field"], "")
+            if not value:
+                continue
+            groups.setdefault(value, []).append(row)
+        repeated = [(value, grouped_rows) for value, grouped_rows in groups.items() if len(grouped_rows) >= 2]
+        if not repeated:
+            continue
+        repeated.sort(key=lambda item: (-len(item[1]), item[0]))
+        top_value, grouped_rows = repeated[0]
+        count = len(grouped_rows)
+        ratio = round(count / total, 3)
+        examples = []
+        for row in grouped_rows[:3]:
+            example = " | ".join(part for part in [row.get("event_type", ""), row.get("alarm_time", ""), row.get("event_id", "")] if part)
+            if example:
+                examples.append(example)
+        insights.append(
+            {
+                "relation_type": spec["type"],
+                "label": spec["label"],
+                "shared_value": top_value,
+                "count": count,
+                "ratio": ratio,
+                "summary": f"当前结果中有 {count}/{total} 条记录通过“{spec['label']}”关联到同一对象：{top_value}",
+                "reason": spec["reason"],
+                "examples": examples,
+                "score": round(count + ratio, 3),
+            }
+        )
+
+    insights.sort(key=lambda item: (-float(item.get("score", 0)), str(item.get("label", ""))))
+    return insights[:4]
 
 
 def _normalize_table_name(name: str) -> str:
@@ -634,6 +815,7 @@ def _build_query_response_data(
     evidence = final.get("evidence")
     semantic_scores = final.get("semantic_scores") if isinstance(final.get("semantic_scores"), dict) else {}
     vector_only_results = final.get("vector_only_results") if isinstance(final.get("vector_only_results"), list) else []
+    relation_insights = _build_relation_insights(question=question, intent=intent, rows=rows)
     execution_history = state.get("execution_history") if isinstance(state.get("execution_history"), list) else []
     filters = state.get("filters") if isinstance(state.get("filters"), dict) else {}
     plan_source = filters.get("plan_source")
@@ -667,6 +849,7 @@ def _build_query_response_data(
         "evidence": evidence,
         "semantic_scores": semantic_scores,
         "vector_only_results": vector_only_results,
+        "relation_insights": relation_insights,
         "answer": answer,
         "plan_source": plan_source,
         "confidence": confidence,
