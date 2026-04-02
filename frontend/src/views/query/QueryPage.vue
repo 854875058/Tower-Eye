@@ -398,6 +398,55 @@ const formatConfidence = (value?: number): string => {
   return `${Math.round(clamped * 100)}%`
 }
 
+const formatDurationMs = (value?: number): string => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return '-'
+  if (value < 1000) return `${Math.round(value)}ms`
+  return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}s`
+}
+
+const getExecutionHistoryItems = (msg?: Message | null) => {
+  return Array.isArray(msg?.data?.execution_history) ? msg!.data!.execution_history : []
+}
+
+const getProgressMetrics = (msg?: Message | null) => {
+  const items = getExecutionHistoryItems(msg)
+  const totalDurationMs = items.reduce((sum, item) => {
+    const value = typeof item?.duration_ms === 'number' ? item.duration_ms : 0
+    return sum + value
+  }, 0)
+  return {
+    stepCount: items.length,
+    totalDurationMs,
+  }
+}
+
+const getExecutionHistoryReplayLines = (msg?: Message | null): string[] => {
+  const items = getExecutionHistoryItems(msg)
+  return items.map((item: Record<string, any>, index: number) => {
+    const step = String(item?.step || `step_${index + 1}`)
+    const label = stepLabelMap[step] || step
+    const durationText = formatDurationMs(item?.duration_ms)
+    const status = String(item?.status || 'success').toLowerCase()
+    const prefix = status === 'error' ? '[FAIL]' : status === 'running' ? '[RUN]' : '[OK]'
+    const output = item?.output || {}
+    const planSource = output?.plan_source ? ` | route=${getPlanSourceLabel(output.plan_source)}` : ''
+    const selectedTable = output?.selected_table ? ` | table=${output.selected_table}` : ''
+    const finalType = output?.final_type ? ` | type=${output.final_type}` : ''
+    const message = output?.message ? ` | ${String(output.message).slice(0, 80)}` : ''
+    const err = item?.error ? ` | ${String(item.error).slice(0, 80)}` : ''
+    return `${prefix} Step ${index + 1} ${label} | ${durationText}${planSource}${selectedTable}${finalType}${message}${err}`
+  })
+}
+
+const getProgressTimeline = (msg?: Message | null): string[] => {
+  const lines = Array.isArray(msg?.thinkingLines)
+    ? msg!.thinkingLines!.map((line) => String(line || '').trim()).filter(Boolean)
+    : []
+  const replayLines = getExecutionHistoryReplayLines(msg)
+  const combined = replayLines.length > 0 ? replayLines : lines
+  return Array.from(new Set(combined))
+}
+
 const summarizeTurnAnswer = (data?: QueryResponse | null): string => {
   if (!data) return ''
   const answerText = (data.answer || '').trim()
@@ -708,19 +757,22 @@ const resizeAllCharts = () => {
 
 // 根据日志内容返回颜色 - 类似 tieta-multi 风格
 const getLogColor = (line: string): string => {
-  if (line.includes('成功') || line.includes('success') || line.toLowerCase().includes('success')) {
-    return '#4ade80' // 绿色
+  if (line.includes('[FAIL]') || line.includes('失败') || line.includes('error') || line.includes('Error')) {
+    return '#f87171'
   }
-  if (line.includes('失败') || line.includes('error') || line.includes('Error')) {
-    return '#f87171' // 红色
+  if (line.includes('[OK]') || line.includes('成功') || line.includes('success') || line.toLowerCase().includes('success')) {
+    return '#4ade80'
+  }
+  if (line.includes('[RUN]')) {
+    return '#fbbf24'
   }
   if (line.startsWith('[') && line.includes(']')) {
-    return '#60a5fa' // 蓝色
+    return '#60a5fa'
   }
   if (line.startsWith('===')) {
-    return '#6b7280' // 灰色
+    return '#6b7280'
   }
-  return '#d1d5db' // 浅灰色
+  return '#d1d5db'
 }
 
 // 加载数据集
@@ -1163,7 +1215,7 @@ const collapseAssistantCards = (msg?: Message | null) => {
 }
 
 const getThinkingSummary = (msg?: Message | null) => {
-  const lines = msg?.thinkingLines || []
+  const lines = getProgressTimeline(msg)
   const ignored = new Set([
     '本轮处理完成，可展开查看详情',
     '处理完成，结果已返回',
@@ -1928,6 +1980,15 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                       <el-tag v-if="msg.data?.status" size="small" :type="msg.data.status === 'success' ? 'success' : 'danger'">
                         {{ msg.data.status === 'success' ? '已完成' : '已结束' }}
                       </el-tag>
+                      <el-tag v-if="getProgressMetrics(msg).stepCount > 0" size="small" type="info">
+                        {{ getProgressMetrics(msg).stepCount }} 步
+                      </el-tag>
+                      <el-tag v-if="getProgressMetrics(msg).totalDurationMs > 0" size="small" type="warning">
+                        {{ formatDurationMs(getProgressMetrics(msg).totalDurationMs) }}
+                      </el-tag>
+                      <el-tag v-if="msg.data?.plan_source" size="small" type="primary">
+                        {{ getPlanSourceLabel(msg.data.plan_source) }}
+                      </el-tag>
                       <el-icon v-else class="is-loading loading-icon"><Loading /></el-icon>
                       <el-button text class="collapse-btn" @click="toggleProgressCollapse(msg)">
                         <el-icon><component :is="msg.progressCollapsed ? ArrowRight : ArrowDown" /></el-icon>
@@ -1939,7 +2000,7 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                     {{ getThinkingSummary(msg) }}
                   </div>
                   <div v-else class="thinking-content">
-                    <div v-for="(line, lidx) in msg.thinkingLines" :key="lidx" class="thinking-line" :style="{ color: getLogColor(line) }">
+                    <div v-for="(line, lidx) in getProgressTimeline(msg)" :key="`${lidx}-${line}`" class="thinking-line" :style="{ color: getLogColor(line) }">
                       {{ line }}
                     </div>
                   </div>
