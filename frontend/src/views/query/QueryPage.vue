@@ -420,6 +420,27 @@ const getProgressMetrics = (msg?: Message | null) => {
   }
 }
 
+const getPrimaryThinkingLines = (msg?: Message | null): string[] => {
+  const lines = Array.isArray(msg?.thinkingLines)
+    ? msg!.thinkingLines!.map((line) => String(line || '').trim()).filter(Boolean)
+    : []
+  const ignored = new Set([
+    '本轮处理完成，可展开查看详情',
+    '处理完成，结果已返回',
+    '已完成',
+  ])
+  return lines.filter((line) => !ignored.has(line))
+}
+
+const getProgressHeadline = (msg?: Message | null) => {
+  const data = msg?.data
+  const metrics = getProgressMetrics(msg)
+  const routeText = data?.plan_source ? getPlanSourceLabel(data.plan_source) : '分析链路'
+  const resultText = data ? getSuccessSummaryText(data) : '已完成'
+  const durationText = metrics.totalDurationMs > 0 ? formatDurationMs(metrics.totalDurationMs) : '-'
+  return `${routeText} · ${metrics.stepCount || 0} 步 · ${durationText} · ${resultText}`
+}
+
 const getExecutionTimelineEntries = (msg?: Message | null) => {
   const items = getExecutionHistoryItems(msg)
   return items.map((item: Record<string, any>, index: number) => {
@@ -2131,23 +2152,13 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                 <div v-if="msg.thinkingLines && msg.thinkingLines.length > 0" class="thinking-card">
                   <div class="card-header">
                     <div class="header-left">
-                      <span class="icon-emoji">🤖</span>
-                      <span class="header-title">处理进度</span>
+                      <span class="icon-emoji">🧠</span>
+                      <span class="header-title">思考过程</span>
                     </div>
                     <div class="header-right">
                       <el-tag v-if="msg.data?.status" size="small" :type="msg.data.status === 'success' ? 'success' : 'danger'">
-                        {{ msg.data.status === 'success' ? '已完成' : '已结束' }}
+                        {{ msg.data.status === 'success' ? '查询成功' : '处理中断' }}
                       </el-tag>
-                      <el-tag v-if="getProgressMetrics(msg).stepCount > 0" size="small" type="info">
-                        {{ getProgressMetrics(msg).stepCount }} 步
-                      </el-tag>
-                      <el-tag v-if="getProgressMetrics(msg).totalDurationMs > 0" size="small" type="warning">
-                        {{ formatDurationMs(getProgressMetrics(msg).totalDurationMs) }}
-                      </el-tag>
-                      <el-tag v-if="msg.data?.plan_source" size="small" type="primary">
-                        {{ getPlanSourceLabel(msg.data.plan_source) }}
-                      </el-tag>
-                      <el-icon v-else class="is-loading loading-icon"><Loading /></el-icon>
                       <el-button text class="collapse-btn" @click="toggleProgressCollapse(msg)">
                         <el-icon><component :is="msg.progressCollapsed ? ArrowRight : ArrowDown" /></el-icon>
                         {{ msg.progressCollapsed ? '展开' : '收起' }}
@@ -2155,12 +2166,19 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                     </div>
                   </div>
                   <div v-if="msg.progressCollapsed" class="thinking-summary">
-                    {{ getThinkingSummary(msg) }}
+                    <div class="thinking-summary-main">{{ getThinkingSummary(msg) }}</div>
+                    <div class="thinking-summary-meta">{{ getProgressHeadline(msg) }}</div>
                   </div>
                   <div v-else class="thinking-content">
+                    <div v-if="getPrimaryThinkingLines(msg).length > 0" class="thinking-terminal">
+                      <div v-for="(line, lidx) in getPrimaryThinkingLines(msg)" :key="`${lidx}-${line}`" class="thinking-line" :style="{ color: getLogColor(line) }">
+                        {{ line }}
+                      </div>
+                    </div>
+
                     <div v-if="getExecutionTimelineEntries(msg).length > 0" class="thinking-section">
-                      <div class="thinking-section-title">节点轨迹</div>
-                      <div class="timeline-list">
+                      <div class="thinking-section-title">执行摘要</div>
+                      <div class="timeline-list compact-timeline">
                         <div
                           v-for="entry in getExecutionTimelineEntries(msg)"
                           :key="entry.key"
@@ -2170,7 +2188,6 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                           <div class="timeline-dot" />
                           <div class="timeline-main">
                             <div class="timeline-head">
-                              <span class="timeline-step">Step {{ entry.index }}</span>
                               <span class="timeline-label">{{ entry.label }}</span>
                               <span class="timeline-duration">{{ entry.durationText }}</span>
                             </div>
@@ -2181,36 +2198,27 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                       </div>
                     </div>
 
-                    <div v-if="getAgentLogEntries(msg).length > 0" class="thinking-section">
-                      <div class="thinking-section-title">原始日志</div>
-                      <div class="raw-log-list">
-                        <div
-                          v-for="entry in getAgentLogEntries(msg)"
-                          :key="entry.key"
-                          class="raw-log-item"
-                        >
-                          <div class="raw-log-head">
-                            <span class="raw-log-type">{{ entry.type }}</span>
-                            <span class="raw-log-label">{{ entry.label }}</span>
-                            <span class="raw-log-elapsed">{{ entry.elapsedText }}</span>
+                    <el-collapse v-if="getAgentLogEntries(msg).length > 0" class="raw-log-collapse">
+                      <el-collapse-item title="查看原始日志" name="agent-raw-log">
+                        <div class="raw-log-list">
+                          <div
+                            v-for="entry in getAgentLogEntries(msg)"
+                            :key="entry.key"
+                            class="raw-log-item"
+                          >
+                            <div class="raw-log-head">
+                              <span class="raw-log-type">{{ entry.type }}</span>
+                              <span class="raw-log-label">{{ entry.label }}</span>
+                              <span class="raw-log-elapsed">{{ entry.elapsedText }}</span>
+                            </div>
+                            <div v-if="entry.summary" class="raw-log-summary">{{ entry.summary }}</div>
+                            <pre v-if="entry.inputText" class="raw-log-payload">{{ entry.inputText }}</pre>
+                            <pre v-if="entry.outputText" class="raw-log-payload">{{ entry.outputText }}</pre>
+                            <pre v-if="entry.errorText" class="raw-log-payload raw-log-error">{{ entry.errorText }}</pre>
                           </div>
-                          <div v-if="entry.summary" class="raw-log-summary">{{ entry.summary }}</div>
-                          <pre v-if="entry.inputText" class="raw-log-payload">{{ entry.inputText }}</pre>
-                          <pre v-if="entry.outputText" class="raw-log-payload">{{ entry.outputText }}</pre>
-                          <pre v-if="entry.errorText" class="raw-log-payload raw-log-error">{{ entry.errorText }}</pre>
                         </div>
-                      </div>
-                    </div>
-
-                    <div
-                      v-if="getExecutionTimelineEntries(msg).length === 0 && getAgentLogEntries(msg).length === 0"
-                      class="thinking-section"
-                    >
-                      <div class="thinking-section-title">执行回放</div>
-                      <div v-for="(line, lidx) in getProgressTimeline(msg)" :key="`${lidx}-${line}`" class="thinking-line" :style="{ color: getLogColor(line) }">
-                        {{ line }}
-                      </div>
-                    </div>
+                      </el-collapse-item>
+                    </el-collapse>
                   </div>
                 </div>
 
@@ -3172,11 +3180,21 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
 
   .thinking-summary {
     background: #f8f9fa;
-    border-radius: 8px;
-    padding: 12px;
-    font-size: 13px;
-    color: #4b5563;
+    border-radius: 10px;
+    padding: 12px 14px;
     line-height: 1.7;
+  }
+
+  .thinking-summary-main {
+    color: #334155;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .thinking-summary-meta {
+    color: #64748b;
+    font-size: 12px;
+    margin-top: 4px;
   }
 
   .thinking-content {
@@ -3191,11 +3209,23 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
     display: flex;
     flex-direction: column;
     gap: 14px;
+    font-family: inherit;
 
     .thinking-section {
       display: flex;
       flex-direction: column;
       gap: 8px;
+    }
+
+
+    .thinking-terminal {
+      background: #0f172a;
+      border-radius: 10px;
+      padding: 12px;
+      border: 1px solid #1e293b;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 12px;
+      line-height: 1.7;
     }
 
     .thinking-section-title {
@@ -3210,6 +3240,11 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
       display: flex;
       flex-direction: column;
       gap: 10px;
+    }
+
+    .compact-timeline .timeline-item {
+      padding: 8px 10px;
+      background: #fff;
     }
 
     .timeline-item {
@@ -3255,13 +3290,6 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
       margin-bottom: 4px;
     }
 
-    .timeline-step {
-      color: #64748b;
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-
     .timeline-label {
       color: #0f172a;
       font-size: 13px;
@@ -3287,6 +3315,22 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
       margin-top: 4px;
       white-space: pre-wrap;
       word-break: break-word;
+    }
+
+    .raw-log-collapse {
+      :deep(.el-collapse-item__header) {
+        font-size: 12px;
+        color: #475569;
+        background: transparent;
+      }
+
+      :deep(.el-collapse-item__wrap) {
+        background: transparent;
+      }
+
+      :deep(.el-collapse-item__content) {
+        padding-bottom: 0;
+      }
     }
 
     .raw-log-list {
