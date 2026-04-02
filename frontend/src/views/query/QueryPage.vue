@@ -944,8 +944,8 @@ const getListPreviewItems = (data?: QueryResponse | null) => {
   return rows.slice(0, 9).map((row, index) => ({
     key: `${row.event_id || row.asset_id || index}`,
     title: `${row.event_type || '告警事件'} | ${String(row.alarm_time || '').slice(0, 19)}`,
-    image: getListRowImageCandidates(row)[0] || '',
-    video: getListRowVideoCandidates(row)[0] || '',
+    images: getListRowImageCandidates(row),
+    videos: getListRowVideoCandidates(row),
   }))
 }
 
@@ -982,6 +982,42 @@ const getDetailFieldRows = (row: Record<string, any>) => {
   }
 
   return fields
+}
+
+const getRelatedMediaKey = (row: Record<string, any>) => {
+  const extra = parseExtraJson(row)
+  const warningOrderId = row.warning_order_id || extra?.warning_order_id
+  if (warningOrderId) return `order:${String(warningOrderId)}`
+
+  const videoPath = String(row.video_path || '').trim()
+  if (videoPath) {
+    const normalized = videoPath.replace(/\\/g, '/').split('/').pop() || videoPath
+    return `video:${normalized}`
+  }
+
+  const alarmCode = extra?.alarm_code
+  if (alarmCode) return `alarm:${String(alarmCode)}`
+
+  return ''
+}
+
+const getRelatedImageCandidates = (row: Record<string, any>, data?: QueryResponse | null) => {
+  const relationKey = getRelatedMediaKey(row)
+  if (!relationKey) return []
+
+  const currentPrimary = new Set(getListRowImageCandidates(row))
+  const rows = data?.result_rows || []
+  const collected: string[] = []
+  for (const item of rows) {
+    if (getRelatedMediaKey(item) !== relationKey) continue
+    for (const image of getListRowImageCandidates(item)) {
+      if (currentPrimary.has(image)) continue
+      if (!collected.includes(image)) {
+        collected.push(image)
+      }
+    }
+  }
+  return collected
 }
 
 const getDetailTitle = (row: Record<string, any>, index: number, data?: QueryResponse | null) => {
@@ -2127,19 +2163,19 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                           class="media-preview-item"
                         >
                           <el-image
-                            v-if="item.image"
-                            :src="item.image"
+                            v-if="item.images[0]"
+                            :src="item.images[0]"
                             fit="cover"
                             class="media-preview-thumb"
-                            :preview-src-list="[item.image]"
+                            :preview-src-list="item.images"
                           />
+                          <div v-else class="media-preview-empty">无图片</div>
                           <video
-                            v-else-if="item.video"
-                            :src="item.video"
-                            class="media-preview-thumb"
+                            v-if="item.videos[0]"
+                            :src="item.videos[0]"
+                            class="media-preview-thumb media-preview-video"
                             controls
                           />
-                          <div v-else class="media-preview-empty">无媒体</div>
                           <div class="media-preview-title">{{ item.title }}</div>
                         </div>
                       </div>
@@ -2166,35 +2202,35 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                               </div>
                             </div>
                             <div class="detail-media">
-                              <el-tabs v-if="getListRowImageCandidates(row).length > 0 || getListRowVideoCandidates(row).length > 0" stretch>
-                                <el-tab-pane v-if="getListRowImageCandidates(row).length > 0" label="原图">
-                                  <el-image
-                                    :src="getListRowImageCandidates(row)[0]"
-                                    fit="contain"
-                                    class="detail-media-view"
-                                    :preview-src-list="getListRowImageCandidates(row)"
-                                  />
-                                </el-tab-pane>
-                                <el-tab-pane v-if="getListRowVideoCandidates(row).length > 0" label="视频">
-                                  <video
-                                    :src="getListRowVideoCandidates(row)[0]"
-                                    class="detail-media-view"
-                                    controls
-                                  />
-                                </el-tab-pane>
-                                <el-tab-pane v-if="getListRowImageCandidates(row).length > 1" label="更多图片">
-                                  <div class="detail-image-list">
+                                <el-tabs v-if="getListRowImageCandidates(row).length > 0 || getListRowVideoCandidates(row).length > 0" stretch>
+                                  <el-tab-pane v-if="getListRowImageCandidates(row).length > 0" label="原图">
                                     <el-image
-                                      v-for="img in getListRowImageCandidates(row).slice(1)"
-                                      :key="img"
-                                      :src="img"
-                                      fit="cover"
-                                      class="detail-image-thumb"
+                                      :src="getListRowImageCandidates(row)[0]"
+                                      fit="contain"
+                                      class="detail-media-view"
                                       :preview-src-list="getListRowImageCandidates(row)"
                                     />
-                                  </div>
-                                </el-tab-pane>
-                              </el-tabs>
+                                  </el-tab-pane>
+                                  <el-tab-pane v-if="getListRowVideoCandidates(row).length > 0" label="视频">
+                                    <video
+                                      :src="getListRowVideoCandidates(row)[0]"
+                                      class="detail-media-view"
+                                      controls
+                                    />
+                                  </el-tab-pane>
+                                  <el-tab-pane v-if="getRelatedImageCandidates(row, msg.data).length > 0" label="关联图片">
+                                    <div class="detail-image-list">
+                                      <el-image
+                                        v-for="img in getRelatedImageCandidates(row, msg.data)"
+                                        :key="img"
+                                        :src="img"
+                                        fit="cover"
+                                        class="detail-image-thumb"
+                                        :preview-src-list="getRelatedImageCandidates(row, msg.data)"
+                                      />
+                                    </div>
+                                  </el-tab-pane>
+                                </el-tabs>
                               <div v-else class="detail-media-empty">暂无媒体预览</div>
                             </div>
                           </div>
