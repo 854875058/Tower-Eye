@@ -171,6 +171,10 @@ const getFriendlyStepEndLines = (step?: string, outputs?: any): string[] => {
     } else if (planSource === 'rule') {
       lines.push('[查询规划] 已通过规则策略生成查询方案')
     }
+    const selectedTable = outputs?.filters?.selected_table
+    if (selectedTable) {
+      lines.push(`[数据范围] 当前使用表：${selectedTable}`)
+    }
     if (outputs?.filters?.context_applied) {
       lines.push('[会话上下文] 已结合最近一轮查询理解当前追问')
     }
@@ -193,6 +197,9 @@ const getFriendlyStepEndLines = (step?: string, outputs?: any): string[] => {
       lines.push('[数据查询] 当前步骤执行异常，系统将继续尝试修复')
     } else {
       lines.push(`[数据查询] 已完成，共返回 ${rowCount} 条结果`)
+      if (outputs?.chart_suggestion) {
+        lines.push(`[图表建议] 推荐使用 ${String(outputs.chart_suggestion).toUpperCase()} 展示`)
+      }
     }
     return lines
   }
@@ -472,18 +479,6 @@ const getEvidenceSourceTables = (data?: QueryResponse | null): string[] => {
   const tables = data?.evidence?.source_tables
   if (!Array.isArray(tables)) return []
   return tables.filter((item): item is string => typeof item === 'string' && item.trim() !== '')
-}
-
-const formatDurationMs = (value?: unknown): string => {
-  const duration = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(duration) || duration < 0) return '-'
-  if (duration >= 1000) return `${(duration / 1000).toFixed(2)}s`
-  return `${Math.round(duration)}ms`
-}
-
-const getExecutionHistoryPreview = (data?: QueryResponse | null) => {
-  const history = Array.isArray(data?.execution_history) ? data.execution_history : []
-  return history.slice(-8)
 }
 
 const getResultViewMode = (idx: number): ResultViewMode => {
@@ -892,6 +887,52 @@ const getRecommendationTitle = (row: Record<string, any>) => {
   return row.file_name || row.file_path || row.asset_id || row.image_id || row.video_id || '相关结果'
 }
 
+const buildFollowUpSuggestions = (data?: QueryResponse | null) => {
+  if (!data || data.status !== 'success') return []
+
+  if (data.intent === 'search') {
+    return [
+      '查找与当前结果相似的图片和视频片段',
+      '统计这些相关告警的区县分布',
+      '查询最近20条相关告警明细',
+    ]
+  }
+
+  if (data.intent === 'count') {
+    const rows = data.result_rows || []
+    const firstRow = rows[0] as Record<string, any> | undefined
+    const keys = firstRow ? Object.keys(firstRow) : []
+    const dimensionKey = keys.find((key) => typeof firstRow?.[key] === 'string' && key !== '日期')
+    const dimensionValue = dimensionKey && firstRow ? String(firstRow[dimensionKey] || '').trim() : ''
+    if (dimensionValue) {
+      return [
+        `查询${dimensionValue}最近20条告警明细`,
+        `查询${dimensionValue}告警趋势变化`,
+        `统计${dimensionValue}各设备告警数量分布`,
+      ]
+    }
+    return [
+      '查询最近20条告警明细',
+      '查询各区县告警趋势变化',
+      '统计各设备告警数量分布',
+    ]
+  }
+
+  if (data.intent === 'list') {
+    return [
+      '统计各区县告警数量分布',
+      '查询告警趋势变化',
+      '统计各设备告警数量分布',
+    ]
+  }
+
+  return []
+}
+
+const applyFollowUpSuggestion = (suggestion: string) => {
+  question.value = suggestion
+}
+
 const clearAnswerStreamTimer = (msgIndex: number) => {
   const timer = answerStreamTimers.get(msgIndex)
   if (timer) {
@@ -956,7 +997,20 @@ const collapseAssistantCards = (msg?: Message | null) => {
 
 const getThinkingSummary = (msg?: Message | null) => {
   const lines = msg?.thinkingLines || []
-  return lines.length > 0 ? lines[lines.length - 1] : '本轮处理已完成，可展开查看详情'
+  const ignored = new Set([
+    '本轮处理完成，可展开查看详情',
+    '处理完成，结果已返回',
+    '已完成',
+  ])
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = String(lines[i] || '').trim()
+    if (!line || ignored.has(line)) continue
+    return line
+  }
+  if (msg?.data?.answer) {
+    return String(msg.data.answer).slice(0, 120)
+  }
+  return '本轮处理已完成，可展开查看详情'
 }
 
 const getSqlPreview = (sql?: string) => {
@@ -1692,17 +1746,6 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                   </div>
                 </div>
 
-                <div v-if="msg.data && msg.data.intent !== 'chat' && msg.data.answer" class="answer-card">
-                  <div class="card-header">
-                    <div class="header-left">
-                      <span class="icon-emoji">🧠</span>
-                      <span class="header-title">回答摘要</span>
-                    </div>
-                    <el-tag v-if="msg.answerStreaming" size="small" type="primary">流式输出中</el-tag>
-                  </div>
-                  <div class="answer-text">{{ msg.streamedAnswer || msg.data.answer }}</div>
-                </div>
-
                 <!-- 意图识别卡片（非闲聊） -->
                 <div v-if="msg.data && msg.data.intent" class="intent-card">
                   <div class="intent-content">
@@ -1762,52 +1805,6 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                   </div>
                   <div v-else class="sql-editor">
                     <el-input type="textarea" v-model="msg.data.sql" :rows="4" class="sql-textarea" />
-                  </div>
-                </div>
-
-                <!-- 结构化证据卡片 -->
-                <div v-if="msg.data && msg.data.evidence" class="evidence-card">
-                  <div class="card-header">
-                    <div class="header-left">
-                      <span class="icon-emoji">📌</span>
-                      <span class="header-title">证据</span>
-                    </div>
-                  </div>
-                  <div class="evidence-summary">
-                    {{ msg.data.evidence.summary || '已返回结构化证据。' }}
-                  </div>
-                  <div v-if="getEvidenceSourceTables(msg.data).length > 0" class="evidence-tables">
-                    <span class="meta-label">来源表:</span>
-                    <div class="meta-tags">
-                      <el-tag v-for="table in getEvidenceSourceTables(msg.data)" :key="table" size="small" class="meta-tag">
-                        {{ table }}
-                      </el-tag>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- 执行历史卡片 -->
-                <div v-if="msg.data && msg.data.execution_history && msg.data.execution_history.length > 0" class="exec-history-card">
-                  <div class="card-header">
-                    <div class="header-left">
-                      <span class="icon-emoji">🧭</span>
-                      <span class="header-title">执行历史</span>
-                    </div>
-                  </div>
-                  <div class="exec-history-list">
-                    <div v-for="(item, hidx) in getExecutionHistoryPreview(msg.data)" :key="hidx" class="exec-history-item">
-                      <span class="exec-step">{{ stepLabelMap[item.step] || item.step || 'unknown' }}</span>
-                      <el-tag size="small" :type="item.status === 'success' ? 'success' : item.status === 'error' ? 'danger' : 'info'">
-                        {{ item.status || 'unknown' }}
-                      </el-tag>
-                      <span class="exec-duration">{{ formatDurationMs(item.duration_ms) }}</span>
-                    </div>
-                    <div
-                      v-if="(msg.data.execution_history?.length || 0) > getExecutionHistoryPreview(msg.data).length"
-                      class="exec-history-more"
-                    >
-                      仅展示最近 {{ getExecutionHistoryPreview(msg.data).length }} 个节点
-                    </div>
                   </div>
                 </div>
 
@@ -1960,6 +1957,65 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                     >
                       当前展示 {{ msg.data.result_rows?.length || 0 }} 行（共 {{ msg.data.row_count }} 行）
                     </div>
+                  </div>
+                </div>
+
+                <div
+                  v-if="msg.data && msg.data.intent !== 'chat' && (msg.data.answer || msg.data.evidence)"
+                  class="summary-row"
+                >
+                  <div v-if="msg.data.answer" class="answer-card">
+                    <div class="card-header">
+                      <div class="header-left">
+                        <span class="icon-emoji">🧠</span>
+                        <span class="header-title">回答摘要</span>
+                      </div>
+                      <el-tag v-if="msg.answerStreaming" size="small" type="primary">流式输出中</el-tag>
+                    </div>
+                    <div class="answer-text">{{ msg.streamedAnswer || msg.data.answer }}</div>
+                  </div>
+
+                  <div v-if="msg.data.evidence" class="evidence-card">
+                    <div class="card-header">
+                      <div class="header-left">
+                        <span class="icon-emoji">📌</span>
+                        <span class="header-title">证据</span>
+                      </div>
+                    </div>
+                    <div class="evidence-summary">
+                      {{ msg.data.evidence.summary || '已返回结构化证据。' }}
+                    </div>
+                    <div v-if="getEvidenceSourceTables(msg.data).length > 0" class="evidence-tables">
+                      <span class="meta-label">来源表:</span>
+                      <div class="meta-tags">
+                        <el-tag v-for="table in getEvidenceSourceTables(msg.data)" :key="table" size="small" class="meta-tag">
+                          {{ table }}
+                        </el-tag>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  v-if="msg.data && buildFollowUpSuggestions(msg.data).length > 0"
+                  class="follow-up-card"
+                >
+                  <div class="card-header">
+                    <div class="header-left">
+                      <span class="icon-emoji">🪄</span>
+                      <span class="header-title">追问建议</span>
+                    </div>
+                  </div>
+                  <div class="follow-up-list">
+                    <el-button
+                      v-for="suggestion in buildFollowUpSuggestions(msg.data)"
+                      :key="suggestion"
+                      size="small"
+                      plain
+                      @click="applyFollowUpSuggestion(suggestion)"
+                    >
+                      {{ suggestion }}
+                    </el-button>
                   </div>
                 </div>
 
@@ -2575,6 +2631,8 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
   border-radius: 12px;
   padding: 14px 16px;
   border: 1px solid #d9e6ff;
+  flex: 1;
+  min-width: 0;
 
   .card-header {
     display: flex;
@@ -2679,6 +2737,8 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
   border-radius: 12px;
   padding: 14px 16px;
   border: 1px solid #dfe3ff;
+  flex: 1;
+  min-width: 0;
 
   .card-header {
     display: flex;
@@ -2731,6 +2791,47 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
       color: #4a56a6;
       background: #eef1ff;
     }
+  }
+}
+
+.summary-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.follow-up-card {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 14px 16px;
+  border: 1px solid #e6edf5;
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .icon-emoji {
+      font-size: 16px;
+    }
+
+    .header-title {
+      color: #334155;
+      font-weight: 600;
+      font-size: 14px;
+    }
+  }
+
+  .follow-up-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 }
 
