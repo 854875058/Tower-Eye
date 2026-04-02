@@ -530,6 +530,35 @@ const getEvidenceSourceTables = (data?: QueryResponse | null): string[] => {
   return tables.filter((item): item is string => typeof item === 'string' && item.trim() !== '')
 }
 
+const getAnswerCardTitle = (data?: QueryResponse | null) => {
+  if (!data) return '结果说明'
+  if (data.status === 'error') return '异常说明'
+  if ((data.row_count || 0) === 0) return '结果说明'
+  if (data.intent === 'count') return '分析结论'
+  if (data.intent === 'search') return '检索结论'
+  if (data.intent === 'list') return '结果解读'
+  return '结果说明'
+}
+
+const getEvidenceCardTitle = (data?: QueryResponse | null) => {
+  if (!data) return '结果依据'
+  if ((data.row_count || 0) === 0) return '查询依据'
+  if (data.intent === 'search') return '命中依据'
+  return '结果依据'
+}
+
+const getEvidenceSummaryText = (data?: QueryResponse | null) => {
+  const summary = String(data?.evidence?.summary || '').trim()
+  if (summary) return summary
+  if ((data?.row_count || 0) === 0) {
+    return '当前说明基于查询条件、执行结果和返回样本整理，用于解释为什么本轮没有命中数据。'
+  }
+  if (data?.intent === 'search') {
+    return '当前结果基于相似度检索命中、结构化字段和关联样本综合整理。'
+  }
+  return '当前说明基于本轮查询结果、结构化字段和返回样本综合整理。'
+}
+
 const getResultViewMode = (idx: number): ResultViewMode => {
   return resultViewModeMap.value[idx] || 'detail'
 }
@@ -2431,7 +2460,7 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                     <div class="card-header">
                       <div class="header-left">
                         <span class="icon-emoji">🧠</span>
-                        <span class="header-title">回答摘要</span>
+                        <span class="header-title">{{ getAnswerCardTitle(msg.data) }}</span>
                       </div>
                       <el-tag v-if="msg.answerStreaming" size="small" type="primary">流式输出中</el-tag>
                     </div>
@@ -2442,14 +2471,14 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                     <div class="card-header">
                       <div class="header-left">
                         <span class="icon-emoji">📌</span>
-                        <span class="header-title">证据</span>
+                        <span class="header-title">{{ getEvidenceCardTitle(msg.data) }}</span>
                       </div>
                     </div>
                     <div class="evidence-summary">
-                      {{ msg.data.evidence.summary || '已返回结构化证据。' }}
+                      {{ getEvidenceSummaryText(msg.data) }}
                     </div>
                     <div v-if="getEvidenceSourceTables(msg.data).length > 0" class="evidence-tables">
-                      <span class="meta-label">来源表:</span>
+                      <span class="meta-label">数据来源</span>
                       <div class="meta-tags">
                         <el-tag v-for="table in getEvidenceSourceTables(msg.data)" :key="table" size="small" class="meta-tag">
                           {{ table }}
