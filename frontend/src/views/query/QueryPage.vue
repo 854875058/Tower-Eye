@@ -420,21 +420,61 @@ const getProgressMetrics = (msg?: Message | null) => {
   }
 }
 
-const getExecutionHistoryReplayLines = (msg?: Message | null): string[] => {
+const getExecutionTimelineEntries = (msg?: Message | null) => {
   const items = getExecutionHistoryItems(msg)
   return items.map((item: Record<string, any>, index: number) => {
     const step = String(item?.step || `step_${index + 1}`)
     const label = stepLabelMap[step] || step
-    const durationText = formatDurationMs(item?.duration_ms)
     const status = String(item?.status || 'success').toLowerCase()
-    const prefix = status === 'error' ? '[FAIL]' : status === 'running' ? '[RUN]' : '[OK]'
     const output = item?.output || {}
-    const planSource = output?.plan_source ? ` | route=${getPlanSourceLabel(output.plan_source)}` : ''
-    const selectedTable = output?.selected_table ? ` | table=${output.selected_table}` : ''
-    const finalType = output?.final_type ? ` | type=${output.final_type}` : ''
-    const message = output?.message ? ` | ${String(output.message).slice(0, 80)}` : ''
-    const err = item?.error ? ` | ${String(item.error).slice(0, 80)}` : ''
-    return `${prefix} Step ${index + 1} ${label} | ${durationText}${planSource}${selectedTable}${finalType}${message}${err}`
+    const detailParts: string[] = []
+    if (output?.plan_source) detailParts.push(`命中 ${getPlanSourceLabel(output.plan_source)}`)
+    if (output?.selected_table) detailParts.push(`数据表 ${output.selected_table}`)
+    if (output?.final_type) detailParts.push(`结果类型 ${String(output.final_type).toUpperCase()}`)
+    const detail = detailParts.join(' · ')
+    const message = output?.message ? String(output.message).slice(0, 88) : ''
+    const errorText = item?.error ? String(item.error).slice(0, 88) : ''
+    return {
+      key: `${step}-${index}`,
+      index: index + 1,
+      label,
+      status,
+      durationText: formatDurationMs(item?.duration_ms),
+      detail,
+      message: errorText || message,
+    }
+  })
+}
+
+const getAgentLogEntries = (msg?: Message | null) => {
+  const logs = Array.isArray(msg?.data?.agent_steps) ? msg!.data!.agent_steps : []
+  return logs.map((item: Record<string, any>, index: number) => {
+    const step = String(item?.step || 'system')
+    const label = step === 'system' ? '系统' : (stepLabelMap[step] || step)
+    const status = String(item?.status || item?.type || 'info').toLowerCase()
+    const inputText = item?.inputs ? JSON.stringify(item.inputs, null, 2) : ''
+    const outputText = item?.outputs ? JSON.stringify(item.outputs, null, 2) : ''
+    const errorText = item?.error ? JSON.stringify(item.error, null, 2) : ''
+    return {
+      key: `${step}-${index}-${item?.type || 'log'}`,
+      label,
+      type: String(item?.type || 'log'),
+      status,
+      summary: String(item?.summary || '').trim(),
+      elapsedText: formatDurationMs(item?.node_elapsed_ms || item?.elapsed_ms),
+      inputText,
+      outputText,
+      errorText,
+    }
+  })
+}
+
+const getExecutionHistoryReplayLines = (msg?: Message | null): string[] => {
+  return getExecutionTimelineEntries(msg).map((item) => {
+    const prefix = item.status === 'error' ? '[FAIL]' : item.status === 'running' ? '[RUN]' : '[OK]'
+    const detail = item.detail ? ` | ${item.detail}` : ''
+    const message = item.message ? ` | ${item.message}` : ''
+    return `${prefix} Step ${item.index} ${item.label} | ${item.durationText}${detail}${message}`
   })
 }
 
@@ -1316,6 +1356,14 @@ const collapseAssistantCards = (msg?: Message | null) => {
 }
 
 const getThinkingSummary = (msg?: Message | null) => {
+  const data = msg?.data
+  const metrics = getProgressMetrics(msg)
+  if (data?.status === 'success' && metrics.stepCount > 0) {
+    const resultText = getSuccessSummaryText(data)
+    const routeText = data.plan_source ? `，命中${getPlanSourceLabel(data.plan_source)}` : ''
+    const durationText = metrics.totalDurationMs > 0 ? `，耗时${formatDurationMs(metrics.totalDurationMs)}` : ''
+    return `本轮已完成 ${metrics.stepCount} 个节点，${resultText}${routeText}${durationText}`
+  }
   const lines = getProgressTimeline(msg)
   const ignored = new Set([
     '本轮处理完成，可展开查看详情',
@@ -1417,6 +1465,7 @@ const handleRerunSql = async (msgIdx: number, msgData: any) => {
       msgData.chart_suggestion = response.data.chart_suggestion || 'table'
       msgData.trace_id = response.data.trace_id
       msgData.audit_id = response.data.audit_id
+      msgData.agent_steps = response.data.agent_steps || []
       msgData.execution_history = response.data.execution_history || []
       msgData.evidence = response.data.evidence || null
       msgData.semantic_scores = response.data.semantic_scores || {}
@@ -1499,6 +1548,7 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
   let lastThinkingLine = ''
   let currentTraceId = ''
   let currentAuditId = ''
+  let finalAgentSteps: Record<string, any>[] = []
   let finalExecutionHistory: Record<string, any>[] = []
   let finalFilters: Record<string, any> = {}
   let finalSqlFromMeta = ''
@@ -1616,6 +1666,7 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
                 answer: errMsg,
                 trace_id: data.trace_id || currentTraceId,
                 audit_id: data.audit_id || currentAuditId,
+                agent_steps: finalAgentSteps,
                 execution_history: finalExecutionHistory,
                 evidence: undefined,
                 semantic_scores: {},
@@ -1639,6 +1690,9 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
             }
             if (Array.isArray(data.meta?.execution_history)) {
               finalExecutionHistory = data.meta.execution_history
+            }
+            if (Array.isArray(data.meta?.logs)) {
+              finalAgentSteps = data.meta.logs
             }
             if (typeof data.meta?.intent === 'string') {
               finalMetaIntent = data.meta.intent
@@ -1702,6 +1756,7 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
                   answer: finalData?.message || finalData?.answer_text || '',
                   trace_id: currentTraceId,
                   audit_id: currentAuditId,
+                  agent_steps: finalAgentSteps,
                   execution_history: finalExecutionHistory,
                   evidence: finalData?.evidence,
                   semantic_scores: finalData?.semantic_scores || {},
@@ -1800,6 +1855,7 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
           answer: finalData?.answer_text || finalData?.message || '',
           trace_id: currentTraceId,
           audit_id: currentAuditId,
+          agent_steps: finalAgentSteps,
           execution_history: finalExecutionHistory,
           evidence: finalData?.evidence,
           semantic_scores: finalData?.semantic_scores || {},
@@ -1839,6 +1895,7 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
         error: e.message || '查询失败',
         trace_id: currentTraceId,
         audit_id: currentAuditId,
+        agent_steps: [],
         table_names: selectedTableNames,
         dataset_id: selectedDataset.value?.id,
         semantic_scores: {},
@@ -2101,8 +2158,58 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                     {{ getThinkingSummary(msg) }}
                   </div>
                   <div v-else class="thinking-content">
-                    <div v-for="(line, lidx) in getProgressTimeline(msg)" :key="`${lidx}-${line}`" class="thinking-line" :style="{ color: getLogColor(line) }">
-                      {{ line }}
+                    <div v-if="getExecutionTimelineEntries(msg).length > 0" class="thinking-section">
+                      <div class="thinking-section-title">节点轨迹</div>
+                      <div class="timeline-list">
+                        <div
+                          v-for="entry in getExecutionTimelineEntries(msg)"
+                          :key="entry.key"
+                          class="timeline-item"
+                          :class="`timeline-item-${entry.status}`"
+                        >
+                          <div class="timeline-dot" />
+                          <div class="timeline-main">
+                            <div class="timeline-head">
+                              <span class="timeline-step">Step {{ entry.index }}</span>
+                              <span class="timeline-label">{{ entry.label }}</span>
+                              <span class="timeline-duration">{{ entry.durationText }}</span>
+                            </div>
+                            <div v-if="entry.detail" class="timeline-detail">{{ entry.detail }}</div>
+                            <div v-if="entry.message" class="timeline-message">{{ entry.message }}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div v-if="getAgentLogEntries(msg).length > 0" class="thinking-section">
+                      <div class="thinking-section-title">原始日志</div>
+                      <div class="raw-log-list">
+                        <div
+                          v-for="entry in getAgentLogEntries(msg)"
+                          :key="entry.key"
+                          class="raw-log-item"
+                        >
+                          <div class="raw-log-head">
+                            <span class="raw-log-type">{{ entry.type }}</span>
+                            <span class="raw-log-label">{{ entry.label }}</span>
+                            <span class="raw-log-elapsed">{{ entry.elapsedText }}</span>
+                          </div>
+                          <div v-if="entry.summary" class="raw-log-summary">{{ entry.summary }}</div>
+                          <pre v-if="entry.inputText" class="raw-log-payload">{{ entry.inputText }}</pre>
+                          <pre v-if="entry.outputText" class="raw-log-payload">{{ entry.outputText }}</pre>
+                          <pre v-if="entry.errorText" class="raw-log-payload raw-log-error">{{ entry.errorText }}</pre>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      v-if="getExecutionTimelineEntries(msg).length === 0 && getAgentLogEntries(msg).length === 0"
+                      class="thinking-section"
+                    >
+                      <div class="thinking-section-title">执行回放</div>
+                      <div v-for="(line, lidx) in getProgressTimeline(msg)" :key="`${lidx}-${line}`" class="thinking-line" :style="{ color: getLogColor(line) }">
+                        {{ line }}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -3081,6 +3188,174 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
     font-family: 'Monaco', 'Menlo', monospace;
     font-size: 12px;
     line-height: 1.8;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+
+    .thinking-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .thinking-section-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #64748b;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+
+    .timeline-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .timeline-item {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #ffffff;
+      border: 1px solid #e5ebf3;
+    }
+
+    .timeline-item-success .timeline-dot {
+      background: #22c55e;
+    }
+
+    .timeline-item-error .timeline-dot {
+      background: #ef4444;
+    }
+
+    .timeline-item-running .timeline-dot {
+      background: #f59e0b;
+    }
+
+    .timeline-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      margin-top: 6px;
+      flex-shrink: 0;
+    }
+
+    .timeline-main {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .timeline-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 4px;
+    }
+
+    .timeline-step {
+      color: #64748b;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .timeline-label {
+      color: #0f172a;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .timeline-duration {
+      color: #475569;
+      font-size: 12px;
+      margin-left: auto;
+    }
+
+    .timeline-detail {
+      color: #475569;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .timeline-message {
+      color: #334155;
+      font-size: 12px;
+      line-height: 1.7;
+      margin-top: 4px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .raw-log-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .raw-log-item {
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #111827;
+      border: 1px solid #1f2937;
+    }
+
+    .raw-log-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 6px;
+    }
+
+    .raw-log-type {
+      color: #93c5fd;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .raw-log-label {
+      color: #e5e7eb;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .raw-log-elapsed {
+      color: #9ca3af;
+      font-size: 11px;
+      margin-left: auto;
+    }
+
+    .raw-log-summary {
+      color: #f3f4f6;
+      font-size: 12px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin-bottom: 6px;
+    }
+
+    .raw-log-payload {
+      margin: 0;
+      margin-top: 6px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: #0b1220;
+      color: #cbd5e1;
+      font-size: 11px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-x: auto;
+    }
+
+    .raw-log-error {
+      border: 1px solid rgba(239, 68, 68, 0.25);
+      color: #fecaca;
+    }
 
     .thinking-line {
       color: #666;

@@ -568,7 +568,7 @@ export interface QueryResponse {
   error?: string
   trace_id: string
   audit_id: string
-  agent_steps?: AgentStep[]
+  agent_steps?: Record<string, any>[]
   execution_history?: Record<string, any>[]
   evidence?: Record<string, any>
   semantic_scores?: Record<string, number>

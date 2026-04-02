@@ -968,6 +968,7 @@ class LangGraphOrchestrator:
                     ),
                     "error_message": final_state.get("error_message"),
                     "execution_history": final_state.get("execution_history") or [],
+                    "logs": final_state.get("logs") or logger.logs,
                     "filters": final_state.get("filters") or {},
                 }
                 yield f"data: {_json_dumps_stream_event({'type': 'final', 'result': final_output, 'meta': final_meta})}\n\n"

@@ -84,15 +84,22 @@ class LogHelper:
 
         log = {
             "type": "node_start",
+            "run_id": self.run_id,
             "step": step,
             "step_num": self.step_count,
+            "ts": datetime.utcnow().isoformat() + "Z",
+            "elapsed_ms": elapsed_ms,
+            "node_elapsed_ms": 0,
+            "status": "running",
             "summary": f"[第{self.step_count}步] {step_name}...",
+            "inputs": _sanitize_value(inputs),
+            "outputs": {},
         }
         print(json.dumps(log, ensure_ascii=False))
         self.logs.append(log)
         return log
 
-    def end_node(self, step: str, outputs: Dict, summary: str = None) -> Dict:
+    def end_node(self, step: str, outputs: Dict, summary: str = None, inputs: Optional[Dict] = None) -> Dict:
         """输出节点结束日志"""
         node_start_ts = self.node_start_ts.get(step, time.time())
         node_elapsed = int((time.time() - node_start_ts) * 1000)
@@ -134,9 +141,16 @@ class LogHelper:
 
         log = {
             "type": "node_end",
+            "run_id": self.run_id,
             "step": step,
             "step_num": step_num,
+            "ts": datetime.utcnow().isoformat() + "Z",
+            "elapsed_ms": elapsed_ms,
+            "node_elapsed_ms": node_elapsed,
+            "status": "success",
             "summary": summary,
+            "inputs": _sanitize_value(inputs or {}),
+            "outputs": _sanitize_value(outputs),
         }
         print(json.dumps(log, ensure_ascii=False))
         self.logs.append(log)
