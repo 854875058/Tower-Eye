@@ -17,6 +17,8 @@ interface Message {
   thinkingLines?: string[]
   progressCollapsed?: boolean
   sqlCollapsed?: boolean
+  streamedAnswer?: string
+  answerStreaming?: boolean
 }
 
 interface TableItem {
@@ -82,6 +84,7 @@ type ResultViewMode = 'detail' | 'chart'
 
 const resultViewModeMap = ref<Record<number, ResultViewMode>>({})
 const messageChartInstances = new Map<number, echarts.ECharts>()
+const answerStreamTimers = new Map<number, number>()
 
 const intentLabelMap: Record<string, string> = {
   chat: '普通问答',
@@ -762,6 +765,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', resizeAllCharts)
   messageChartInstances.forEach((chart) => chart.dispose())
   messageChartInstances.clear()
+  answerStreamTimers.forEach((timer) => clearTimeout(timer))
+  answerStreamTimers.clear()
   if (datasetPollTimer) {
     clearInterval(datasetPollTimer)
     datasetPollTimer = null
@@ -887,6 +892,54 @@ const getRecommendationTitle = (row: Record<string, any>) => {
   return row.file_name || row.file_path || row.asset_id || row.image_id || row.video_id || '相关结果'
 }
 
+const clearAnswerStreamTimer = (msgIndex: number) => {
+  const timer = answerStreamTimers.get(msgIndex)
+  if (timer) {
+    clearTimeout(timer)
+    answerStreamTimers.delete(msgIndex)
+  }
+}
+
+const streamAnswerToMessage = (msgIndex: number, fullText: string) => {
+  clearAnswerStreamTimer(msgIndex)
+  const msg = messages.value[msgIndex]
+  if (!msg) return
+
+  const text = String(fullText || '').trim()
+  if (!text) {
+    msg.streamedAnswer = ''
+    msg.answerStreaming = false
+    return
+  }
+
+  const chars = Array.from(text)
+  const chunkSize = chars.length > 160 ? 4 : chars.length > 80 ? 3 : 2
+  let cursor = 0
+  msg.streamedAnswer = ''
+  msg.answerStreaming = true
+
+  const tick = () => {
+    const target = messages.value[msgIndex]
+    if (!target) {
+      clearAnswerStreamTimer(msgIndex)
+      return
+    }
+
+    cursor = Math.min(chars.length, cursor + chunkSize)
+    target.streamedAnswer = chars.slice(0, cursor).join('')
+    if (cursor >= chars.length) {
+      target.answerStreaming = false
+      answerStreamTimers.delete(msgIndex)
+      return
+    }
+
+    const timer = window.setTimeout(tick, 22)
+    answerStreamTimers.set(msgIndex, timer)
+  }
+
+  tick()
+}
+
 const toggleProgressCollapse = (msg: Message) => {
   msg.progressCollapsed = !msg.progressCollapsed
 }
@@ -1006,6 +1059,7 @@ const handleRerunSql = async (msgIdx: number, msgData: any) => {
 
       // 触发响应式更新
       messages.value[msgIdx].data = { ...msgData }
+      streamAnswerToMessage(msgIdx, String(msgData.answer || ''))
       messages.value = [...messages.value]
 
       ElMessage.success('SQL 执行成功')
@@ -1061,6 +1115,8 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
     thinkingLines: [] as string[],
     progressCollapsed: false,
     sqlCollapsed: false,
+    streamedAnswer: '',
+    answerStreaming: false,
   })
   messages.value.push(assistantMsg)
 
@@ -1250,6 +1306,7 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
                   dataset_id: selectedDataset.value?.id,
                 })
                 collapseAssistantCards(lastMsg)
+                streamAnswerToMessage(lastMsgIndex, String(lastMsg.data.answer || ''))
                 if (shouldAutoOpenChart(lastMsg.data)) {
                   resultViewModeMap.value[lastMsgIndex] = 'chart'
                   nextTick(() => renderMessageChart(lastMsgIndex, lastMsg.data))
@@ -1347,6 +1404,7 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
         })
         lastMsg.data = fallbackData
         collapseAssistantCards(lastMsg)
+        streamAnswerToMessage(messages.value.length - 1, String(fallbackData.answer || ''))
         if (shouldAutoOpenChart(fallbackData)) {
           resultViewModeMap.value[messages.value.length - 1] = 'chart'
           nextTick(() => renderMessageChart(messages.value.length - 1, fallbackData))
@@ -1630,12 +1688,23 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                 <div v-if="msg.data && msg.data.intent === 'chat'" class="chat-reply-card">
                   <div class="chat-reply-content">
                     <span class="chat-avatar">🤖</span>
-                    <div class="chat-text">{{ msg.data.answer || msg.content }}</div>
+                    <div class="chat-text">{{ msg.streamedAnswer || msg.data.answer || msg.content }}</div>
                   </div>
                 </div>
 
+                <div v-if="msg.data && msg.data.intent !== 'chat' && msg.data.answer" class="answer-card">
+                  <div class="card-header">
+                    <div class="header-left">
+                      <span class="icon-emoji">🧠</span>
+                      <span class="header-title">回答摘要</span>
+                    </div>
+                    <el-tag v-if="msg.answerStreaming" size="small" type="primary">流式输出中</el-tag>
+                  </div>
+                  <div class="answer-text">{{ msg.streamedAnswer || msg.data.answer }}</div>
+                </div>
+
                 <!-- 意图识别卡片（非闲聊） -->
-                <div v-else-if="msg.data && msg.data.intent" class="intent-card">
+                <div v-if="msg.data && msg.data.intent" class="intent-card">
                   <div class="intent-content">
                     <span class="icon-emoji">{{ msg.data.intent === 'chat' ? '💬' : msg.data.intent === 'search' ? '🔍' : msg.data.intent === 'count' ? '📊' : '💡' }}</span>
                     <span class="intent-text">已识别为意图: <strong>{{ msg.data.intent_text || (msg.data.intent === 'chat' ? '闲聊' : msg.data.intent === 'search' ? '向量检索' : msg.data.intent === 'count' ? '统计查询' : msg.data.intent === 'list' ? '列表查询' : msg.data.intent) }}</strong></span>
@@ -2498,6 +2567,44 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
         font-weight: 600;
       }
     }
+  }
+}
+
+.answer-card {
+  background: #f5f8ff;
+  border-radius: 12px;
+  padding: 14px 16px;
+  border: 1px solid #d9e6ff;
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .icon-emoji {
+      font-size: 16px;
+    }
+
+    .header-title {
+      color: #3557a6;
+      font-weight: 600;
+      font-size: 14px;
+    }
+  }
+
+  .answer-text {
+    color: #344054;
+    font-size: 14px;
+    line-height: 1.8;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 }
 
