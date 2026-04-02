@@ -1184,15 +1184,6 @@ const getDetailTitle = (row: Record<string, any>, index: number, data?: QueryRes
   return score ? `${base} [语义 ${(score * 100).toFixed(0)}%]` : base
 }
 
-const getSemanticMatchedCount = (data?: QueryResponse | null) => {
-  if (!data?.semantic_scores) return 0
-  return Object.keys(data.semantic_scores).length
-}
-
-const getVectorRecommendations = (data?: QueryResponse | null) => {
-  return Array.isArray(data?.vector_only_results) ? data.vector_only_results : []
-}
-
 const getRelationInsights = (data?: QueryResponse | null) => {
   return Array.isArray(data?.relation_insights) ? data.relation_insights : []
 }
@@ -1262,10 +1253,6 @@ const buildRelationDrivenSuggestions = (data?: QueryResponse | null) => {
   }
 
   return []
-}
-
-const getRecommendationTitle = (row: Record<string, any>) => {
-  return row.file_name || row.file_path || row.asset_id || row.image_id || row.video_id || '相关结果'
 }
 
 const buildFollowUpSuggestions = (data?: QueryResponse | null) => {
@@ -2287,47 +2274,6 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                   </div>
                 </div>
 
-                <div
-                  v-if="msg.data && (getSemanticMatchedCount(msg.data) > 0 || getVectorRecommendations(msg.data).length > 0)"
-                  class="semantic-card"
-                >
-                  <div class="card-header">
-                    <div class="header-left">
-                      <span class="icon-emoji">✨</span>
-                      <span class="header-title">{{ getVectorRecommendations(msg.data).length > 0 ? `您可能还感兴趣 (${getVectorRecommendations(msg.data).length})` : '语义增强' }}</span>
-                    </div>
-                  </div>
-                  <div class="semantic-summary">
-                    <el-tag size="small" type="success">匹配 {{ getSemanticMatchedCount(msg.data) }} 条</el-tag>
-                    <el-tag size="small" type="warning">补充 {{ getVectorRecommendations(msg.data).length }} 条</el-tag>
-                  </div>
-                  <div v-if="getVectorRecommendations(msg.data).length > 0" class="semantic-tip">
-                    以下结果来自图像语义检索，与当前查询在视觉内容上相关
-                  </div>
-                  <div v-if="getVectorRecommendations(msg.data).length > 0" class="semantic-recommend-list">
-                    <div
-                      v-for="(item, ridx) in getVectorRecommendations(msg.data)"
-                      :key="`${getRecommendationTitle(item)}-${ridx}`"
-                      class="semantic-recommend-item"
-                    >
-                      <el-image
-                        v-if="getSearchPreview(item)"
-                        :src="getSearchPreview(item)"
-                        fit="cover"
-                        class="semantic-recommend-preview"
-                        :preview-src-list="[getSearchPreview(item)]"
-                      />
-                      <div v-else class="semantic-recommend-fallback">相关结果</div>
-                      <div class="semantic-recommend-main">
-                        <div class="semantic-recommend-title">{{ getRecommendationTitle(item) }}</div>
-                        <div class="semantic-recommend-desc">{{ formatSearchExtra(item) }}</div>
-                      </div>
-                      <el-tag size="small" type="info">{{ formatSearchScore(item) }}</el-tag>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- 结果表格卡片 -->
                 <div v-if="msg.data && msg.data.row_count > 0" class="result-card">
                   <div class="card-header">
                     <div class="header-left">
