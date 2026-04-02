@@ -516,6 +516,11 @@ const summarizeTurnAnswer = (data?: QueryResponse | null): string => {
   return (data.error || '').trim().slice(0, 220)
 }
 
+const getIntentDisplayText = (data?: QueryResponse | null) => {
+  if (!data?.intent) return '未识别'
+  return data.intent_text || getIntentLabel(data.intent)
+}
+
 const buildShortSessionContext = (datasetId?: number, currentTableNames: string[] = []): QuerySessionContext | undefined => {
   const recentTurns: QueryContextTurn[] = []
 
@@ -2148,6 +2153,18 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
 
               <!-- 助手消息 - 多个独立卡片 -->
               <div v-else class="assistant-cards">
+                <div v-if="msg.data && msg.data.intent" class="agent-meta-card">
+                  <div class="agent-meta-main">
+                    <el-tag size="small" :type="msg.data.status === 'success' ? 'success' : 'danger'">
+                      {{ msg.data.status === 'success' ? '查询成功' : '查询失败' }}
+                    </el-tag>
+                    <span class="agent-meta-text">意图：{{ getIntentDisplayText(msg.data) }}</span>
+                    <span class="agent-meta-text">结果：{{ getSuccessSummaryText(msg.data) }}</span>
+                    <span v-if="msg.data.plan_source" class="agent-meta-text">路径：{{ getPlanSourceLabel(msg.data.plan_source) }}</span>
+                    <span v-if="typeof msg.data.confidence === 'number'" class="agent-meta-text">置信度：{{ formatConfidence(msg.data.confidence) }}</span>
+                  </div>
+                </div>
+
                 <!-- 思考过程卡片 -->
                 <div v-if="msg.thinkingLines && msg.thinkingLines.length > 0" class="thinking-card">
                   <div class="card-header">
@@ -2231,28 +2248,6 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                 </div>
 
                 <!-- 意图识别卡片（非闲聊） -->
-                <div v-if="msg.data && msg.data.intent" class="intent-card">
-                  <div class="intent-content">
-                    <span class="icon-emoji">{{ msg.data.intent === 'chat' ? '💬' : msg.data.intent === 'search' ? '🔍' : msg.data.intent === 'count' ? '📊' : '💡' }}</span>
-                    <span class="intent-text">已识别为意图: <strong>{{ msg.data.intent_text || (msg.data.intent === 'chat' ? '闲聊' : msg.data.intent === 'search' ? '向量检索' : msg.data.intent === 'count' ? '统计查询' : msg.data.intent === 'list' ? '列表查询' : msg.data.intent) }}</strong></span>
-                  </div>
-                </div>
-
-                <!-- 成功状态卡片 -->
-                <div v-if="msg.data && msg.data.status === 'success'" class="success-card">
-                  <div class="success-content">
-                    <span class="icon-emoji success-icon">✅</span>
-                    <span class="success-title">查询成功</span>
-                    <span class="result-count">{{ getSuccessSummaryText(msg.data) }}</span>
-                    <el-tag v-if="msg.data.plan_source" size="small" type="info">
-                      {{ getPlanSourceLabel(msg.data.plan_source) }}
-                    </el-tag>
-                    <el-tag v-if="typeof msg.data.confidence === 'number'" size="small" type="success">
-                      置信度 {{ formatConfidence(msg.data.confidence) }}
-                    </el-tag>
-                  </div>
-                </div>
-
                 <el-alert
                   v-if="msg.data && msg.data.warnings && msg.data.warnings.length > 0"
                   :title="msg.data.warnings[0]"
@@ -3132,6 +3127,27 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
 }
 
 // 思考过程卡片
+.agent-meta-card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 10px 14px;
+  border: 1px solid #e5ebf3;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+
+  .agent-meta-main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .agent-meta-text {
+    color: #475569;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
 .thinking-card {
   background: white;
   border-radius: 12px;
