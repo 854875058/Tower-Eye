@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.api.queries import _build_query_response_data
 from app.api.queries import _infer_chart_suggestion
 from app.services import nl2sql as nl2sql_module
+from app.orchestrator_graph import _build_zero_result_guidance
 
 
 def test_count_sql_parameter_placeholders_ignores_literals_and_comments():
@@ -140,3 +141,9 @@ def test_build_tower_rule_plan_uses_dataset_relative_time_for_recent_days():
     assert plan is not None
     assert "MAX(CAST(alarm_time AS TIMESTAMP)) - INTERVAL '30 days'" in plan.sql
     assert plan.filters.get("chart_suggestion") == "bar"
+
+
+def test_zero_result_guidance_is_conversational_for_relative_time_questions():
+    message = _build_zero_result_guidance("查询最近30天各区县告警数量分布", "count")
+    assert "当前时间范围内没有查询到符合条件的数据" in message
+    assert "放宽时间范围" in message

@@ -609,6 +609,26 @@ def fix_sql_node(state: AgentState) -> AgentState:
 
 # ==================== 格式化答案 ====================
 
+def _build_zero_result_guidance(question: str, intent: str) -> str:
+    text = (question or "").strip()
+    if any(token in text for token in ["最近", "近", "过去", "趋势", "变化", "走势"]):
+        return (
+            "当前时间范围内没有查询到符合条件的数据。\n"
+            "你可以尝试：\n"
+            "1. 放宽时间范围，例如最近90天\n"
+            "2. 去掉时间限制先看整体分布\n"
+            "3. 改查最近有数据的时间窗口，或更换地区、设备、算法条件"
+        )
+    if intent == "search":
+        return (
+            "当前没有找到匹配的图片、视频或文本结果。\n"
+            "你可以尝试换一个描述关键词，或减少筛选条件后再试。"
+        )
+    return (
+        "当前条件下没有查询到符合条件的数据。\n"
+        "你可以尝试放宽筛选条件，或换一个地区、设备、算法后继续查询。"
+    )
+
 def format_answer_node(state: AgentState) -> AgentState:
     """格式化答案节点"""
     run_id = state.get("_run_id", "default")
@@ -677,7 +697,7 @@ def format_answer_node(state: AgentState) -> AgentState:
             state["final_answer"] = {
                 "type": "search",
                 "value": [],
-                "message": "未找到相关内容",
+                "message": _build_zero_result_guidance(question, "search"),
             }
 
     elif state["intent"] == "count":
@@ -685,10 +705,14 @@ def format_answer_node(state: AgentState) -> AgentState:
             first_row = state["sql_result"][0]
             if len(state["sql_result"]) == 1 and len(first_row) == 1:
                 count = list(first_row.values())[0]
+                try:
+                    numeric_count = float(count)
+                except Exception:
+                    numeric_count = None
                 state["final_answer"] = {
                     "type": "count",
                     "value": count,
-                    "message": f"查询结果：共 {count} 条记录"
+                    "message": _build_zero_result_guidance(question, "count") if numeric_count == 0 else f"查询结果：共 {count} 条记录"
                 }
             else:
                 state["final_answer"] = {
@@ -700,14 +724,14 @@ def format_answer_node(state: AgentState) -> AgentState:
             state["final_answer"] = {
                 "type": "count",
                 "value": 0,
-                "message": "查询结果：共 0 条记录"
+                "message": _build_zero_result_guidance(question, "count"),
             }
 
     else:  # list
         state["final_answer"] = {
             "type": "list",
             "value": state["sql_result"],
-            "message": f"查询结果：返回 {len(state['sql_result'])} 条记录",
+            "message": _build_zero_result_guidance(question, "list") if not state["sql_result"] else f"查询结果：返回 {len(state['sql_result'])} 条记录",
             "semantic_scores": state.get("semantic_scores") or {},
             "vector_only_results": state.get("vector_only_results") or [],
         }
