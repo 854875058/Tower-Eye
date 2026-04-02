@@ -1102,12 +1102,76 @@ const getRelationTagType = (relationType?: string) => {
   return 'info'
 }
 
+const buildRelationDrivenSuggestions = (data?: QueryResponse | null) => {
+  const insights = getRelationInsights(data)
+  if (!data || insights.length === 0) return []
+
+  const top = insights[0]
+  const value = String(top?.shared_value || '').trim()
+  if (!value) return []
+
+  if (top.relation_type === 'detected_on') {
+    return [
+      `查询${value}最近20条告警明细`,
+      `统计${value}近期告警数量趋势`,
+      `分析${value}触发的主要告警类型`,
+    ]
+  }
+
+  if (top.relation_type === 'located_in') {
+    return [
+      `查询${value}最近20条告警明细`,
+      `统计${value}各设备告警数量分布`,
+      `分析${value}近期告警趋势变化`,
+    ]
+  }
+
+  if (top.relation_type === 'uses_algorithm') {
+    return [
+      `查询算法“${value}”最近20条告警明细`,
+      `统计算法“${value}”在各区县的告警分布`,
+      `分析算法“${value}”关联的重点设备`,
+    ]
+  }
+
+  if (top.relation_type === 'same_channel') {
+    return [
+      `查询通道“${value}”最近20条告警明细`,
+      `分析通道“${value}”的连续告警情况`,
+      `统计通道“${value}”触发的主要告警类型`,
+    ]
+  }
+
+  if (top.relation_type === 'has_video') {
+    return [
+      `查询与视频源“${value}”相关的告警明细`,
+      `查找与视频源“${value}”相关的图片和视频片段`,
+      `分析视频源“${value}”关联的设备与地区`,
+    ]
+  }
+
+  if (top.relation_type === 'same_warning_order' || top.relation_type === 'same_alarm_code') {
+    return [
+      `查询与“${value}”相关的全部告警记录`,
+      `分析“${value}”关联的设备和地区`,
+      `查看“${value}”对应的图片和视频证据`,
+    ]
+  }
+
+  return []
+}
+
 const getRecommendationTitle = (row: Record<string, any>) => {
   return row.file_name || row.file_path || row.asset_id || row.image_id || row.video_id || '相关结果'
 }
 
 const buildFollowUpSuggestions = (data?: QueryResponse | null) => {
   if (!data || data.status !== 'success') return []
+
+  const relationDriven = buildRelationDrivenSuggestions(data)
+  if (relationDriven.length > 0) {
+    return relationDriven
+  }
 
   if (data.intent === 'search') {
     return [
