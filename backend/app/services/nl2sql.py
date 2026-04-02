@@ -427,13 +427,16 @@ def _extract_tower_area(question: str) -> Tuple[Optional[str], Optional[str]]:
     cleaned = re.sub(r"\d+\s*[条个件次项篇张天]", "", question)
     town_match = re.search(r"(?:查询|查看|统计|搜索|分析|查找|找)?([\u4e00-\u9fa5]{2,8}(?:街道|镇|乡))", cleaned)
     county_match = re.search(r"(?:查询|查看|统计|搜索|分析|查找|找)?([\u4e00-\u9fa5]{2,8}(?:区|县))", cleaned)
+
+    invalid_tokens = ("最近", "告警", "数量", "分布", "趋势", "变化", "排名", "统计", "分析", "查询", "查看", "搜索")
+
     if town_match:
         candidate = town_match.group(1)
-        if candidate not in {"各街道", "各乡镇", "所有街道"}:
+        if candidate not in {"各街道", "各乡镇", "所有街道"} and not any(token in candidate for token in invalid_tokens):
             town_name = candidate
     if county_match:
         candidate = county_match.group(1)
-        if candidate not in {"各区", "各县", "区县", "各区县", "各地区", "所有区县"}:
+        if candidate not in {"各区", "各县", "区县", "各区县", "各地区", "所有区县"} and not any(token in candidate for token in invalid_tokens):
             county_name = candidate
     return town_name, county_name
 
@@ -445,7 +448,7 @@ def _extract_tower_event_type(question: str) -> Optional[str]:
     return None
 
 
-def _build_tower_where_clause(question: str) -> Tuple[List[str], List[Any]]:
+def _build_tower_where_clause(question: str, table_name: Optional[str] = None) -> Tuple[List[str], List[Any]]:
     where: List[str] = []
     params: List[Any] = []
 
@@ -464,12 +467,15 @@ def _build_tower_where_clause(question: str) -> Tuple[List[str], List[Any]]:
 
     recent_days = _extract_recent_days(question)
     if recent_days:
-        end = datetime.now()
-        start = end - timedelta(days=recent_days)
-        where.append("alarm_time >= ?")
-        params.append(start.strftime("%Y-%m-%d %H:%M:%S"))
-        where.append("alarm_time <= ?")
-        params.append(end.strftime("%Y-%m-%d %H:%M:%S"))
+        scoped_table = table_name or "events"
+        where.append(
+            f"CAST(alarm_time AS TIMESTAMP) >= "
+            f"(SELECT MAX(CAST(alarm_time AS TIMESTAMP)) - INTERVAL '{recent_days} days' FROM {scoped_table})"
+        )
+        where.append(
+            f"CAST(alarm_time AS TIMESTAMP) <= "
+            f"(SELECT MAX(CAST(alarm_time AS TIMESTAMP)) FROM {scoped_table})"
+        )
 
     return where, params
 
@@ -488,7 +494,7 @@ def _try_build_tower_rule_plan(
         "agent_mode": "tower_rule",
         "chart_suggestion": "table",
     }
-    where, params = _build_tower_where_clause(question)
+    where, params = _build_tower_where_clause(question, table_name=table_name)
     where_sql = f" WHERE {' AND '.join(where)}" if where else ""
 
     lower_question = question.lower()

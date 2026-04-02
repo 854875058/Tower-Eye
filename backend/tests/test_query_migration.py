@@ -121,3 +121,22 @@ def test_build_tower_rule_plan_supports_trend_queries_without_llm():
     assert plan.intent == "count"
     assert "substr(alarm_time, 1, 10)" in plan.sql
     assert plan.filters.get("chart_suggestion") == "line"
+
+
+def test_extract_tower_area_does_not_treat_distribution_keywords_as_specific_area():
+    town_name, county_name = nl2sql_module._extract_tower_area("统计最近30天各区县告警数量分布")
+    assert town_name is None
+    assert county_name is None
+
+
+def test_build_tower_rule_plan_uses_dataset_relative_time_for_recent_days():
+    plan = nl2sql_module._try_build_tower_rule_plan(
+        question="统计最近30天各区县告警数量分布",
+        parsed_intent="count",
+        candidate_tables=["ds1_tower_warning_events_cleaned"],
+        default_table="ds1_tower_warning_events_cleaned",
+    )
+
+    assert plan is not None
+    assert "MAX(CAST(alarm_time AS TIMESTAMP)) - INTERVAL '30 days'" in plan.sql
+    assert plan.filters.get("chart_suggestion") == "bar"
