@@ -276,3 +276,61 @@ npm run dev -- --host 0.0.0.0 --port 50803
 - 部分生产级部署、统一权限、全量模型治理和大规模数据接入能力仍需继续增强
 
 如果你当前目标是快速搭建一套“多模态检索 + 智能分析 + 图谱血缘 + 数据工作台”的演示型平台，这个仓库已经可以直接作为基础工程使用。
+
+## 13. Cross-Platform Quick Start
+
+推荐直接使用项目根目录的跨平台启动器：
+
+```bash
+python start.py
+```
+
+Linux/macOS 也可以使用：
+
+```bash
+bash start.sh
+```
+
+Windows PowerShell 也可以使用：
+
+```powershell
+.\start.ps1
+```
+
+启动器会自动：
+
+- 检查 Python、Node.js、npm 是否可用
+- 按需安装 `backend/requirements.txt` 和 `frontend/node_modules`
+- 后台启动后端 `50805`
+- 后台启动前端 `50803`
+- 输出日志到 `logs/`
+- 写入 PID 文件到 `logs/backend.pid` 和 `logs/frontend.pid`
+
+访问地址：
+
+- 前端：`http://127.0.0.1:50803`
+- 后端健康检查：`http://127.0.0.1:50805/health`
+
+## 14. Temp Directories
+
+项目根目录经常出现的临时目录，主要来源已经排查清楚，核心不是业务运行链路，而是测试和临时运行目录：
+
+- `pytest-cache-files-*`
+- `pytest_tmp/`
+- `.tmp/pytest/`
+- `backend/data/_tmp_runtime/`
+- `backend/data/_tower_import_test_runtime/`
+- `backend/tests/_tmp_runtime/`
+
+原因说明：
+
+- `pytest-cache-files-*` 和 `pytest_tmp/` 主要来自 `pytest` 的临时目录
+- `backend/data/_tower_import_test_runtime/` 由 [test_tower_cleaned_import.py](/E:/AI数据集项目/data-chat-bot/backend/tests/test_tower_cleaned_import.py) 创建
+- `backend/data/_tmp_runtime/`、`backend/tests/_tmp_runtime/` 也是测试或导入链路的临时运行目录
+
+本次已经做了两项收敛：
+
+- 新增 `pytest.ini`，将 pytest 临时目录固定到 `.tmp/pytest`
+- 在 `.gitignore` 中补充 `.tmp/`
+
+这样后续再跑测试时，临时文件会更集中，不会再经常把 `pytest-cache-files-*` 直接散落在项目根目录。

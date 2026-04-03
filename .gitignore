@@ -74,6 +74,7 @@ data/warning_file/
 # Local temp / export artifacts
 ~$*
 data-chat-bot.zip
+.tmp/
 .antiword/
 antiword-utf8.txt
 pytest_tmp/
