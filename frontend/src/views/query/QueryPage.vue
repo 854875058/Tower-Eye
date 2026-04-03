@@ -263,84 +263,6 @@ const isLikelyRankingView = (data?: QueryResponse | null): boolean => {
   return numericKeyCount >= 1
 }
 
-const getRankingMeta = (data?: QueryResponse | null) => {
-  if (!data) return null
-  const rows = data.result_rows || []
-  if (!rows.length) return null
-
-  const sample = rows.slice(0, 10)
-  const keys = Object.keys(sample[0] || {})
-  if (!keys.length) return null
-
-  const numericKeys = keys.filter((key) => {
-    let valid = 0
-    for (const row of sample) {
-      if (toNumber((row as any)[key]) !== null) valid += 1
-    }
-    return valid >= Math.ceil(sample.length * 0.6)
-  })
-  if (!numericKeys.length) return null
-
-  const schemaNames = (data.result_schema || []).map((s) => s.name)
-  const preferredMetric = schemaNames.find((name) => {
-    const lower = name.toLowerCase()
-    return (
-      lower.includes('数') ||
-      lower.includes('count') ||
-      lower.includes('收入') ||
-      lower.includes('金额') ||
-      lower.includes('fee') ||
-      lower.includes('值')
-    ) && numericKeys.includes(name)
-  })
-  const metricKey = preferredMetric || numericKeys[0]
-
-  const textKeys = keys.filter((k) => !numericKeys.includes(k))
-  const preferredDimension = schemaNames.find((name) => {
-    const lower = name.toLowerCase()
-    return (
-      lower.includes('城市') ||
-      lower.includes('地区') ||
-      lower.includes('渠道') ||
-      lower.includes('名称') ||
-      lower.includes('name')
-    ) && textKeys.includes(name)
-  })
-  const dimensionKey = preferredDimension || textKeys[0] || keys[0]
-
-  return {
-    dimensionKey,
-    metricKey,
-    dimensionLabel: dimensionKey || '维度',
-    metricLabel: metricKey || '指标值',
-  }
-}
-
-const getRankingRows = (data?: QueryResponse | null) => {
-  const rows = data?.result_rows || []
-  const meta = getRankingMeta(data)
-  if (!meta) return []
-
-  const normalized = rows
-    .map((row, index) => {
-      const value = toNumber((row as any)[meta.metricKey]) ?? 0
-      return {
-        rank: index + 1,
-        name: String((row as any)[meta.dimensionKey] ?? '-'),
-        value,
-      }
-    })
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 10)
-    .map((row, index) => ({ ...row, rank: index + 1 }))
-
-  const maxValue = normalized[0]?.value || 0
-  return normalized.map((row) => ({
-    ...row,
-    ratio: maxValue > 0 ? Math.max(0.08, row.value / maxValue) : 0.08,
-  }))
-}
-
 const formatMetricValue = (value: number) => {
   return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value)
 }
@@ -733,6 +655,20 @@ const getChartSuggestionType = (data?: QueryResponse | null): 'bar' | 'line' | '
   const suggestion = String(data?.chart_suggestion || '').toLowerCase()
   if (suggestion.includes('pie')) return 'pie'
   if (suggestion.includes('line')) return 'line'
+  const dimensionKey = getChartFieldMeta(data)?.dimensionKey || ''
+  const lower = String(dimensionKey).toLowerCase()
+  if (
+    lower.includes('time') ||
+    lower.includes('date') ||
+    lower.includes('day') ||
+    lower.includes('month') ||
+    lower.includes('week') ||
+    lower.includes('hour') ||
+    dimensionKey.includes('时间') ||
+    dimensionKey.includes('日期')
+  ) {
+    return 'line'
+  }
   return 'bar'
 }
 
@@ -766,7 +702,7 @@ const buildChartOption = (data?: QueryResponse | null): echarts.EChartsOption | 
   if (chartType === 'pie') {
     return {
       tooltip: { trigger: 'item' },
-      legend: { bottom: 0, left: 'center' },
+      legend: { bottom: 0, left: 'center', textStyle: { color: '#475569' } },
       series: [
         {
           name: fieldMeta.metricLabel,
@@ -775,29 +711,112 @@ const buildChartOption = (data?: QueryResponse | null): echarts.EChartsOption | 
           data: chartData,
           avoidLabelOverlap: true,
           itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
+          label: {
+            color: '#334155',
+            formatter: '{b}\n{d}%',
+          },
         },
       ],
+      color: ['#2f66f6', '#4f8cff', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6'],
     }
   }
 
   const xData = chartData.map((item) => item.name)
   const yData = chartData.map((item) => item.value)
 
+  const baseAxisLabel = {
+    color: '#64748b',
+    fontSize: 11,
+  }
+
+  const maxVal = Math.max(...yData, 0)
+  const chartColor = '#2f66f6'
+
   return {
-    tooltip: { trigger: 'axis' },
-    xAxis: { type: 'category', data: xData, axisLabel: { interval: 0 } },
-    yAxis: { type: 'value' },
+    animationDuration: 500,
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(15, 23, 42, 0.92)',
+      borderWidth: 0,
+      textStyle: { color: '#f8fafc' },
+      axisPointer: {
+        type: chartType === 'line' ? 'line' : 'shadow',
+      },
+    },
+    grid: { left: 56, right: 28, top: 32, bottom: 56 },
+    xAxis: {
+      type: 'category',
+      data: xData,
+      axisLabel: {
+        ...baseAxisLabel,
+        interval: 0,
+        rotate: xData.length > 6 ? 24 : 0,
+      },
+      axisLine: {
+        lineStyle: { color: '#d7deea' },
+      },
+      axisTick: { show: false },
+    },
+    yAxis: {
+      type: 'value',
+      name: fieldMeta.metricLabel,
+      nameTextStyle: {
+        color: '#64748b',
+        fontSize: 11,
+        padding: [0, 0, 0, 8],
+      },
+      axisLabel: baseAxisLabel,
+      splitLine: {
+        lineStyle: {
+          color: '#e8edf5',
+          type: 'dashed',
+        },
+      },
+    },
     series: [
       {
         type: chartType,
         data: yData,
         smooth: chartType === 'line',
+        symbol: chartType === 'line' ? 'circle' : 'none',
+        symbolSize: chartType === 'line' ? 8 : 0,
         itemStyle: {
-          color: '#2f66f6',
+          color: chartColor,
+          borderRadius: chartType === 'bar' ? [8, 8, 0, 0] : 0,
+        },
+        lineStyle: chartType === 'line' ? { width: 3, color: chartColor } : undefined,
+        areaStyle: chartType === 'line'
+          ? {
+              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                { offset: 0, color: 'rgba(47, 102, 246, 0.28)' },
+                { offset: 1, color: 'rgba(47, 102, 246, 0.04)' },
+              ]),
+            }
+          : undefined,
+        label: chartType === 'bar'
+          ? {
+              show: true,
+              position: 'top',
+              color: '#334155',
+              fontSize: 11,
+            }
+          : undefined,
+        barMaxWidth: chartType === 'bar' ? 36 : undefined,
+        emphasis: {
+          focus: 'series',
         },
       },
     ],
-    grid: { left: 40, right: 24, top: 20, bottom: 40 },
+    visualMap: chartType === 'bar' && maxVal > 0
+      ? {
+          show: false,
+          min: 0,
+          max: maxVal,
+          inRange: {
+            color: ['#8fb8ff', chartColor],
+          },
+        }
+      : undefined,
   }
 }
 
@@ -810,7 +829,7 @@ const disposeMessageChart = (idx: number) => {
 }
 
 const renderMessageChart = (idx: number, data?: QueryResponse | null) => {
-  if (!data || !canRenderChart(data) || isLikelyRankingView(data)) return
+  if (!data || !canRenderChart(data)) return
   const option = buildChartOption(data)
   if (!option) return
 
@@ -2355,34 +2374,7 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                       </el-table>
                     </template>
                     <template v-else-if="getResultViewMode(idx) === 'chart'">
-                      <div v-if="isLikelyRankingView(msg.data)" class="ranking-board">
-                        <div class="ranking-header-row">
-                          <span class="ranking-col-rank">排序</span>
-                          <span class="ranking-col-name">{{ getRankingMeta(msg.data)?.dimensionLabel || '名称' }}</span>
-                          <span class="ranking-col-value">{{ getRankingMeta(msg.data)?.metricLabel || '数值' }}</span>
-                        </div>
-                        <div class="ranking-list">
-                          <div
-                            v-for="item in getRankingRows(msg.data)"
-                            :key="`${item.name}-${item.rank}`"
-                            class="ranking-item"
-                          >
-                            <div class="ranking-rank">
-                              <span v-if="item.rank <= 3" :class="['rank-badge', `rank-badge-${item.rank}`]">{{ item.rank }}</span>
-                              <span v-else class="rank-num">{{ item.rank }}</span>
-                            </div>
-                            <div class="ranking-name" :title="item.name">{{ item.name }}</div>
-                            <div class="ranking-bar-wrap">
-                              <div class="ranking-bar-track">
-                                <div class="ranking-bar-fill" :style="{ width: `${(item.ratio * 100).toFixed(1)}%` }" />
-                              </div>
-                            </div>
-                            <div class="ranking-value">{{ formatMetricValue(item.value) }}</div>
-                          </div>
-                        </div>
-                      </div>
                       <div
-                        v-else
                         :id="getChartDomId(idx)"
                         class="result-chart"
                       />
