@@ -72,7 +72,7 @@ if ! "$PYTHON_BIN" -m pip --version > /dev/null 2>&1; then
 fi
 
 # 按需安装后端依赖
-if ! "$PYTHON_BIN" -c "import fastapi, uvicorn, pydantic_settings" > /dev/null 2>&1; then
+if ! "$PYTHON_BIN" -c "import fastapi, uvicorn, pydantic_settings, sentence_transformers, lancedb" > /dev/null 2>&1; then
     echo "检测到后端依赖缺失，正在安装..."
     "$PYTHON_BIN" -m pip install -r "$BACKEND_DIR/requirements.txt" || {
         echo "后端依赖安装失败，请手动执行: cd \"$BACKEND_DIR\" && $PYTHON_BIN -m pip install -r requirements.txt"

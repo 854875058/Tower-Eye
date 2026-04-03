@@ -1306,6 +1306,20 @@ const applyFollowUpSuggestion = (suggestion: string) => {
   question.value = suggestion
 }
 
+const retryFailedQuery = async (data?: QueryResponse | null) => {
+  const retryQuestion = String(data?.question || '').trim()
+  if (!retryQuestion) {
+    ElMessage.warning('当前没有可重试的问题')
+    return
+  }
+  if (loading.value) {
+    ElMessage.warning('当前仍有查询在执行，请稍后再试')
+    return
+  }
+  question.value = ''
+  await executeStreamQuery(retryQuestion)
+}
+
 const clearAnswerStreamTimer = (msgIndex: number) => {
   const timer = answerStreamTimers.get(msgIndex)
   if (timer) {
@@ -2572,6 +2586,17 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                     <span class="error-title">查询失败</span>
                   </div>
                   <div v-if="msg.data.error" class="error-detail">{{ msg.data.error }}</div>
+                  <div class="error-actions">
+                    <el-button
+                      type="primary"
+                      size="small"
+                      plain
+                      :disabled="loading"
+                      @click="retryFailedQuery(msg.data)"
+                    >
+                      重试一次
+                    </el-button>
+                  </div>
                   <div
                     v-if="msg.data.clarification_needed && msg.data.clarification_options && msg.data.clarification_options.length > 0"
                     class="clarification-block"
@@ -4347,6 +4372,13 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
     margin-top: 8px;
     color: #666;
     font-size: 14px;
+  }
+
+  .error-actions {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .clarification-block {
