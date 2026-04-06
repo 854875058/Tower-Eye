@@ -85,6 +85,7 @@ type ResultViewMode = 'detail' | 'chart'
 const resultViewModeMap = ref<Record<number, ResultViewMode>>({})
 const messageChartInstances = new Map<number, echarts.ECharts>()
 const answerStreamTimers = new Map<number, number>()
+const TERMINAL_DIVIDER = '='.repeat(60)
 
 const intentLabelMap: Record<string, string> = {
   chat: '普通问答',
@@ -98,20 +99,20 @@ const intentLabelMap: Record<string, string> = {
 }
 
 const stepLabelMap: Record<string, string> = {
-  parse_question: '问题理解',
-  validate_sql: '查询检查',
-  execute_sql: '数据查询',
-  format_answer: '结果整理',
-  semantic_enhance: '结果优化',
-  vector_search: '内容检索',
+  parse_question: '理解问题',
+  validate_sql: '校验查询',
+  execute_sql: '执行查询',
+  format_answer: '整理结果',
+  semantic_enhance: '补充结果',
+  vector_search: '检索内容',
   fix_sql: '自动修正',
   intent_node: '意图识别',
   semantic_node: '语义理解',
-  dispatcher_node: '意图分流',
-  sql_gen_node: '生成查询语句',
-  sql_validate_node: '查询检查',
+  dispatcher_node: '选择路径',
+  sql_gen_node: '生成语句',
+  sql_validate_node: '校验查询',
   sql_execute_node: '执行查询',
-  format_node: '结果整理',
+  format_node: '整理结果',
 }
 
 const SHORT_SESSION_CONTEXT_LIMIT = 3
@@ -127,22 +128,43 @@ const getFriendlyStepStartText = (step?: string) => {
   if (!step) return `${stepText}中`
 
   const startTextMap: Record<string, string> = {
-    parse_question: '正在解析问题并匹配可用数据表',
-    validate_sql: '正在校验查询条件与执行安全性',
-    execute_sql: '正在执行查询并获取结果',
-    format_answer: '正在整理答案与结果摘要',
-    semantic_enhance: '正在补充语义匹配与相关推荐',
-    vector_search: '正在检索相关图片、视频和文本证据',
-    fix_sql: '检测到异常，正在重新规划查询语句',
-    intent_node: '正在识别你的查询类型',
-    semantic_node: '正在理解问题语义与检索意图',
-    dispatcher_node: '正在选择合适的处理路径',
-    sql_gen_node: '正在生成可执行的查询语句',
-    sql_validate_node: '正在校验查询语句',
+    parse_question: '正在理解你的问题',
+    validate_sql: '正在检查查询条件',
+    execute_sql: '正在查询数据',
+    format_answer: '正在整理结果',
+    semantic_enhance: '正在补充相关结果',
+    vector_search: '正在检索相关内容',
+    fix_sql: '检测到异常，正在调整查询方案',
+    intent_node: '正在识别问题类型',
+    semantic_node: '正在理解问题语义',
+    dispatcher_node: '正在选择处理路径',
+    sql_gen_node: '正在生成查询语句',
+    sql_validate_node: '正在检查查询语句',
     sql_execute_node: '正在执行查询语句',
-    format_node: '正在整理答案与展示结果',
+    format_node: '正在整理展示结果',
   }
   return `[${stepText}] ${startTextMap[step] || '正在处理'}`
+}
+
+const normalizeThinkingLine = (line?: string) => {
+  return String(line || '').replace(/\s+/g, ' ').trim()
+}
+
+const dedupeThinkingLines = (lines: string[]) => {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const rawLine of lines) {
+    const line = normalizeThinkingLine(rawLine)
+    if (!line) continue
+    const key = line
+      .replace(/耗时[\d.]+(?:ms|s)/g, '耗时')
+      .replace(/返回 \d+ 条/g, '返回 N 条')
+      .replace(/共返回 \d+ 条/g, '共返回 N 条')
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(line)
+  }
+  return result
 }
 
 const getFriendlyStepEndLines = (step?: string, outputs?: any): string[] => {
@@ -154,38 +176,38 @@ const getFriendlyStepEndLines = (step?: string, outputs?: any): string[] => {
 
   if (step === 'parse_question' || step === 'intent_node') {
     if (outputs?.intent) {
-      lines.push(`[${stepText}] 已识别查询类型：${getIntentLabel(outputs.intent)}`)
+      lines.push(`[${stepText}] 已识别为${getIntentLabel(outputs.intent)}`)
     } else {
-      lines.push(`[${stepText}] 已完成`)
+      lines.push(`[${stepText}] 已完成问题理解`)
     }
     if (outputs?.sql) {
-      lines.push('[查询准备] 已生成可执行查询条件')
+      lines.push('[生成方案] 已生成查询条件')
     }
     const planSource = outputs?.filters?.plan_source
     if (planSource === 'sql_cache') {
-      lines.push('[查询规划] 已命中 SQL 缓存，复用历史查询模板')
+      lines.push('[生成方案] 已命中 SQL 缓存')
     } else if (planSource === 'verified_query') {
-      lines.push('[查询规划] 已命中可信模板，直接复用验证过的查询方案')
+      lines.push('[生成方案] 已命中可信模板')
     } else if (planSource === 'llm') {
-      lines.push('[查询规划] 已通过模型语义判定生成查询方案')
+      lines.push('[生成方案] 已通过模型生成查询方案')
     } else if (planSource === 'rule') {
-      lines.push('[查询规划] 已通过规则策略生成查询方案')
+      lines.push('[生成方案] 已通过规则生成查询方案')
     }
     const selectedTable = outputs?.filters?.selected_table
     if (selectedTable) {
-      lines.push(`[数据范围] 当前使用表：${selectedTable}`)
+      lines.push(`[数据范围] 使用数据表：${selectedTable}`)
     }
     if (outputs?.filters?.context_applied) {
-      lines.push('[会话上下文] 已结合最近一轮查询理解当前追问')
+      lines.push('[会话上下文] 已结合最近一轮结果理解当前问题')
     }
     return lines
   }
 
   if (step === 'validate_sql' || step === 'sql_validate_node') {
     if (errorMessage) {
-      lines.push('[查询检查] 校验未通过，系统将尝试自动修正')
+      lines.push('[校验查询] 查询检查未通过，系统将尝试自动修正')
     } else {
-      lines.push('[查询检查] 校验通过，可进入执行阶段')
+      lines.push('[校验查询] 查询检查通过')
     }
     return lines
   }
@@ -194,11 +216,11 @@ const getFriendlyStepEndLines = (step?: string, outputs?: any): string[] => {
     const resultRows = outputs?.result?.rows || outputs?.rows || outputs?.sql_result || []
     const rowCount = outputs?.row_count || (Array.isArray(resultRows) ? resultRows.length : 0)
     if (errorMessage) {
-      lines.push('[数据查询] 当前步骤执行异常，系统将继续尝试修复')
+      lines.push('[执行查询] 当前步骤执行异常，系统将继续尝试修复')
     } else {
-      lines.push(`[数据查询] 已完成，共返回 ${rowCount} 条结果`)
+      lines.push(`[执行查询] 已返回 ${rowCount} 条结果`)
       if (outputs?.chart_suggestion) {
-        lines.push(`[图表建议] 推荐使用 ${String(outputs.chart_suggestion).toUpperCase()} 展示`)
+        lines.push(`[结果展示] 推荐使用 ${String(outputs.chart_suggestion).toUpperCase()} 展示`)
       }
     }
     return lines
@@ -207,7 +229,7 @@ const getFriendlyStepEndLines = (step?: string, outputs?: any): string[] => {
   if (step === 'semantic_enhance') {
     const matched = outputs?.semantic_scores ? Object.keys(outputs.semantic_scores).length : 0
     const recommended = Array.isArray(outputs?.vector_only_results) ? outputs.vector_only_results.length : 0
-    lines.push(`[结果优化] 已完成，匹配 ${matched} 条，补充 ${recommended} 条`)
+    lines.push(`[补充结果] 已完成，匹配 ${matched} 条，补充 ${recommended} 条`)
     return lines
   }
 
@@ -347,11 +369,14 @@ const getPrimaryThinkingLines = (msg?: Message | null): string[] => {
     ? msg!.thinkingLines!.map((line) => String(line || '').trim()).filter(Boolean)
     : []
   const ignored = new Set([
+    '已接收问题，正在分析查询意图',
+    '已接收上传内容，正在分析检索目标',
+    '正在处理中...',
     '本轮处理完成，可展开查看详情',
     '处理完成，结果已返回',
     '已完成',
   ])
-  return lines.filter((line) => !ignored.has(line))
+  return dedupeThinkingLines(lines.filter((line) => !ignored.has(line)))
 }
 
 const getProgressHeadline = (msg?: Message | null) => {
@@ -375,7 +400,18 @@ const getExecutionTimelineEntries = (msg?: Message | null) => {
     if (output?.selected_table) detailParts.push(`数据表 ${output.selected_table}`)
     if (output?.final_type) detailParts.push(`结果类型 ${String(output.final_type).toUpperCase()}`)
     const detail = detailParts.join(' · ')
-    const message = output?.message ? String(output.message).slice(0, 88) : ''
+    let message = output?.message ? String(output.message).slice(0, 88) : ''
+    if (!message) {
+      if (step === 'parse_question' && output?.intent) {
+        message = `已识别为${getIntentLabel(output.intent)}`
+      } else if ((step === 'validate_sql' || step === 'sql_validate_node') && status !== 'error') {
+        message = '查询检查通过'
+      } else if ((step === 'execute_sql' || step === 'sql_execute_node' || step === 'vector_search') && typeof output?.result_count === 'number') {
+        message = `已返回 ${output.result_count} 条结果`
+      } else if ((step === 'format_answer' || step === 'format_node') && status !== 'error') {
+        message = '已完成结果整理'
+      }
+    }
     const errorText = item?.error ? String(item.error).slice(0, 88) : ''
     return {
       key: `${step}-${index}`,
@@ -389,24 +425,79 @@ const getExecutionTimelineEntries = (msg?: Message | null) => {
   })
 }
 
+const summarizeAgentLog = (entry: Record<string, any>) => {
+  const step = String(entry?.step || '')
+  const outputs = entry?.outputs || {}
+  const error = entry?.error || {}
+  const status = String(entry?.status || entry?.type || '').toLowerCase()
+
+  if (step === 'parse_question' || step === 'intent_node') {
+    const intent = outputs?.intent
+    if (intent) return `已识别为${getIntentLabel(intent)}`
+    return status === 'fail' ? '问题理解失败' : '已完成问题理解'
+  }
+
+  if (step === 'validate_sql' || step === 'sql_validate_node') {
+    return status === 'fail' ? '查询检查未通过，系统将尝试修正' : '查询检查通过'
+  }
+
+  if (step === 'execute_sql' || step === 'sql_execute_node' || step === 'vector_search') {
+    const resultCount = outputs?.result_count
+    if (typeof resultCount === 'number') return `已返回 ${resultCount} 条结果`
+    return status === 'fail' ? '查询执行失败' : '查询已完成'
+  }
+
+  if (step === 'semantic_enhance') {
+    const matched = outputs?.semantic_scores ? Object.keys(outputs.semantic_scores).length : 0
+    const recommended = Array.isArray(outputs?.vector_only_results) ? outputs.vector_only_results.length : 0
+    return `已补充 ${matched} 条匹配，推荐 ${recommended} 条相关结果`
+  }
+
+  if (step === 'fix_sql') {
+    return status === 'fail' ? '查询修正失败' : '已重新生成查询方案'
+  }
+
+  if (step === 'format_answer' || step === 'format_node') {
+    return status === 'fail' ? '结果整理失败' : '已完成结果整理'
+  }
+
+  const summary = String(entry?.summary || '').trim()
+  if (summary) {
+    return summary
+      .replace(/\[第\d+步\]\s*/g, '')
+      .replace(/intent\s*=\s*\w+/gi, '')
+      .replace(/SQL:.*$/gi, '已生成查询语句')
+      .trim()
+  }
+
+  const errorMessage = String(error?.message || '').trim()
+  if (errorMessage) return errorMessage
+  return ''
+}
+
 const getAgentLogEntries = (msg?: Message | null) => {
   const logs = Array.isArray(msg?.data?.agent_steps) ? msg!.data!.agent_steps : []
   return logs.map((item: Record<string, any>, index: number) => {
     const step = String(item?.step || 'system')
     const label = step === 'system' ? '系统' : (stepLabelMap[step] || step)
     const status = String(item?.status || item?.type || 'info').toLowerCase()
-    const inputText = item?.inputs ? JSON.stringify(item.inputs, null, 2) : ''
-    const outputText = item?.outputs ? JSON.stringify(item.outputs, null, 2) : ''
+    const inputPayload = item?.inputs ? JSON.stringify(item.inputs, null, 2) : ''
+    const outputPayload = item?.outputs ? JSON.stringify(item.outputs, null, 2) : ''
+    const inputText = inputPayload.length > 800 ? `${inputPayload.slice(0, 800)}\n...` : inputPayload
+    const outputText = outputPayload
+      .replace(/"sql":\s*"[^"]+"/g, '"sql":"<已隐藏 SQL 明细>"')
+      .replace(/"new_sql":\s*"[^"]+"/g, '"new_sql":"<已隐藏 SQL 明细>"')
+    const normalizedOutputText = outputText.length > 1000 ? `${outputText.slice(0, 1000)}\n...` : outputText
     const errorText = item?.error ? JSON.stringify(item.error, null, 2) : ''
     return {
       key: `${step}-${index}-${item?.type || 'log'}`,
       label,
       type: String(item?.type || 'log'),
       status,
-      summary: String(item?.summary || '').trim(),
+      summary: summarizeAgentLog(item),
       elapsedText: formatDurationMs(item?.node_elapsed_ms || item?.elapsed_ms),
       inputText,
-      outputText,
+      outputText: normalizedOutputText,
       errorText,
     }
   })
@@ -427,7 +518,7 @@ const getProgressTimeline = (msg?: Message | null): string[] => {
     : []
   const replayLines = getExecutionHistoryReplayLines(msg)
   const combined = replayLines.length > 0 ? replayLines : lines
-  return Array.from(new Set(combined))
+  return dedupeThinkingLines(Array.from(new Set(combined)))
 }
 
 const summarizeTurnAnswer = (data?: QueryResponse | null): string => {
@@ -1618,8 +1709,16 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
     }
   }
 
+  const appendThinkingLines = (...lines: string[]) => {
+    lines.forEach((line) => updateThinking(line))
+  }
+
   try {
-    updateThinking(uploadFile ? '已接收上传内容，正在分析检索目标' : '已接收问题，正在分析查询意图')
+    appendThinkingLines(
+      TERMINAL_DIVIDER,
+      `[QueryAgent] 开始处理问题: ${currentQuestion}`,
+      TERMINAL_DIVIDER,
+    )
 
     const requestPayload = {
       question: currentQuestion,
@@ -1664,7 +1763,7 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
           console.log('[Query] 事件:', data.type, data.step || '', data.summary?.substring(0, 30))
 
           if (data.type === 'run_start') {
-            updateThinking(uploadFile ? '正在结合上传内容和当前数据集理解检索需求' : '正在结合当前数据集理解你的查询需求')
+            updateThinking(uploadFile ? '[理解问题] 正在结合上传内容理解检索需求' : '[理解问题] 正在结合当前数据集理解你的查询需求')
           } else if (data.type === 'node_start') {
             const startText = getFriendlyStepStartText(data.step)
             if (startText) {
@@ -1692,7 +1791,12 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
             }
           } else if (data.type === 'error') {
             const errMsg = data.error?.message || data.error || '处理过程中发生异常'
-            updateThinking('当前流程异常终止：' + errMsg)
+            appendThinkingLines(
+              `[错误] ${errMsg}`,
+              TERMINAL_DIVIDER,
+              '[QueryAgent] 处理失败',
+              TERMINAL_DIVIDER,
+            )
             loading.value = false
 
             const lastMsg = messages.value[messages.value.length - 1]
@@ -1827,7 +1931,11 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
               }
             }
           } else if (data.type === 'done') {
-            updateThinking('本轮处理完成，可展开查看详情')
+            appendThinkingLines(
+              TERMINAL_DIVIDER,
+              `[QueryAgent] ${finalData?.status === 'error' ? '处理失败' : '处理完成'}`,
+              TERMINAL_DIVIDER,
+            )
             loading.value = false
             if (currentTraceId) {
               const lastMsg = messages.value[messages.value.length - 1]
@@ -1929,7 +2037,12 @@ const executeStreamQuery = async (userQuestion: string, uploadFile?: File) => {
     }
   } catch (e: any) {
     console.error('Query error:', e)
-    updateThinking('[错误] ' + (e.message || '查询失败') + '\n')
+    appendThinkingLines(
+      `[错误] ${e.message || '查询失败'}`,
+      TERMINAL_DIVIDER,
+      '[QueryAgent] 处理失败',
+      TERMINAL_DIVIDER,
+    )
     ElMessage.error(e.message || '查询失败')
     const lastMsg = messages.value[messages.value.length - 1]
     if (lastMsg) {
@@ -2213,30 +2326,8 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
                       </div>
                     </div>
 
-                    <div v-if="getExecutionTimelineEntries(msg).length > 0" class="thinking-section">
-                      <div class="thinking-section-title">执行摘要</div>
-                      <div class="timeline-list compact-timeline">
-                        <div
-                          v-for="entry in getExecutionTimelineEntries(msg)"
-                          :key="entry.key"
-                          class="timeline-item"
-                          :class="`timeline-item-${entry.status}`"
-                        >
-                          <div class="timeline-dot" />
-                          <div class="timeline-main">
-                            <div class="timeline-head">
-                              <span class="timeline-label">{{ entry.label }}</span>
-                              <span class="timeline-duration">{{ entry.durationText }}</span>
-                            </div>
-                            <div v-if="entry.detail" class="timeline-detail">{{ entry.detail }}</div>
-                            <div v-if="entry.message" class="timeline-message">{{ entry.message }}</div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
                     <el-collapse v-if="getAgentLogEntries(msg).length > 0" class="raw-log-collapse">
-                      <el-collapse-item title="查看原始日志" name="agent-raw-log">
+                      <el-collapse-item title="查看调试日志" name="agent-raw-log">
                         <div class="raw-log-list">
                           <div
                             v-for="entry in getAgentLogEntries(msg)"
@@ -3198,13 +3289,16 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
 
 
     .thinking-terminal {
-      background: #0f172a;
-      border-radius: 10px;
-      padding: 12px;
+      background: linear-gradient(180deg, #0f172a 0%, #111827 100%);
+      border-radius: 12px;
+      padding: 14px 16px;
       border: 1px solid #1e293b;
-      font-family: 'Monaco', 'Menlo', monospace;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
       font-size: 12px;
-      line-height: 1.7;
+      line-height: 1.8;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
 
     .thinking-section-title {
@@ -3381,7 +3475,8 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
     }
 
     .thinking-line {
-      color: #666;
+      color: #dbe4f0;
+      letter-spacing: 0.1px;
     }
   }
 }
@@ -3413,7 +3508,6 @@ const handleQueryMediaUpload = async (uploadFile: any) => {
     }
   }
 }
-
 
 .insight-card {
   background: linear-gradient(180deg, #f8fbff 0%, #f3f7ff 100%);

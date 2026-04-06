@@ -38,6 +38,8 @@ const ontologySectionRef = ref<HTMLElement | null>(null)
 const selectedGraphNode = ref<Record<string, any> | null>(null)
 let graphChart: echarts.ECharts | null = null
 let assistantChart: echarts.ECharts | null = null
+let graphResizeObserver: ResizeObserver | null = null
+let assistantResizeObserver: ResizeObserver | null = null
 
 const demoQuestions = [
   '哪些区域告警最集中，建议优先怎么处置？',
@@ -258,6 +260,42 @@ const graphStatCards = computed(() => {
   ]
 })
 
+const selectedGraphNodeCategory = computed(() => {
+  if (!selectedGraphNode.value) return ''
+  return String(
+    selectedGraphNode.value.nodeCategory ||
+    selectedGraphNode.value.categoryLabel ||
+    selectedGraphNode.value.category ||
+    ''
+  )
+})
+
+const resizeCharts = () => {
+  graphChart?.resize()
+  assistantChart?.resize()
+}
+
+const bindChartResizeObservers = async () => {
+  await nextTick()
+
+  graphResizeObserver?.disconnect()
+  assistantResizeObserver?.disconnect()
+
+  if (typeof ResizeObserver !== 'undefined' && graphRef.value) {
+    graphResizeObserver = new ResizeObserver(() => {
+      graphChart?.resize()
+    })
+    graphResizeObserver.observe(graphRef.value)
+  }
+
+  if (typeof ResizeObserver !== 'undefined' && assistantChartRef.value) {
+    assistantResizeObserver = new ResizeObserver(() => {
+      assistantChart?.resize()
+    })
+    assistantResizeObserver.observe(assistantChartRef.value)
+  }
+}
+
 const renderAssistantChart = async () => {
   const visualization = assistantResult.value?.visualization
   if (!assistantChartRef.value || !visualization) {
@@ -338,6 +376,8 @@ const renderGraph = async () => {
   const nodes = graphData.value.graph.nodes.map(node => ({
     ...node,
     name: node.label,
+    nodeCategory: node.category,
+    categoryLabel: graphData.value!.ontology.find(item => item.type === node.category)?.label || node.category,
     category: graphData.value!.ontology.findIndex(item => item.type === node.category),
     itemStyle: { color: categoryColorMap[node.category] || '#94a3b8' },
     label: {
@@ -417,6 +457,14 @@ watch(() => assistantResult.value?.visualization, () => {
   void renderAssistantChart()
 })
 
+watch(activeTab, async (value) => {
+  await nextTick()
+  if (value === 'overview') {
+    graphChart?.resize()
+    assistantChart?.resize()
+  }
+})
+
 const handleAssistantAction = async (action: { type: string; target: string; payload?: Record<string, any> }) => {
   if (action.target === 'ontology') {
     activeTab.value = 'ontology'
@@ -448,9 +496,16 @@ onMounted(async () => {
     await loadLineage(dashboard.value.low_confidence_events[0].event_id)
   }
   await askAssistant(assistantQuestion.value)
+  await bindChartResizeObservers()
+  window.addEventListener('resize', resizeCharts)
 })
 
 onUnmounted(() => {
+  window.removeEventListener('resize', resizeCharts)
+  graphResizeObserver?.disconnect()
+  graphResizeObserver = null
+  assistantResizeObserver?.disconnect()
+  assistantResizeObserver = null
   graphChart?.dispose()
   graphChart = null
   assistantChart?.dispose()
@@ -610,7 +665,7 @@ onUnmounted(() => {
               </div>
               <div class="lineage-event-head">
                 <strong>{{ selectedGraphNode.name || selectedGraphNode.label }}</strong>
-                <span>类别：{{ selectedGraphNode.category }}</span>
+                <span>类别：{{ selectedGraphNodeCategory || '-' }}</span>
               </div>
               <div class="lineage-evidence">
                 <div v-for="(value, key) in (selectedGraphNode.meta || {})" :key="String(key)" class="lineage-evidence-item">
