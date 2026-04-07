@@ -365,6 +365,72 @@ const getProgressMetrics = (msg?: Message | null) => {
 }
 
 const getPrimaryThinkingLines = (msg?: Message | null): string[] => {
+  const historyItems = getExecutionHistoryItems(msg)
+  const questionText = String(msg?.data?.question || '').trim()
+  if (historyItems.length > 0) {
+    const lines: string[] = [
+      TERMINAL_DIVIDER,
+      `[QueryAgent] 开始处理问题: ${questionText || '当前查询'}`,
+      TERMINAL_DIVIDER,
+    ]
+
+    historyItems.forEach((item: Record<string, any>) => {
+      const step = String(item?.step || '')
+      const output = item?.output || {}
+      const status = String(item?.status || 'success').toLowerCase()
+      const label = stepLabelMap[step] || step || '处理中'
+
+      if (step === 'parse_question') {
+        lines.push(`[${label}] ${status === 'error' ? '问题理解失败' : `已识别为${getIntentLabel(output?.intent) || '查询需求'}`}`)
+        if (output?.selected_table) {
+          lines.push(`[数据范围] 当前使用表: ${output.selected_table}`)
+        }
+        if (output?.plan_source) {
+          lines.push(`[生成方案] 已命中${getPlanSourceLabel(output.plan_source)}`)
+        }
+        return
+      }
+
+      if (step === 'validate_sql') {
+        lines.push(`[${label}] ${status === 'error' ? '查询检查未通过' : '查询检查通过'}`)
+        return
+      }
+
+      if (step === 'execute_sql' || step === 'vector_search') {
+        const resultCount = typeof output?.result_count === 'number' ? output.result_count : 0
+        lines.push(`[${label}] ${status === 'error' ? '执行失败' : `执行成功，返回 ${resultCount} 条结果`}`)
+        return
+      }
+
+      if (step === 'semantic_enhance') {
+        const matched = output?.matched_count ?? (output?.semantic_scores ? Object.keys(output.semantic_scores).length : 0)
+        const recommended = output?.recommendation_count ?? (Array.isArray(output?.vector_only_results) ? output.vector_only_results.length : 0)
+        lines.push(`[${label}] 完成: 匹配 ${matched} 条，补充 ${recommended} 条`)
+        return
+      }
+
+      if (step === 'fix_sql') {
+        lines.push(`[${label}] ${status === 'error' ? '修正失败' : '已重新生成查询方案'}`)
+        return
+      }
+
+      if (step === 'format_answer') {
+        lines.push(`[${label}] ${status === 'error' ? '结果整理失败' : '答案已整理完成'}`)
+        return
+      }
+
+      const detail = String(item?.error || output?.message || '').trim()
+      lines.push(`[${label}] ${detail || (status === 'error' ? '执行失败' : '已完成')}`)
+    })
+
+    lines.push(
+      TERMINAL_DIVIDER,
+      `[QueryAgent] ${msg?.data?.status === 'error' ? '处理失败' : '处理完成'}`,
+      TERMINAL_DIVIDER,
+    )
+    return dedupeThinkingLines(lines)
+  }
+
   const lines = Array.isArray(msg?.thinkingLines)
     ? msg!.thinkingLines!.map((line) => String(line || '').trim()).filter(Boolean)
     : []
